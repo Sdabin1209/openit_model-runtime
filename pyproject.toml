@@ -15,3 +15,7 @@ vllm = []   # 첫 백엔드 의존. 버전은 GPU 환경 스파이크 뒤에 고
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
