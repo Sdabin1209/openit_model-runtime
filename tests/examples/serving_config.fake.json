@@ -1,0 +1,27 @@
+{
+  "prompt_template_version": "prompt-1",
+  "decoding": {
+    "constraint_mode": "constrained",
+    "temperature": 0,
+    "seed": 1000,
+    "max_tokens": 512
+  },
+  "max_attempts": 3,
+  "constraint": {
+    "backend": "fake",
+    "backend_version": "1",
+    "supported_features": [
+      "$defs",
+      "$ref",
+      "additionalProperties",
+      "anyOf",
+      "enum",
+      "items",
+      "properties",
+      "required",
+      "type"
+    ],
+    "relax_policy_version": "relax-1"
+  },
+  "output_contract": 1
+}

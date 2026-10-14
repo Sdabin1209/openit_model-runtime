@@ -1,0 +1,25 @@
+{
+  "directive": {
+    "action": "ASK_NEXT",
+    "targets": [],
+    "target_pending_id": null,
+    "awaiting": null,
+    "say_values": [],
+    "reask_reasons": [],
+    "notices": [],
+    "sentence_materials": {
+      "question_sentences": [
+        {
+          "question_id": "Q_HEADACHE",
+          "sentence": "두통은 언제부터 있었나요?"
+        }
+      ],
+      "refusal_explanations": [],
+      "reask_sentences": [],
+      "choices": [],
+      "guide_sentences": [],
+      "fixed_sentences": []
+    }
+  },
+  "utterance": "머리가 많이 아파요"
+}

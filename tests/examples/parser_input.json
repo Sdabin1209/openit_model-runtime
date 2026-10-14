@@ -1,0 +1,17 @@
+{
+  "utterance": "머리가 많이 아파요, 한 일주일쯤 됐어요",
+  "last_directive": null,
+  "awaiting_questions": [],
+  "question_names": [
+    {
+      "question_id": "Q_HEADACHE",
+      "name": "두통",
+      "slots": [
+        "severity",
+        "duration"
+      ]
+    }
+  ],
+  "answered_slots": [],
+  "guide_list": []
+}

@@ -13,7 +13,7 @@
 ## 2. 소유하는 것
 
 - 소유 저장소: 없음.
-- 제공: 라이브러리 API. Parser(`UtteranceParserInput` → `ParserOutput`)와 Generator(`ResponseGeneratorInput` → `GeneratorOutput`) 호출 인터페이스, 어댑터 로딩 인터페이스. 실제 모델 없이 테스트할 수 있는 가짜 모델 구현을 함께 배포한다.
+- 제공(정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9가 정한다): 라이브러리 API. Parser(`UtteranceParserInput` → `ParserOutput`)와 Generator(`ResponseGeneratorInput` → `GeneratorOutput`) 호출 인터페이스, 어댑터 로딩 인터페이스. 실제 모델 없이 테스트할 수 있는 가짜 모델 구현을 함께 배포한다.
 - 프롬프트 템플릿과 디코딩 설정의 버전을 모델 패키지·릴리스 매니페스트에 기록할 수 있게 한다.
 
 ## 3. 소비하는 것

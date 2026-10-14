@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-runtime"
+version = "0.1.0"
+description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
+requires-python = ">=3.10"
+# boundary-contracts는 Git 태그로 설치한다(공통 규칙). 개발 중에는 PYTHONPATH=../boundary-contracts.
+dependencies = ["jsonschema>=4.10", "boundary-contracts"]
+
+[project.optional-dependencies]
+vllm = []   # 첫 백엔드 의존. 버전은 GPU 환경 스파이크 뒤에 고정한다.
+
+[tool.setuptools.packages.find]
+where = ["src"]
