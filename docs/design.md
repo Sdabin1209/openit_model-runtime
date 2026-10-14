@@ -81,7 +81,7 @@
 | `fallback` | 생성기 대체 문장 조립. 순수 함수. |
 | `errors` | `ContractViolation`, `ServingConfigMismatch`, `UnsupportedServingConfig`, `ContractVersionMismatch`, `BackendNotAvailable`. |
 
-`ModelSession`은 Protocol로 정의하고 `parse`, `generate`, `parse_raw`, `generate_raw` 외에 `serving_config_hash`와 마지막 호출의 메타데이터(`last_call_info`: 시도 횟수, 완화된 키워드, 보호 결과)를 노출한다. 발화·출력 원문은 메타데이터에 넣지 않는다. [제안]
+`ModelSession`은 Protocol로 정의하고 `parse`, `generate`, `parse_raw`, `generate_raw` 외에 `serving_config_hashes`(역할별)와 마지막 호출의 메타데이터(`last_call_info`: 시도 횟수, 완화된 키워드, 보호 결과)를 노출한다. 발화·출력 원문은 메타데이터에 넣지 않는다. [제안]
 
 ## 4. ServingConfig와 serving_config_hash [확인: I9, 헤드 결정]
 
@@ -194,3 +194,4 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 
 ### 12. 변경 기록 (설계)
 - 2026-10-15: 출력 보호(D36) 반영. `ModelOutputInvalid` 삭제, `*_raw`, `is_fallback`을 코드가 채움, `schema_dir` 단일화·`configure` 삭제, `protection_policy_version` 추가, 프롬프트 `prompt-1` 삭제 후 `prompt-2`(생성기 규칙 1~4 포함, 모델은 `response_text`만 출력). `prompt-1`은 어느 릴리스·모델 패키지에도 쓰인 적이 없다(0.x 미배포).
+- 2026-10-15 (0.3.0): `load`를 역할별 설정·기대 해시로 변경(D45). `ModelSession.serving_config_hash` → `serving_config_hashes`(역할별), `ServingConfigMismatch.role`, 역할 집합 불일치는 `ContractViolation`. 소비자는 survey-service 하나(0.2.0 사용 중)였다.
