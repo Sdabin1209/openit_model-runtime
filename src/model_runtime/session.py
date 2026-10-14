@@ -17,7 +17,7 @@ from .schema_guard import (INPUT_CONTRACT, OUTPUT_CONTRACT, RELAX_POLICY_VERSION
                            SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet, relax)
 from .serving_config import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.2.0"
+RUNTIME_VERSION = "0.3.0"
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
 
@@ -43,7 +43,7 @@ class CallInfo:
 
 
 class ModelSession(Protocol):
-    serving_config_hash: str
+    serving_config_hashes: Mapping[str, str]   # 역할별(D45)
     last_call_info: CallInfo | None
 
     def parse(self, input: Mapping) -> dict: ...
@@ -52,20 +52,20 @@ class ModelSession(Protocol):
     def generate_raw(self, input: Mapping) -> RawResult: ...
 
 
-def _check_config(cfg: Mapping, backend: ConstraintBackend) -> None:
+def _check_config(role: str, cfg: Mapping, backend: ConstraintBackend) -> None:
     validate_serving_config(cfg)
     if cfg["output_contract"] != SUPPORTED_RUNTIME_CONTRACT_VERSION:
-        raise UnsupportedServingConfig("지원하지 않는 output_contract")
+        raise UnsupportedServingConfig(f"{role}: 지원하지 않는 output_contract")
     if cfg["prompt_template_version"] not in SUPPORTED_TEMPLATE_VERSIONS:
-        raise UnsupportedServingConfig("지원하지 않는 프롬프트 템플릿 버전")
+        raise UnsupportedServingConfig(f"{role}: 지원하지 않는 프롬프트 템플릿 버전")
     if cfg["protection_policy_version"] not in PROTECTION_POLICIES:
-        raise UnsupportedServingConfig("지원하지 않는 출력 보호 정책 버전")
+        raise UnsupportedServingConfig(f"{role}: 지원하지 않는 출력 보호 정책 버전")
     c = cfg["constraint"]
     if c["relax_policy_version"] != RELAX_POLICY_VERSION:
-        raise UnsupportedServingConfig("지원하지 않는 완화 정책 버전")
+        raise UnsupportedServingConfig(f"{role}: 지원하지 않는 완화 정책 버전")
     if (c["backend"], c["backend_version"]) != (backend.name, backend.version) or \
             frozenset(c["supported_features"]) != frozenset(backend.supported_features):
-        raise UnsupportedServingConfig("serving_config.constraint가 사용할 백엔드와 다르다")
+        raise UnsupportedServingConfig(f"{role}: serving_config.constraint가 사용할 백엔드와 다르다")
 
 
 def _reject_constant(name: str):
@@ -81,11 +81,13 @@ class _Attempts:
 
 
 class _Session:
-    def __init__(self, cfg: Mapping, backend: ConstraintBackend, schemas: SchemaSet, cfg_hash: str):
-        self._cfg = json.loads(json.dumps(cfg))
+    def __init__(self, cfgs: Mapping[str, Mapping], backend: ConstraintBackend, schemas: SchemaSet,
+                 hashes: Mapping[str, str]):
+        # 두 역할이 한 백엔드(기반 모델 가중치)를 공유하고, 설정(디코딩·보호 정책 등)은 역할마다 따로 쓴다.
+        self._cfgs = {r: json.loads(json.dumps(c)) for r, c in cfgs.items()}
         self._backend = backend
         self._schemas = schemas
-        self.serving_config_hash = cfg_hash
+        self.serving_config_hashes = dict(hashes)
         self.last_call_info: CallInfo | None = None
         self._constraint: dict[str, tuple[dict, tuple]] = {}
         for role in OUTPUT_CONTRACT:
@@ -112,7 +114,7 @@ class _Session:
             schema_ok=lambda r: not self._schemas.output_violations("LORA_A", r))
 
     def _attempts(self, role: str, input: Mapping) -> _Attempts:
-        cfg = self._cfg
+        cfg = self._cfgs[role]
         prompt = render_prompt(role, input, serving_config=cfg, schema_dir=Path("."), schemas=self._schemas)
         dec = cfg["decoding"]
         constrained = dec["constraint_mode"] == "constrained"
@@ -168,7 +170,7 @@ class _Session:
             self.last_call_info = CallInfo("LORA_B", a.attempts, removed)
         else:
             causes = sorted({e.split(":")[1] for e in a.errors if e.startswith("rule:")}) or ["G0"]
-            result = {"response_text": fallback_text(input, policy_version=self._cfg["protection_policy_version"]),
+            result = {"response_text": fallback_text(input, policy_version=self._cfgs["LORA_B"]["protection_policy_version"]),
                       "is_fallback": True}
             self.last_call_info = CallInfo("LORA_B", a.attempts, removed, "fallback",
                                            tuple((c, 1) for c in causes) + (("G5", 1),))
@@ -181,39 +183,48 @@ class _Session:
             raise RuntimeError("보호한 출력이 출력 계약을 통과하지 못한다(구현 오류)")
 
 
-def _build(serving_config: Mapping, expected: str, backend: ConstraintBackend, schema_dir) -> _Session:
-    _check_config(serving_config, backend)
-    h = serving_config_hash(serving_config)
-    if h != expected:
-        raise ServingConfigMismatch("serving_config_hash가 expected_serving_config_hash와 다르다")
-    return _Session(serving_config, backend, SchemaSet(schema_dir), h)
+def _check_roles(adapters, serving_configs, expected_hashes) -> None:
+    roles = set(INPUT_CONTRACT)
+    for name, m in (("adapters", adapters), ("serving_configs", serving_configs),
+                    ("expected_serving_config_hashes", expected_hashes)):
+        if set(m) != roles:
+            raise ContractViolation(f"{name}의 역할 집합이 LORA_A, LORA_B와 다르다")
 
 
-def load(adapters: Mapping[str, Path], serving_config: Mapping, *, schema_dir: Path,
-         expected_serving_config_hash: str, backend: ConstraintBackend | None = None) -> ModelSession:
-    """I9 load. backend는 시험과 조립용 선택 인자다."""
-    if set(adapters) != set(INPUT_CONTRACT):
-        raise ContractViolation("adapters는 LORA_A와 LORA_B를 모두 가져야 한다")
+def _build(serving_configs: Mapping[str, Mapping], expected: Mapping[str, str], backend: ConstraintBackend,
+           schema_dir) -> _Session:
+    hashes = {}
+    for role in INPUT_CONTRACT:                       # 역할마다 형식 → 지원 여부 → 해시 순서
+        _check_config(role, serving_configs[role], backend)
+        hashes[role] = serving_config_hash(serving_configs[role])
+        if hashes[role] != expected[role]:
+            raise ServingConfigMismatch(role)
+    return _Session(serving_configs, backend, SchemaSet(schema_dir), hashes)
+
+
+def load(adapters: Mapping[str, Path], serving_configs: Mapping[str, Mapping], *, schema_dir: Path,
+         expected_serving_config_hashes: Mapping[str, str], backend: ConstraintBackend | None = None) -> ModelSession:
+    """I9 load(D45: 설정과 기대 해시는 역할마다). backend는 시험과 조립용 선택 인자다."""
+    _check_roles(adapters, serving_configs, expected_serving_config_hashes)
     for role, p in adapters.items():
         if not Path(p).is_dir():
             raise ContractViolation(f"{role} 어댑터 디렉터리가 없다")
     if backend is None:
-        name = serving_config.get("constraint", {}).get("backend") if isinstance(serving_config, Mapping) else None
-        raise BackendNotAvailable(f"백엔드 {name!r}는 이 환경에 구현·설치되어 있지 않다")
-    return _build(serving_config, expected_serving_config_hash, backend, schema_dir)
+        name = ", ".join(sorted({str(c.get("constraint", {}).get("backend")) for c in serving_configs.values()
+                                 if isinstance(c, Mapping)}))
+        raise BackendNotAvailable(f"백엔드 {name}는 이 환경에 구현·설치되어 있지 않다")
+    return _build(serving_configs, expected_serving_config_hashes, backend, schema_dir)
 
 
 class FakeModelSession(_Session):
     """모델 없이 호출 경로를 시험한다. 실제 세션과 같은 검증·재시도·보호 코드를 거치고 백엔드만 FakeBackend다."""
 
-    def __init__(self, serving_config: Mapping, *, schema_dir: Path, expected_serving_config_hash: str,
-                 backend: FakeBackend | None = None):
+    def __init__(self, serving_configs: Mapping[str, Mapping], *, schema_dir: Path,
+                 expected_serving_config_hashes: Mapping[str, str], backend: FakeBackend | None = None):
         backend = backend or FakeBackend()
-        _check_config(serving_config, backend)
-        h = serving_config_hash(serving_config)
-        if h != expected_serving_config_hash:
-            raise ServingConfigMismatch("serving_config_hash가 expected_serving_config_hash와 다르다")
-        super().__init__(serving_config, backend, SchemaSet(schema_dir), h)
+        _check_roles(serving_configs, serving_configs, expected_serving_config_hashes)
+        built = _build(serving_configs, expected_serving_config_hashes, backend, schema_dir)
+        super().__init__(serving_configs, backend, built._schemas, built.serving_config_hashes)
         self.backend = backend
 
 
@@ -232,3 +243,10 @@ def fake_serving_config(backend: FakeBackend | None = None, **overrides) -> dict
     }
     cfg.update(overrides)
     return cfg
+
+
+def fake_serving_configs(backend: FakeBackend | None = None, *, LORA_A: Mapping | None = None,
+                         LORA_B: Mapping | None = None) -> dict:
+    """두 역할의 유효한 serving_config(시험·예시용). 역할별로 최상위 키를 덮어쓸 수 있다."""
+    b = backend or FakeBackend()
+    return {"LORA_A": fake_serving_config(b, **(LORA_A or {})), "LORA_B": fake_serving_config(b, **(LORA_B or {}))}

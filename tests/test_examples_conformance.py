@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR
+from helpers import BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR, cfgs_and_hashes
 
 import model_runtime as mr
 
@@ -39,19 +39,22 @@ class Examples(unittest.TestCase):
         script = {"LORA_A": [json.dumps(ex("parser_output.json"))], "LORA_B": [json.dumps({"response_text": ex("generator_output.json")["response_text"]}, ensure_ascii=False)]}
         b = mr.FakeBackend.scripted(script)
         cfg = ex("serving_config.fake.json")
-        s = mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+        cfgs = {"LORA_A": cfg, "LORA_B": cfg}
+        hs = {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
         self.assertEqual(s.parse(ex("parser_input.json")), ex("parser_output.json"))
         self.assertEqual(s.generate(ex("generator_input.json")), ex("generator_output.json"))
 
 
 # --- 적합성 표: load()로 만든 세션과 FakeModelSession이 같은 시나리오를 같은 결과로 통과해야 한다 ---
-def _real(cfg, b, h):
+def _real(cfgs, b, hs):
     with TemporaryDirectory() as d:
-        return mr.load({"LORA_A": Path(d), "LORA_B": Path(d)}, cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=h, backend=b)
+        return mr.load({"LORA_A": Path(d), "LORA_B": Path(d)}, cfgs, schema_dir=SCHEMA_DIR,
+                       expected_serving_config_hashes=hs, backend=b)
 
 
-def _fake(cfg, b, h):
-    return mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=h, backend=b)
+def _fake(cfgs, b, hs):
+    return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
 
 
 FACTORIES = {"load": _real, "fake": _fake}
@@ -79,8 +82,8 @@ class Conformance(unittest.TestCase):
             for name, script, call, inp, n, expect in SCENARIOS:
                 with self.subTest(factory=fname, scenario=name):
                     b = mr.FakeBackend.scripted(script)
-                    cfg = mr.fake_serving_config(b, max_attempts=n)
-                    s = factory(cfg, b, mr.serving_config_hash(cfg))
+                    cfgs, hs = cfgs_and_hashes(b, {"max_attempts": n}, {"max_attempts": n})
+                    s = factory(cfgs, b, hs)
                     if isinstance(expect, tuple):
                         out = getattr(s, call)(inp)
                         self.assertEqual((s.last_call_info.attempts, s.last_call_info.outcome), expect)
@@ -94,13 +97,19 @@ class Conformance(unittest.TestCase):
 
     def test_load_rejections_same(self):
         for fname, factory in FACTORIES.items():
-            b = mr.FakeBackend(); cfg = mr.fake_serving_config(b)
+            b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
             with self.subTest(factory=fname):
-                with self.assertRaises(mr.ServingConfigMismatch):
-                    factory(cfg, b, "sha256:" + "0" * 64)
-                bad = dict(cfg, prompt_template_version="prompt-9")
+                for role in ("LORA_A", "LORA_B"):          # 역할 하나만 어긋난 해시
+                    with self.assertRaises(mr.ServingConfigMismatch) as cm:
+                        factory(cfgs, b, dict(hs, **{role: "sha256:" + "0" * 64}))
+                    self.assertEqual(cm.exception.role, role)
+                bad_a, bad_hs = cfgs_and_hashes(b, {"prompt_template_version": "prompt-9"})
                 with self.assertRaises(mr.UnsupportedServingConfig):
-                    factory(bad, b, mr.serving_config_hash(bad))
+                    factory(bad_a, b, bad_hs)
+                with self.assertRaises(mr.ContractViolation):   # 역할 집합 불일치
+                    factory({"LORA_A": cfgs["LORA_A"]}, b, hs)
+                with self.assertRaises(mr.ContractViolation):
+                    factory(cfgs, b, {"LORA_A": hs["LORA_A"]})
 
 
 if __name__ == "__main__":

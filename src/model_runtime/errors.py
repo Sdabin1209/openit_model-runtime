@@ -28,4 +28,8 @@ class BackendNotAvailable(UnsupportedServingConfig):
 
 
 class ServingConfigMismatch(ModelRuntimeError):
-    """serving_config_hash가 expected_serving_config_hash와 다르다."""
+    """역할의 serving_config_hash가 그 역할의 기대 해시와 다르다. role에 어느 역할인지 담는다."""
+
+    def __init__(self, role: str, message: str | None = None):
+        self.role = role
+        super().__init__(message or f"{role}의 serving_config_hash가 expected_serving_config_hashes[{role!r}]와 다르다")

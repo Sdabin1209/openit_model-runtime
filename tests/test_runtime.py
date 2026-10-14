@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR
+from helpers import BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR, cfgs_and_hashes
 
 import model_runtime as mr
 from boundary_contracts.canonical import canonicalize, sha256_hash
@@ -14,9 +14,8 @@ from boundary_contracts.canonical import canonicalize, sha256_hash
 def make(script=None, features=None, **over):
     kw = {"supported_features": features} if features else {}
     b = mr.FakeBackend.scripted(script, **kw) if script else mr.FakeBackend(**kw)
-    cfg = mr.fake_serving_config(b, **over)
-    return b, cfg, mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR,
-                                       expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+    cfgs, hashes = cfgs_and_hashes(b, over, over)
+    return b, cfgs, mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
 
 
 class Canonical(unittest.TestCase):
@@ -54,21 +53,22 @@ class Config(unittest.TestCase):
 
 class SchemaDir(unittest.TestCase):
     def test_version_read_from_parent_and_mismatch_rejected(self):
-        b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
-        mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=h, backend=b)
+        b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
+        mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
         with TemporaryDirectory() as t:
             shutil.copytree(SCHEMA_DIR.parent, Path(t) / "schema")
+            sd = Path(t) / "schema" / "schemas"
             (Path(t) / "schema" / "CONTRACT_VERSION").write_text("2\n")
             with self.assertRaises(mr.ContractVersionMismatch):
-                mr.FakeModelSession(cfg, schema_dir=Path(t) / "schema" / "schemas", expected_serving_config_hash=h, backend=b)
+                mr.FakeModelSession(cfgs, schema_dir=sd, expected_serving_config_hashes=hs, backend=b)
             (Path(t) / "schema" / "CONTRACT_VERSION").unlink()
             with self.assertRaises(mr.ContractVersionMismatch):
-                mr.FakeModelSession(cfg, schema_dir=Path(t) / "schema" / "schemas", expected_serving_config_hash=h, backend=b)
+                mr.FakeModelSession(cfgs, schema_dir=sd, expected_serving_config_hashes=hs, backend=b)
 
     def test_schema_root_is_not_accepted_as_schema_dir(self):
-        b = mr.FakeBackend(); cfg = mr.fake_serving_config(b)
+        b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
         with self.assertRaises(Exception):
-            mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR.parent, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+            mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR.parent, expected_serving_config_hashes=hs, backend=b)
 
     def test_fixture_matches_workspace_schema(self):
         ws = Path(__file__).resolve().parents[2] / "survey-service" / "schema"
@@ -80,29 +80,101 @@ class SchemaDir(unittest.TestCase):
 
 
 class Load(unittest.TestCase):
-    def test_mismatch_and_unsupported(self):
-        b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
-        kw = dict(schema_dir=SCHEMA_DIR, backend=b)
-        with self.assertRaises(mr.ServingConfigMismatch):
-            mr.FakeModelSession(cfg, expected_serving_config_hash="sha256:" + "0" * 64, **kw)
-        for c in (dict(cfg, prompt_template_version="prompt-99"), dict(cfg, output_contract=2),
-                  dict(cfg, protection_policy_version="protect-0")):
-            with self.assertRaises(mr.UnsupportedServingConfig):
-                mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), **kw)
-        c = copy.deepcopy(cfg); c["constraint"]["backend"] = "other"
-        with self.assertRaises(mr.UnsupportedServingConfig):
-            mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), **kw)
+    def setUp(self):
+        self.b = mr.FakeBackend()
+        self.cfgs, self.hs = cfgs_and_hashes(self.b)
+        self.kw = dict(schema_dir=SCHEMA_DIR, backend=self.b)
 
-    def test_load_adapters(self):
-        b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
+    def fake(self, cfgs=None, hs=None):
+        return mr.FakeModelSession(cfgs or self.cfgs, expected_serving_config_hashes=hs or self.hs, **self.kw)
+
+    def test_hash_mismatch_names_the_role(self):
+        for role in ("LORA_A", "LORA_B"):
+            with self.subTest(role=role):
+                bad = dict(self.hs, **{role: "sha256:" + "0" * 64})
+                with self.assertRaises(mr.ServingConfigMismatch) as cm:
+                    self.fake(hs=bad)
+                self.assertEqual(cm.exception.role, role)
+                self.assertIn(role, str(cm.exception))
+
+    def test_only_one_role_drifting_is_detected(self):
+        cfgs = copy.deepcopy(self.cfgs); cfgs["LORA_B"]["decoding"]["temperature"] = 0.7   # 해시는 옛 값
+        with self.assertRaises(mr.ServingConfigMismatch) as cm:
+            self.fake(cfgs=cfgs)
+        self.assertEqual(cm.exception.role, "LORA_B")
+
+    def test_role_sets_must_match(self):
         with TemporaryDirectory() as d:
             ad = {"LORA_A": Path(d), "LORA_B": Path(d)}
-            kw = dict(schema_dir=SCHEMA_DIR, expected_serving_config_hash=h)
-            self.assertEqual(mr.load(ad, cfg, backend=b, **kw).serving_config_hash, h)
+            base = dict(schema_dir=SCHEMA_DIR, backend=self.b)
+            cases = {
+                "어댑터 하나 부족": (({"LORA_A": Path(d)}, self.cfgs, self.hs)),
+                "설정 하나 부족": ((ad, {"LORA_A": self.cfgs["LORA_A"]}, self.hs)),
+                "해시 하나 부족": ((ad, self.cfgs, {"LORA_A": self.hs["LORA_A"]})),
+                "모르는 역할": ((ad, {**self.cfgs, "LORA_C": self.cfgs["LORA_A"]}, self.hs)),
+                "역할 어긋남": ((ad, self.cfgs, {"LORA_A": self.hs["LORA_A"], "LORA_X": self.hs["LORA_B"]})),
+            }
+            for name, (a, c, h) in cases.items():
+                with self.subTest(name):
+                    with self.assertRaises(mr.ContractViolation):
+                        mr.load(a, c, expected_serving_config_hashes=h, **base)
             with self.assertRaises(mr.ContractViolation):
-                mr.load({"LORA_A": Path(d)}, cfg, backend=b, **kw)
+                self.fake(cfgs={"LORA_A": self.cfgs["LORA_A"]})
+
+    def test_unsupported_names_the_role(self):
+        for role in ("LORA_A", "LORA_B"):
+            for key, val in (("prompt_template_version", "prompt-99"), ("output_contract", 2),
+                             ("protection_policy_version", "protect-0")):
+                with self.subTest(role=role, key=key):
+                    cfgs, hs = cfgs_and_hashes(self.b, *( [{key: val}, None] if role == "LORA_A" else [None, {key: val}]))
+                    with self.assertRaises(mr.UnsupportedServingConfig) as cm:
+                        self.fake(cfgs, hs)
+                    self.assertIn(role, str(cm.exception))
+        cfgs = copy.deepcopy(self.cfgs); cfgs["LORA_B"]["constraint"]["backend"] = "other"
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            self.fake(cfgs, {r: mr.serving_config_hash(c) for r, c in cfgs.items()})
+
+    def test_load_adapters(self):
+        with TemporaryDirectory() as d:
+            ad = {"LORA_A": Path(d), "LORA_B": Path(d)}
+            s = mr.load(ad, self.cfgs, expected_serving_config_hashes=self.hs, **self.kw)
+            self.assertEqual(s.serving_config_hashes, self.hs)
+            with self.assertRaises(mr.ContractViolation):
+                mr.load({**ad, "LORA_B": Path(d) / "nope"}, self.cfgs, expected_serving_config_hashes=self.hs, **self.kw)
             with self.assertRaises(mr.BackendNotAvailable):
-                mr.load(ad, cfg, **kw)
+                mr.load(ad, self.cfgs, expected_serving_config_hashes=self.hs, schema_dir=SCHEMA_DIR)
+
+
+class PerRole(unittest.TestCase):
+    """역할마다 설정이 다를 수 있고(D45), 두 역할은 한 백엔드(같은 기반 모델 가중치)를 공유한다."""
+
+    def test_roles_use_their_own_decoding_seed_attempts_and_share_one_backend(self):
+        b = mr.FakeBackend.scripted({"LORA_A": ["x", GOOD_PARSE], "LORA_B": ["y", "y", GOOD_GEN]})
+        cfgs, hs = cfgs_and_hashes(
+            b, {"max_attempts": 2, "decoding": {"constraint_mode": "constrained", "temperature": 0, "seed": 10, "max_tokens": 64}},
+            {"max_attempts": 3, "decoding": {"constraint_mode": "none", "temperature": 0.7, "seed": 500, "max_tokens": 256}})
+        self.assertNotEqual(hs["LORA_A"], hs["LORA_B"])
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
+        s.parse(PARSER_INPUT); s.generate(GENERATOR_INPUT)
+        a_reqs = [r for r in b.requests if r.role == "LORA_A"]; b_reqs = [r for r in b.requests if r.role == "LORA_B"]
+        self.assertEqual([r.seed for r in a_reqs], [10, 11]); self.assertEqual([r.seed for r in b_reqs], [500, 501, 502])
+        self.assertEqual(a_reqs[0].decoding["temperature"], 0); self.assertEqual(b_reqs[0].decoding["temperature"], 0.7)
+        self.assertIsNotNone(a_reqs[0].constraint_schema); self.assertIsNone(b_reqs[0].constraint_schema)
+        self.assertEqual(len(b.requests), 5)   # 한 백엔드 객체가 두 역할의 요청을 모두 받았다
+
+    def test_prompt_template_and_protection_policy_are_per_role(self):
+        b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
+        self.assertEqual(s._cfgs["LORA_A"]["protection_policy_version"], "protect-1")
+        s.parse(PARSER_INPUT); s.generate(GENERATOR_INPUT)
+        self.assertIn("해석기", b.requests[0].prompt); self.assertIn("작성기", b.requests[1].prompt)
+
+    def test_backend_must_match_every_roles_constraint(self):
+        b = mr.FakeBackend(); cfgs, _ = cfgs_and_hashes(b)
+        cfgs["LORA_A"]["constraint"]["backend_version"] = "9"
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, backend=b,
+                                expected_serving_config_hashes={r: mr.serving_config_hash(c) for r, c in cfgs.items()})
 
 
 class Paths(unittest.TestCase):

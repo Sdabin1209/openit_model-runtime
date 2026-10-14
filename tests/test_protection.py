@@ -2,15 +2,15 @@
 import json
 import unittest
 
-from helpers import (GOOD_GEN, PARSER_INPUT, SCHEMA_DIR, SLOT, WHOLE, directive, gen_input, item, out, ITEM)
+from helpers import (GOOD_GEN, PARSER_INPUT, SCHEMA_DIR, SLOT, WHOLE, cfgs_and_hashes, directive, gen_input, item, out, ITEM)
 
 import model_runtime as mr
 
 
 def session(script, n=1):
     b = mr.FakeBackend.scripted(script)
-    cfg = mr.fake_serving_config(b, max_attempts=n)
-    return mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+    cfgs, hs = cfgs_and_hashes(b, {"max_attempts": n}, {"max_attempts": n})
+    return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
 
 
 def parse_one(model_item, guide_list=(), raw=None):
@@ -118,8 +118,8 @@ class ParserProtection(unittest.TestCase):
     def test_protection_applies_after_retries_are_used(self):
         bad = out(item(intent="PROGRESS_OP"))
         b = mr.FakeBackend.scripted({"LORA_A": [bad, bad, bad]})
-        cfg = mr.fake_serving_config(b)
-        s = mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+        cfgs, hs = cfgs_and_hashes(b)
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
         self.assertEqual(s.parse(PARSER_INPUT)["items"][0]["intent"], "UNRECOGNIZED")
         self.assertEqual(s.last_call_info.attempts, 3); self.assertEqual(len(b.requests), 3)
 
