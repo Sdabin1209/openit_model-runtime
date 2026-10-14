@@ -12,7 +12,8 @@ SERVING_CONFIG_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "additionalProperties": False,
-    "required": ["prompt_template_version", "decoding", "max_attempts", "constraint", "output_contract"],
+    "required": ["prompt_template_version", "decoding", "max_attempts", "constraint", "output_contract",
+                 "protection_policy_version"],
     "properties": {
         "prompt_template_version": {"type": "string", "minLength": 1},
         "decoding": {
@@ -44,6 +45,7 @@ SERVING_CONFIG_SCHEMA: dict[str, Any] = {
             },
         },
         "output_contract": {"type": "integer", "minimum": 1},
+        "protection_policy_version": {"type": "string", "minLength": 1},   # 출력 보호 규칙(docs/rules.md) 버전
     },
 }
 

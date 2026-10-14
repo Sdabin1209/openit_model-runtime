@@ -1,30 +1,22 @@
 """문진 스키마 로딩, 입출력 검증, 제약용 스키마 완화."""
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Iterable
 
 import jsonschema
 
-from .errors import ContractVersionMismatch, ContractViolation, SchemaDirRequired
+from .errors import ContractVersionMismatch, ContractViolation
 
 SUPPORTED_RUNTIME_CONTRACT_VERSION = 1
 RELAX_POLICY_VERSION = "relax-1"
 
-_configured_dir: Path | None = None
-
-
-def configure(schema_dir: Path | str | None) -> None:
-    """render_prompt처럼 schema_dir 인자가 없는 호출의 기본 위치. 환경 변수는 읽지 않는다."""
-    global _configured_dir
-    _configured_dir = Path(schema_dir) if schema_dir is not None else None
-    from .prompts import _schemas_for
-    _schemas_for.cache_clear()
-
-
 INPUT_CONTRACT = {"LORA_A": "UtteranceParserInput", "LORA_B": "ResponseGeneratorInput"}
 OUTPUT_CONTRACT = {"LORA_A": "ParserOutput", "LORA_B": "GeneratorOutput"}
+# 모델이 내는 것. 생성기는 response_text만 내고 is_fallback은 코드가 채운다(D36).
+MODEL_ONLY_REMOVE = {"LORA_B": ("is_fallback",)}
 
 
 def violations_of(errors: Iterable[jsonschema.ValidationError]) -> list[tuple[str, str]]:
@@ -36,20 +28,12 @@ def violations_of(errors: Iterable[jsonschema.ValidationError]) -> list[tuple[st
 
 
 class SchemaSet:
-    def __init__(self, schema_dir: Path | str | None = None):
-        """schema_dir: 문진 스키마의 schemas 디렉터리(예: ../survey-service/schema/schemas). CONTRACT_VERSION은 그 상위에 있다.
-        서비스가 자기 schema/ 디렉터리(CONTRACT_VERSION과 schemas/를 가진 곳)를 넘겨도 받는다."""
-        if schema_dir is None:
-            schema_dir = _configured_dir
-        if schema_dir is None:
-            raise SchemaDirRequired("schema_dir를 넘기거나 configure(schema_dir=...)를 먼저 불러야 한다")
-        given = Path(schema_dir)
-        if (given / "schemas").is_dir() and (given / "CONTRACT_VERSION").is_file():
-            root, d = given, given / "schemas"
-        else:
-            root, d = given.parent, given
+    def __init__(self, schema_dir: Path | str):
+        """schema_dir: 문진 스키마의 배포 스키마 디렉터리(`<...>/schema/schemas`, <계약명>.json이 있는 곳).
+        CONTRACT_VERSION은 그 상위에서 읽는다. 환경 변수와 전역 설정은 읽지 않는다."""
+        d = Path(schema_dir)
         try:
-            self.contract_version = int((root / "CONTRACT_VERSION").read_text().strip())
+            self.contract_version = int((d.parent / "CONTRACT_VERSION").read_text().strip())
         except (OSError, ValueError):
             raise ContractVersionMismatch("문진 스키마 CONTRACT_VERSION을 읽을 수 없다") from None
         if self.contract_version != SUPPORTED_RUNTIME_CONTRACT_VERSION:
@@ -65,9 +49,26 @@ class SchemaSet:
             jsonschema.Draft202012Validator.check_schema(schema)
             self._schemas[name] = schema
             self._validators[name] = jsonschema.Draft202012Validator(schema)
+        self._model_schemas: dict[str, dict] = {}
+        self._model_validators: dict[str, jsonschema.Draft202012Validator] = {}
+        for role, name in OUTPUT_CONTRACT.items():
+            ms = _drop_fields(self._schemas[name], name, MODEL_ONLY_REMOVE.get(role, ()))
+            self._model_schemas[role] = ms
+            self._model_validators[role] = jsonschema.Draft202012Validator(ms)
 
     def schema(self, name: str) -> dict:
         return self._schemas[name]
+
+    def model_output_schema(self, role: str) -> dict:
+        """모델이 내야 하는 모양의 스키마(제약 디코딩과 사후 검증에 쓴다)."""
+        return self._model_schemas[role]
+
+    def vocabulary(self, name: str, def_name: str) -> list[str]:
+        """$defs의 열거형(oneOf const 또는 enum) 값 목록. 스키마 순서."""
+        node = self._schemas[name]["$defs"][def_name]
+        if "enum" in node:
+            return list(node["enum"])
+        return [b["const"] for b in node["oneOf"]]
 
     def validate_input(self, role: str, value: Any) -> None:
         name = INPUT_CONTRACT[role]
@@ -78,6 +79,21 @@ class SchemaSet:
     def output_violations(self, role: str, value: Any) -> list[tuple[str, str]]:
         """원래(완화하지 않은) 출력 스키마로 검증한다. 위반이 없으면 빈 목록."""
         return violations_of(self._validators[OUTPUT_CONTRACT[role]].iter_errors(value))
+
+    def model_output_violations(self, role: str, value: Any) -> list[tuple[str, str]]:
+        """모델이 내는 모양(생성기는 response_text만)으로 검증한다."""
+        return violations_of(self._model_validators[role].iter_errors(value))
+
+
+def _drop_fields(schema: dict, def_name: str, fields: tuple) -> dict:
+    out = copy.deepcopy(schema)
+    if fields:
+        node = out["$defs"][def_name]
+        for f in fields:
+            node.get("properties", {}).pop(f, None)
+            if "required" in node:
+                node["required"] = [r for r in node["required"] if r != f]
+    return out
 
 
 # --- 완화 -----------------------------------------------------------------

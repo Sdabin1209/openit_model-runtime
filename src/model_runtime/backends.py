@@ -59,4 +59,4 @@ class FakeBackend:
 def _default_responder(req: GenerationRequest) -> str:
     if req.role == "LORA_A":
         return json.dumps({"items": []})
-    return json.dumps({"response_text": "(가짜 응답)", "is_fallback": True}, ensure_ascii=False)
+    return json.dumps({"response_text": "(가짜 응답)"}, ensure_ascii=False)

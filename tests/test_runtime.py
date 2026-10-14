@@ -1,22 +1,22 @@
 import copy
 import logging
+import shutil
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import SCHEMA_DIR, BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT
+from helpers import BAD_PARSE, GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR
 
 import model_runtime as mr
 from boundary_contracts.canonical import canonicalize, sha256_hash
-
-mr.configure(SCHEMA_DIR)
 
 
 def make(script=None, features=None, **over):
     kw = {"supported_features": features} if features else {}
     b = mr.FakeBackend.scripted(script, **kw) if script else mr.FakeBackend(**kw)
     cfg = mr.fake_serving_config(b, **over)
-    return b, cfg, mr.FakeModelSession(cfg, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
+    return b, cfg, mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR,
+                                       expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
 
 
 class Canonical(unittest.TestCase):
@@ -45,7 +45,7 @@ class Config(unittest.TestCase):
         cfg = mr.fake_serving_config()
         for mutate in (lambda c: c.pop("max_attempts"), lambda c: c.update(extra=1),
                        lambda c: c.update(max_attempts=0), lambda c: c["decoding"].pop("seed"),
-                       lambda c: c["decoding"].update(temperature=-1)):
+                       lambda c: c["decoding"].update(temperature=-1), lambda c: c.pop("protection_policy_version")):
             c = copy.deepcopy(cfg); mutate(c)
             with self.assertRaises(mr.ContractViolation):
                 mr.validate_serving_config(c)
@@ -53,27 +53,22 @@ class Config(unittest.TestCase):
 
 
 class SchemaDir(unittest.TestCase):
-    def test_accepts_schemas_dir_or_schema_root_rejects_other_version(self):
-        root = SCHEMA_DIR.parent
+    def test_version_read_from_parent_and_mismatch_rejected(self):
         b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
-        for d in (SCHEMA_DIR, root):
-            mr.FakeModelSession(cfg, expected_serving_config_hash=h, backend=b, schema_dir=d)
-        import shutil
+        mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR, expected_serving_config_hash=h, backend=b)
         with TemporaryDirectory() as t:
-            shutil.copytree(root, Path(t) / "schema")
+            shutil.copytree(SCHEMA_DIR.parent, Path(t) / "schema")
             (Path(t) / "schema" / "CONTRACT_VERSION").write_text("2\n")
             with self.assertRaises(mr.ContractVersionMismatch):
-                mr.FakeModelSession(cfg, expected_serving_config_hash=h, backend=b, schema_dir=Path(t) / "schema" / "schemas")
+                mr.FakeModelSession(cfg, schema_dir=Path(t) / "schema" / "schemas", expected_serving_config_hash=h, backend=b)
+            (Path(t) / "schema" / "CONTRACT_VERSION").unlink()
             with self.assertRaises(mr.ContractVersionMismatch):
-                mr.FakeModelSession(cfg, expected_serving_config_hash=h, backend=b, schema_dir=Path(t))
+                mr.FakeModelSession(cfg, schema_dir=Path(t) / "schema" / "schemas", expected_serving_config_hash=h, backend=b)
 
-    def test_schema_dir_required_when_not_configured(self):
-        mr.configure(None)
-        try:
-            with self.assertRaises(mr.SchemaDirRequired):
-                mr.FakeModelSession(mr.fake_serving_config(), expected_serving_config_hash=mr.serving_config_hash(mr.fake_serving_config()))
-        finally:
-            mr.configure(SCHEMA_DIR)
+    def test_schema_root_is_not_accepted_as_schema_dir(self):
+        b = mr.FakeBackend(); cfg = mr.fake_serving_config(b)
+        with self.assertRaises(Exception):
+            mr.FakeModelSession(cfg, schema_dir=SCHEMA_DIR.parent, expected_serving_config_hash=mr.serving_config_hash(cfg), backend=b)
 
     def test_fixture_matches_workspace_schema(self):
         ws = Path(__file__).resolve().parents[2] / "survey-service" / "schema"
@@ -87,33 +82,35 @@ class SchemaDir(unittest.TestCase):
 class Load(unittest.TestCase):
     def test_mismatch_and_unsupported(self):
         b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
+        kw = dict(schema_dir=SCHEMA_DIR, backend=b)
         with self.assertRaises(mr.ServingConfigMismatch):
-            mr.FakeModelSession(cfg, expected_serving_config_hash="sha256:" + "0" * 64, backend=b)
-        for c in (dict(cfg, prompt_template_version="prompt-99"), dict(cfg, output_contract=2)):
+            mr.FakeModelSession(cfg, expected_serving_config_hash="sha256:" + "0" * 64, **kw)
+        for c in (dict(cfg, prompt_template_version="prompt-99"), dict(cfg, output_contract=2),
+                  dict(cfg, protection_policy_version="protect-0")):
             with self.assertRaises(mr.UnsupportedServingConfig):
-                mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), backend=b)
+                mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), **kw)
         c = copy.deepcopy(cfg); c["constraint"]["backend"] = "other"
         with self.assertRaises(mr.UnsupportedServingConfig):
-            mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), backend=b)
+            mr.FakeModelSession(c, expected_serving_config_hash=mr.serving_config_hash(c), **kw)
 
     def test_load_adapters(self):
         b = mr.FakeBackend(); cfg = mr.fake_serving_config(b); h = mr.serving_config_hash(cfg)
         with TemporaryDirectory() as d:
             ad = {"LORA_A": Path(d), "LORA_B": Path(d)}
-            s = mr.load(ad, cfg, expected_serving_config_hash=h, backend=b)
-            self.assertEqual(s.serving_config_hash, h)
+            kw = dict(schema_dir=SCHEMA_DIR, expected_serving_config_hash=h)
+            self.assertEqual(mr.load(ad, cfg, backend=b, **kw).serving_config_hash, h)
             with self.assertRaises(mr.ContractViolation):
-                mr.load({"LORA_A": Path(d)}, cfg, expected_serving_config_hash=h, backend=b)
+                mr.load({"LORA_A": Path(d)}, cfg, backend=b, **kw)
             with self.assertRaises(mr.BackendNotAvailable):
-                mr.load(ad, cfg, expected_serving_config_hash=h)
+                mr.load(ad, cfg, **kw)
 
 
 class Paths(unittest.TestCase):
     def test_first_attempt(self):
         _, _, s = make({"LORA_A": [GOOD_PARSE], "LORA_B": [GOOD_GEN]})
         self.assertEqual(s.parse(PARSER_INPUT)["items"][0]["intent"], "UNRECOGNIZED")
-        self.assertEqual(s.last_call_info.attempts, 1)
-        self.assertEqual(s.generate(GENERATOR_INPUT)["response_text"], "알겠습니다.")
+        self.assertEqual((s.last_call_info.attempts, s.last_call_info.outcome), (1, "ok"))
+        self.assertEqual(s.generate(GENERATOR_INPUT), {"response_text": "알겠습니다.", "is_fallback": False})
 
     def test_retry_then_success_same_prompt_seed_plus_attempt(self):
         b, cfg, s = make({"LORA_A": ["not json", BAD_PARSE, GOOD_PARSE]})
@@ -122,19 +119,6 @@ class Paths(unittest.TestCase):
         self.assertEqual([r.seed for r in b.requests], [1000, 1001, 1002])
         self.assertEqual(len({r.prompt for r in b.requests}), 1)
 
-    def test_exhausted(self):
-        _, _, s = make({"LORA_A": [BAD_PARSE]}, max_attempts=2)
-        with self.assertRaises(mr.ModelOutputInvalid) as cm:
-            s.parse(PARSER_INPUT)
-        self.assertEqual(cm.exception.attempts, 2)
-        self.assertEqual(s.last_call_info.attempts, 2)
-
-    def test_nan_and_extra_keys_rejected(self):
-        _, _, s = make({"LORA_B": ['{"response_text":"a","is_fallback":NaN}',
-                                   '{"response_text":"a","is_fallback":false,"x":1}', GOOD_GEN]})
-        s.generate(GENERATOR_INPUT)
-        self.assertEqual(s.last_call_info.attempts, 3)
-
     def test_input_violation_before_model(self):
         b, _, s = make()
         with self.assertRaises(mr.ContractViolation):
@@ -142,26 +126,33 @@ class Paths(unittest.TestCase):
         self.assertEqual(b.requests, [])
 
     def test_unconstrained_mode_still_validates(self):
-        cfg_dec = {"constraint_mode": "none", "temperature": 0, "seed": 1, "max_tokens": 64}
-        b, _, s = make({"LORA_A": [BAD_PARSE, GOOD_PARSE]}, decoding=cfg_dec)
+        dec = {"constraint_mode": "none", "temperature": 0, "seed": 1, "max_tokens": 64}
+        b, _, s = make({"LORA_A": [BAD_PARSE, GOOD_PARSE]}, decoding=dec)
         s.parse(PARSER_INPUT)
         self.assertIsNone(b.requests[0].constraint_schema)
         self.assertEqual(s.last_call_info.attempts, 2)
 
+    def test_model_may_not_emit_is_fallback(self):
+        _, _, s = make({"LORA_B": ['{"response_text":"a","is_fallback":false}', GOOD_GEN]})
+        self.assertFalse(s.generate(GENERATOR_INPUT)["is_fallback"])
+        self.assertEqual(s.last_call_info.attempts, 2)
+
+    def test_constraint_schema_for_generator_has_no_is_fallback(self):
+        b, _, s = make({"LORA_B": [GOOD_GEN]})
+        s.generate(GENERATOR_INPUT)
+        self.assertNotIn("is_fallback", repr(b.requests[0].constraint_schema))
+
 
 class Relax(unittest.TestCase):
     def test_relaxed_constraint_misses_rule_but_post_validation_catches(self):
+        import json, jsonschema
         b, _, s = make({"LORA_A": [BAD_PARSE, GOOD_PARSE]})
-        schema = b.requests and None
         relaxed, removed = mr.relax(s._schemas.schema("ParserOutput"), b.supported_features)
-        text = repr(relaxed)
         for kw in ("'allOf'", "'if'", "'then'", "'oneOf'", "'not'"):
-            self.assertNotIn(kw, text)
+            self.assertNotIn(kw, repr(relaxed))
         self.assertIn("allOf", removed)
-        import jsonschema
-        # 완화한 스키마는 위반 출력을 통과시키고, 원래 스키마는 거부한다
-        self.assertTrue(jsonschema.Draft202012Validator(relaxed).is_valid(__import__("json").loads(BAD_PARSE)))
-        self.assertTrue(s._schemas.output_violations("LORA_A", __import__("json").loads(BAD_PARSE)))
+        self.assertTrue(jsonschema.Draft202012Validator(relaxed).is_valid(json.loads(BAD_PARSE)))
+        self.assertTrue(s._schemas.output_violations("LORA_A", json.loads(BAD_PARSE)))
         s.parse(PARSER_INPUT)
         self.assertEqual(s.last_call_info.attempts, 2)
         self.assertIn("allOf", s.last_call_info.relaxed)
@@ -170,10 +161,9 @@ class Relax(unittest.TestCase):
         import json, jsonschema
         _, _, s = make()
         for feats in ([], ["type", "properties", "enum", "anyOf", "$defs", "$ref"]):
-            for role, good in (("ParserOutput", GOOD_PARSE), ("GeneratorOutput", GOOD_GEN)):
+            for role, good in (("ParserOutput", GOOD_PARSE), ("GeneratorOutput", '{"response_text":"a","is_fallback":false}')):
                 orig = s._schemas.schema(role)
-                relaxed, _ = mr.relax(orig, feats)
-                v = jsonschema.Draft202012Validator(relaxed)
+                v = jsonschema.Draft202012Validator(mr.relax(orig, feats)[0])
                 for inst in (json.loads(good), {"items": []}, {"x": 1}, []):
                     if jsonschema.Draft202012Validator(orig).is_valid(inst):
                         self.assertTrue(v.is_valid(inst))
@@ -188,30 +178,31 @@ class Relax(unittest.TestCase):
 class Prompt(unittest.TestCase):
     def test_deterministic_and_version(self):
         cfg = mr.fake_serving_config()
-        a = mr.render_prompt("LORA_A", PARSER_INPUT, serving_config=cfg)
-        b = mr.render_prompt("LORA_A", dict(reversed(list(PARSER_INPUT.items()))), serving_config=cfg)
+        kw = dict(serving_config=cfg, schema_dir=SCHEMA_DIR)
+        a = mr.render_prompt("LORA_A", PARSER_INPUT, **kw)
+        b = mr.render_prompt("LORA_A", dict(reversed(list(PARSER_INPUT.items()))), **kw)
         self.assertEqual(a, b)
         self.assertIn("머리가 아파요", a)
+        self.assertIn("UNRECOGNIZED", a)
         with self.assertRaises(mr.UnsupportedServingConfig):
-            mr.render_prompt("LORA_A", PARSER_INPUT, serving_config=dict(cfg, prompt_template_version="x"))
+            mr.render_prompt("LORA_A", PARSER_INPUT, serving_config=dict(cfg, prompt_template_version="x"), schema_dir=SCHEMA_DIR)
         with self.assertRaises(mr.ContractViolation):
-            mr.render_prompt("LORA_B", PARSER_INPUT, serving_config=cfg)
+            mr.render_prompt("LORA_B", PARSER_INPUT, **kw)
 
 
 class Privacy(unittest.TestCase):
     def test_no_utterance_in_exceptions_or_logs(self):
         secret = {**PARSER_INPUT, "utterance": "비밀발화123"}
-        bad_out = '{"items":[{"source_text":"비밀발화123"}]}'
-        _, _, s = make({"LORA_A": [bad_out]}, max_attempts=1)
+        _, _, s = make({"LORA_A": ['{"items":[{"source_text":"비밀발화123"}]}']}, max_attempts=1)
         with self.assertLogs("model_runtime", level=logging.DEBUG) as logs:
             logging.getLogger("model_runtime").debug("start")
-            with self.assertRaises(mr.ModelOutputInvalid) as cm:
-                s.parse(secret)
-        self.assertNotIn("비밀발화123", str(cm.exception) + repr(cm.exception.attempt_violations))
-        self.assertNotIn("비밀발화123", "\n".join(logs.output))
-        with self.assertRaises(mr.ContractViolation) as cm2:
+            r = s.parse(secret)
+            raw = s.parse_raw(secret)
+        self.assertEqual(r, {"items": []})
+        self.assertNotIn("비밀발화123", "\n".join(logs.output) + repr(s.last_call_info) + repr(raw.errors))
+        with self.assertRaises(mr.ContractViolation) as cm:
             s.parse({**secret, "extra": "비밀발화123"})
-        self.assertNotIn("비밀발화123", str(cm2.exception))
+        self.assertNotIn("비밀발화123", str(cm.exception))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 {
-  "prompt_template_version": "prompt-1",
+  "prompt_template_version": "prompt-2",
   "decoding": {
     "constraint_mode": "constrained",
     "temperature": 0,
@@ -23,5 +23,6 @@
     ],
     "relax_policy_version": "relax-1"
   },
-  "output_contract": 1
+  "output_contract": 1,
+  "protection_policy_version": "protect-1"
 }
