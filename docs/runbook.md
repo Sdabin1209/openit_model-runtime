@@ -3,7 +3,7 @@
 라이브러리이므로 서비스처럼 직접 운영하지 않는다. 아래는 이 라이브러리를 쓰는 서비스·평가에서 증상이 나올 때의 확인 순서다.
 
 ## 개발 시험
-`PYTHONPATH=src:tests:../boundary-contracts python3 -W error::DeprecationWarning -m unittest discover -s tests` (Python 3.10 이상, jsonschema 필요). GPU 불필요.
+`.venv`를 만들고 `pip install pytest jsonschema -e ../boundary-contracts -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요.
 
 ## 증상별
 
@@ -12,10 +12,9 @@
 | `ServingConfigMismatch` | 넘긴 `serving_config`의 해시가 매니페스트의 `serving_config_hash`와 다르다 | 매니페스트의 `serving_config`를 그대로 넘겼는지(키 순서는 무관, 값이 다르면 불일치). 설정을 고치지 말고 맞는 매니페스트를 쓴다. |
 | `UnsupportedServingConfig` | 이 런타임이 모르는 템플릿 버전·`output_contract`·완화 정책·백엔드 | `RUNTIME_VERSION`과 매니페스트의 `lineage.model_runtime_version` 비교. 런타임을 올리거나 호환되는 릴리스를 쓴다. 릴리스 적재 중이면 이전 릴리스를 유지한다(I4). |
 | `BackendNotAvailable` | 설정이 가리키는 백엔드가 이 환경에 없다 | GPU 이미지인지, 백엔드 extra가 설치됐는지. |
-| `ContractVersionMismatch` | `schema_dir`의 `CONTRACT_VERSION`이 지원 값과 다르거나 읽을 수 없다 | 호출자가 올바른 `schema_dir`(서비스는 자기 `schema/`)를 넘겼는지. |
-| `SchemaDirRequired` | `schema_dir`를 안 넘기고 `configure`도 안 불렀다 | 진입점에서 `configure(schema_dir=...)` 또는 인자로 넘긴다. |
+| `ContractVersionMismatch` | `schema_dir` 상위의 `CONTRACT_VERSION`이 지원 값과 다르거나 읽을 수 없다 | `schema_dir`가 `.../schema/schemas`(계약 JSON이 있는 디렉터리)인지, 그 상위에 `CONTRACT_VERSION`이 있는지. |
 | `ContractViolation` | 입력이 입력 계약을 위반했다(모델 호출 전). 또는 `serving_config` 형식 위반 | 예외의 (경로, 키워드) 목록으로 어느 필드인지 본다. 값은 담기지 않는다. |
-| `ModelOutputInvalid` | `max_attempts`까지 출력이 스키마를 통과하지 못했다 | `attempt_violations`로 위반 종류 확인(원문 없음). 반복되면 어댑터·템플릿·`supported_features` 완화 목록(`last_call_info.relaxed`)을 점검하고 model-lab에 알린다. 이 라이브러리는 대체 응답을 만들지 않으므로 호출자가 대체 경로를 정한다. |
+| (예외 아님) 출력 보호가 자주 적용된다 | 모델 출력이 깨져 규칙이 정한 대체 출력이 나갔다. 파서는 항목 고침·빈 목록, 생성기는 `is_fallback = true` | `last_call_info.outcome`·`protections`(P1~P6, G0·G1·G4, G5)를 집계한다. 어느 규칙이 많은지 보고, model-lab이 `parse_raw`/`generate_raw`로 보호 전 품질을 잰다. `relaxed` 목록이 크면 백엔드가 제약을 놓치는 것이므로 `supported_features`를 점검한다. 어댑터·템플릿 문제는 model-lab에 알린다. |
 
 ## 하지 말 것
 - 발화나 모델 출력 원문을 로그에 남기려고 이 라이브러리의 예외·로그를 확장하지 않는다.
