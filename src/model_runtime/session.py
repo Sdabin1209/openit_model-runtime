@@ -12,7 +12,7 @@ from .backends import ConstraintBackend, FakeBackend, GenerationRequest
 from .errors import BackendNotAvailable, ContractViolation, ServingConfigMismatch, UnsupportedServingConfig
 from .fallback import fallback_text
 from .prompts import SUPPORTED_TEMPLATE_VERSIONS, render_prompt
-from .protection import PROTECTION_POLICY_VERSION, generator_rule_errors, protect_parser
+from .protection import PROTECTION_POLICIES, PROTECTION_POLICY_VERSION, generator_rule_errors, protect_parser
 from .schema_guard import (INPUT_CONTRACT, OUTPUT_CONTRACT, RELAX_POLICY_VERSION,
                            SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet, relax)
 from .serving_config import serving_config_hash, validate_serving_config
@@ -58,7 +58,7 @@ def _check_config(cfg: Mapping, backend: ConstraintBackend) -> None:
         raise UnsupportedServingConfig("지원하지 않는 output_contract")
     if cfg["prompt_template_version"] not in SUPPORTED_TEMPLATE_VERSIONS:
         raise UnsupportedServingConfig("지원하지 않는 프롬프트 템플릿 버전")
-    if cfg["protection_policy_version"] != PROTECTION_POLICY_VERSION:
+    if cfg["protection_policy_version"] not in PROTECTION_POLICIES:
         raise UnsupportedServingConfig("지원하지 않는 출력 보호 정책 버전")
     c = cfg["constraint"]
     if c["relax_policy_version"] != RELAX_POLICY_VERSION:
@@ -168,7 +168,8 @@ class _Session:
             self.last_call_info = CallInfo("LORA_B", a.attempts, removed)
         else:
             causes = sorted({e.split(":")[1] for e in a.errors if e.startswith("rule:")}) or ["G0"]
-            result = {"response_text": fallback_text(input), "is_fallback": True}
+            result = {"response_text": fallback_text(input, policy_version=self._cfg["protection_policy_version"]),
+                      "is_fallback": True}
             self.last_call_info = CallInfo("LORA_B", a.attempts, removed, "fallback",
                                            tuple((c, 1) for c in causes) + (("G5", 1),))
             log.warning("role=LORA_B 대체 문장 사용 causes=%s", causes)

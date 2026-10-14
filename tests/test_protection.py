@@ -231,6 +231,23 @@ class GeneratorProtection(unittest.TestCase):
     def test_fallback_with_no_materials_uses_default_sentence(self):
         self.assertEqual(mr.fallback_text(gen_input("ASK_NEXT")), "죄송합니다. 다시 한 번 말씀해 주세요.")
 
+    def test_empty_materials_text_belongs_to_the_policy(self):
+        pol = mr.PROTECTION_POLICIES["protect-1"]
+        self.assertEqual(mr.fallback_text(gen_input("ASK_NEXT")), pol.empty_fallback_text)
+        self.assertEqual(pol.version, mr.PROTECTION_POLICY_VERSION)
+        with self.assertRaises(KeyError):
+            mr.fallback_text(gen_input("ASK_NEXT"), policy_version="protect-0")
+
+    def test_policy_states_the_three_approved_judgments(self):
+        j = " ".join(mr.PROTECTION_POLICIES["protect-1"].judgments)
+        for needle in ("전체를 빈 목록", "OUT_OF_SCOPE", "whole_question"):
+            self.assertIn(needle, j)
+
+    def test_session_uses_the_configured_policy(self):
+        s = session({"LORA_B": ["{}"]})
+        self.assertEqual(s.generate(gen_input("ASK_NEXT"))["response_text"],
+                         mr.PROTECTION_POLICIES["protect-1"].empty_fallback_text)
+
     def test_normal_output_is_not_fallback(self):
         _, r = gen(GENERATOR_INPUT_SIMPLE, "알겠습니다.")
         self.assertEqual(r, {"response_text": "알겠습니다.", "is_fallback": False})

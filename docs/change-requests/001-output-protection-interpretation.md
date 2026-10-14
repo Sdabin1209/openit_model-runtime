@@ -29,3 +29,10 @@
 - `serving_config`에 필수 키 `protection_policy_version`을 추가했다(현재 `protect-1`). 보호 규칙이 출력을 바꾸므로 해시에 반영하기 위해서다. `ServingConfig` 형식은 이 리포지토리 소유이지만, 매니페스트를 쓰는 model-lab이 알아야 한다.
 - 프롬프트 `prompt-1`을 지우고 `prompt-2`로 바꿨다(모델은 `response_text`만 출력). 어떤 모델 패키지도 `prompt-1`을 쓰지 않았다고 가정했다.
 - `docs/brief.md` 31행은 아직 "ModelOutputInvalid"를 말한다(헤드 소유 문서라 고치지 않았다).
+
+## 헤드 답변 (2026-10-15)
+1. 대체 문장 조립 순서(알릴 것 → 말할 값 → 행동)와 `"{이름}: {값}"`·선택지 쉼표 이음은 잠정 승인. 고정 문장 행동은 고정 문장만 읽는다. 마지막 상수 문구는 코드에 박지 않고 보호 정책(`protect-1`)의 일부로 두며, 문구 확정은 도메인 소유자 몫이라 그동안 **잠정**.
+2. 기계 확인 범위(규칙 1 숫자열, 규칙 4 RISK_NOTICE 문장 verbatim)로 충분. 바꿔 말하기 불허. 규칙 2의 금지 표현 목록은 만들지 않는다. 규칙 2·3은 `generate_raw` 평가(model-lab).
+3. 파서 보호의 판단 J1~J3(전체 빈 목록, P4, P5 해석) 승인. 정책 설명에 명시한다(`design.md` §2.5, `ProtectionPolicy.judgments`).
+4. 부수 변경(`protection_policy_version` 필수, prompt-2) 승인.
+처리: 상수 문구를 `ProtectionPolicy`로 옮기고 판단 J1~J3을 정책에 기록했다. 이 요청은 닫는다.

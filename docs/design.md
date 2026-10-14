@@ -53,7 +53,12 @@
 - **생성기**: 모델은 `response_text`만 낸다. 출력 스키마에서 `is_fallback`을 뺀 "모델 출력 스키마"로 제약·검증하고, `is_fallback`은 코드가 채운다(정상 false). 형식 위반이나 기계로 확인되는 규칙 위반(G1 응답 지시에 없는 숫자, G4 위험 안내 문장 누락)이면 문장 재료를 그대로 읽는 대체 문장(`fallback_text`, 발화를 쓰지 않는 순수 함수)을 내고 `is_fallback = true`. 규칙 2·3은 기계로 확인하지 못하고 프롬프트로만 지시한다(보호 전 품질은 `generate_raw` 평가로 본다).
 - **보호는 조용히 지나가지 않는다**: `last_call_info.outcome`(ok·repaired·fallback·raw)과 `protections`(이름, 건수). 원문은 담지 않는다.
 - **`*_raw`**: 재시도 루프는 같고 보호만 적용하지 않는다. `RawResult(output, valid, errors)`. output은 마지막 시도의 JSON으로 읽힌 모델 출력(읽지 못하면 None), errors는 원문 없는 이름(`json`, `schema:<경로>:<키워드>`, `rule:<이름>`).
-- **보호 정책 버전**: 규칙을 바꾸면 `PROTECTION_POLICY_VERSION`(현재 `protect-1`)을 올리고 `serving_config.protection_policy_version`에 기록해 해시에 반영한다.
+- **보호 정책 버전**: 출력을 바꾸는 값과 해석은 `ProtectionPolicy`(`protection.py`의 `PROTECTION_POLICIES`)에 묶는다. 바꾸려면 새 버전(`protect-2`…)을 만들고 `serving_config.protection_policy_version`에 기록해 해시에 반영한다. `protect-1`의 내용:
+  - **대체 문장의 마지막 상수**(재료가 하나도 없을 때): "죄송합니다. 다시 한 번 말씀해 주세요." **[잠정]** 규칙에 없는 문구이며 확정은 도메인 소유자 몫이다(헤드가 사용자에게 올린다). 확정되면 새 정책 버전으로 바꾼다.
+  - **판단 J1**(파서): 고친 뒤에도 항목 하나가 스키마를 통과하지 못하거나 항목이 객체가 아니면 전체를 빈 목록(P1)으로 한다. 보수적이고 `item_no` 정렬이 깨지는 것을 막는다. [헤드 승인]
+  - **판단 J2**(P4): `guide_id`가 null이 아니고 `guide_list`에 없으면 의도와 무관하게 OUT_OF_SCOPE. [헤드 승인]
+  - **판단 J3**(P5): '문항 전체에 값을 붙임'은 `whole_question`이 true이고 `value`가 null이 아닌 경우. [헤드 승인]
+  - 대체 문장 조립(알릴 것 → 말할 값 → 행동, `"{이름}: {값}"`, 선택지는 쉼표) [헤드 잠정 승인]. 고정 문장 행동은 고정 문장만 읽고 대상의 질문 문장은 덧붙이지 않는다. 규칙 4는 `RISK_NOTICE` 문장의 verbatim 포함을 요구하고 바꿔 말하기를 허용하지 않는다(안전한 쪽). 규칙 2의 금지 표현 목록은 만들지 않는다. 규칙 2·3은 `generate_raw` 평가(model-lab)로 본다.
 - 해석이 모호한 부분(문장 재료 조립 순서, G1·G4의 기계 확인 범위)은 `change-requests/001-output-protection-interpretation.md`에서 확인을 요청한다.
 
 ### 2.4 예외

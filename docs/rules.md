@@ -52,4 +52,4 @@
 | G4 | 규칙 4: 위험 안내는 문장 재료와 알릴 것대로만 | 행동이 RISK_NOTICE이면 `fixed_sentences`의 RISK_NOTICE 문장이 `response_text`에 그대로 들어 있어야 한다. 발화를 받아 주지 않았는지는 확인하지 못한다. |
 | G5 | 규칙 5: 대체 출력 | 위 확인 중 하나라도 실패하거나 출력 모양이 틀린 채 재시도를 다 쓰면 `fallback_text`를 내고 `is_fallback = true`. 정상이면 `is_fallback = false`. |
 
-대체 문장 조립(`fallback_text`)은 순수 함수이며 발화를 쓰지 않는다. 조립 순서와 문장 재료 해석은 `change-requests/001-output-protection-interpretation.md`에서 확인을 요청한다.
+대체 문장 조립(`fallback_text`)은 순수 함수이며 발화를 쓰지 않는다. 조립 순서와 문장 재료 해석은 `change-requests/001-output-protection-interpretation.md`에서 확인을 요청했고 헤드가 잠정 승인했다. 정책 버전에 묶인 값(재료가 없을 때의 문구 [잠정])과 판단 J1~J3은 `design.md` §2.5의 "보호 정책 버전"에 있다.

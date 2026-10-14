@@ -5,9 +5,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .protection import value_text
+from .protection import PROTECTION_POLICIES, PROTECTION_POLICY_VERSION, value_text
 
-DEFAULT_FALLBACK_TEXT = "죄송합니다. 다시 한 번 말씀해 주세요."
 _FIXED_ACTIONS = ("ASK_REPEAT", "CALL_STAFF", "FAREWELL", "ASK_CONFIRM", "ASK_CORRECTION_TARGET", "ASK_FINISH",
                   "RISK_NOTICE", "WAIT_NOTICE", "ASK_STOP", "STAFF_NOTICE")
 _ASK_ACTIONS = ("ASK_NEXT", "ASK_MISSING", "ASK_CLARIFY", "ASK_AFTER_UNKNOWN", "ASK_AFTER_REFUSAL")
@@ -44,7 +43,9 @@ def json_key(slot: Mapping) -> tuple:
     return (slot["question_id"], slot.get("repeat_key", ""), slot.get("slot_id", ""))
 
 
-def fallback_text(generator_input: Mapping) -> str:
+def fallback_text(generator_input: Mapping, *, policy_version: str = PROTECTION_POLICY_VERSION) -> str:
+    """policy_version의 정책으로 대체 문장을 조립한다(재료가 없을 때의 문장이 정책에 묶여 있다)."""
+    policy = PROTECTION_POLICIES[policy_version]
     d: Any = generator_input["directive"]
     sm = d["sentence_materials"]
     fixed = [(f["key"], f["sentence"]) for f in sm["fixed_sentences"]]
@@ -74,4 +75,4 @@ def fallback_text(generator_input: Mapping) -> str:
     for p in parts:
         if p and (not kept or kept[-1] != p):
             kept.append(p)
-    return " ".join(kept) or DEFAULT_FALLBACK_TEXT
+    return " ".join(kept) or policy.empty_fallback_text

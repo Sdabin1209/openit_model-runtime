@@ -5,7 +5,32 @@ import re
 from collections import Counter
 from typing import Any, Callable, Iterable, Mapping
 
-PROTECTION_POLICY_VERSION = "protect-1"
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ProtectionPolicy:
+    """출력 보호 정책 한 버전. 출력을 바꾸는 값과 해석은 모두 여기에 묶고, 바꾸려면 새 버전을 만든다.
+    serving_config.protection_policy_version으로 기록되어 serving_config_hash에 반영된다."""
+    version: str
+    # 생성기 대체 문장을 만들 재료가 하나도 없을 때의 문장. 규칙에 없는 문구이며 문구 확정은 도메인 소유자 몫이다(잠정).
+    empty_fallback_text: str
+    # 규칙 문장에서 모호했던 곳을 어떻게 읽었는지. 다음 정책 버전에서 바꿀 때 근거가 된다(헤드 승인: change-requests/001).
+    judgments: tuple
+
+
+PROTECTION_POLICIES = {
+    "protect-1": ProtectionPolicy(
+        version="protect-1",
+        empty_fallback_text="죄송합니다. 다시 한 번 말씀해 주세요.",   # 잠정
+        judgments=(
+            "J1 파서: 고친 뒤에도 항목 하나가 스키마를 통과하지 못하거나 항목이 객체가 아니면 그 항목만 버리지 않고 전체를 빈 목록(P1)으로 한다. 보수적이고 항목 정렬(item_no)이 깨지는 것을 막는다.",
+            "J2 파서 P4: guide_id가 null이 아니고 입력 guide_list에 없으면 의도와 관계없이 OUT_OF_SCOPE로 바꾼다(규칙 문장이 의도를 제한하지 않는다).",
+            "J3 파서 P5: '문항 전체에 값을 붙임'은 target.whole_question이 true이고 value가 null이 아닌 경우다.",
+        ),
+    ),
+}
+PROTECTION_POLICY_VERSION = "protect-1"   # 현재 정책. 지원하는 정책은 PROTECTION_POLICIES의 키다.
 
 _ID_KEYS = frozenset({"question_id", "slot_id", "repeat_key", "guide_id", "target_pending_id", "key", "guide_ids"})
 _CLEARED = ("target", "value", "progress_op", "guide_id")
