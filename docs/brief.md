@@ -28,7 +28,7 @@
 
 - 내는 것: **I9** (`load`, `ModelSession.parse/generate`, `render_prompt`, `FakeModelSession`, `RUNTIME_VERSION`).
 - 받는 것: 문진 스키마의 입력 계약, 어댑터 디렉터리.
-- 해야 하는 것: 출력이 스키마를 통과하지 못하면 `ModelOutputInvalid`. 학습 변환과 서빙이 `render_prompt`로 같은 프롬프트를 쓴다.
+- 해야 하는 것: 출력이 스키마를 통과하지 못하면 `BackendNotAvailable 같은 인프라 예외(출력 문제는 예외가 아니라 규칙이 정한 대체 출력, D36)`. 학습 변환과 서빙이 `render_prompt`로 같은 프롬프트를 쓴다.
 
 ## 4. 상위 수용 기준
 
