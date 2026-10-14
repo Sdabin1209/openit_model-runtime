@@ -113,21 +113,23 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 - `validate_serving_config(cfg) -> None`: 형식 위반이면 `ContractViolation`. model-lab이 매니페스트를 쓰기 전에 부른다. 알 수 없는 키는 거부한다(이 형식은 이 리포지토리가 정하므로 엄격하게). [제안]
 - `serving_config_hash(cfg) -> str`: 먼저 형식을 검증하고, 정규화한 설정을 RFC 8785(JCS)로 직렬화한 바이트의 SHA-256에 `sha256:`를 붙인다. [확인: CONVENTIONS §2] 받은 그대로 해시하고 기본값을 채우지 않는다(구현됨). 필수 키만 있으므로 기본값 채우기가 필요 없고, 매니페스트에 기록된 값과 해시 대상이 일치한다.
 
-### 4.3 `load`의 거부 [확인: I9]
+### 4.3 `load`의 역할별 검증 [확인: I9, D45]
 
-`load(adapters, serving_config, *, expected_serving_config_hash)`는 다음 순서로 판단한다. [순서는 제안]
+`load(adapters, serving_configs, *, schema_dir, expected_serving_config_hashes, backend=None)`. `ReleaseManifest.adapters[role]`과 모델 패키지가 역할별이므로 설정과 기대 해시도 역할마다 받는다.
 
-1. 형식 위반: `ContractViolation`.
-2. 지원하지 않는 프롬프트 템플릿 버전·디코딩 버전·`output_contract`가 `SUPPORTED_RUNTIME_CONTRACT_VERSION`과 다름: `UnsupportedServingConfig`.
-3. `serving_config_hash(serving_config) != expected_serving_config_hash`: `ServingConfigMismatch`.
+1. 어댑터·설정·기대 해시의 역할 집합이 서로 다르거나 {LORA_A, LORA_B}가 아니면 `ContractViolation`(어댑터 디렉터리가 없을 때도).
+2. `schema_dir` 상위의 `CONTRACT_VERSION`이 다르면 `ContractVersionMismatch`.
+3. 역할마다(LORA_A, LORA_B 순서) 형식(`ContractViolation`) → 지원 여부(`UnsupportedServingConfig`, 메시지에 역할) → 해시(`ServingConfigMismatch`, `.role`에 역할) 순서로 확인한다. 한 역할이 어긋나면 나머지 역할이 맞아도 로딩을 거부한다. 둘 다 위반일 때 어느 예외가 먼저 나는지는 약속하지 않는다.
 
-2와 3의 순서(어느 쪽이 먼저인지)는 I9가 정하지 않았다. 둘 다 위반이면 어느 예외가 나는지를 호출자가 의존하지 않아야 한다고 `docs/boundary.md`에 쓴다. 호출자는 `ModelPackageManifest.serving_config_hash`를 expected로 넘긴다.
+**역할별로 적용되는 것**: 프롬프트 템플릿 버전, 디코딩 설정(온도·시드·제약 모드·`max_tokens`), `max_attempts`, 보호 정책 버전. 파서(LORA_A)는 결정적이고 생성기(LORA_B)는 다를 수 있다. 세션의 `serving_config_hashes`는 역할별 해시다.
+
+**기반 모델 공유 [제안]**: 세션은 백엔드 객체 하나를 두 역할이 함께 쓴다. 요청에 `role`이 들어 있으므로 실제 백엔드는 기반 모델 가중치를 한 번만 올리고 요청마다 역할의 어댑터를 고르면 된다(VRAM 절약). 역할별 설정이 달라도 `constraint`(백엔드 이름·버전·`supported_features`)는 사용하는 백엔드와 모든 역할에서 같아야 하고, 아니면 `UnsupportedServingConfig`다. 기반 모델이 서로 다른 두 어댑터를 지원할지는 [미정]이다(백엔드 구현 때 정한다. 첫 백엔드 시험 §11-2에 항목이 있다).
 
 ## 5. FakeModelSession [결정]
 
 - 실제 `ModelSession`과 같은 클래스 경로(렌더 → 백엔드 → 사후 검증 → 재시도 → 출력 보호)를 쓴다. 가짜인 것은 `ConstraintBackend` 하나다(`FakeBackend`). [결정]
 - `FakeBackend`는 시험용 스크립트(시도별로 돌려줄 문자열 목록, 또는 입력에서 결정적으로 유도한 출력)를 받는다. 위반 출력을 시도 N번째에 내보내게 해서 재시도·상한 초과 경로를 GPU 없이 시험한다.
-- `FakeModelSession`도 `serving_config`와 `expected_serving_config_hash`를 받고 로딩 거부 규칙(§4.3)을 같은 코드로 적용한다.
+- `FakeModelSession`도 `serving_configs`와 `expected_serving_config_hashes`(역할별)를 받고 로딩 거부 규칙(§4.3)을 같은 코드로 적용한다.
 - 적합성 테스트: 실제 `ModelSession`(스크립트된 백엔드를 붙인 것)과 `FakeModelSession`이 같은 시나리오 표를 통과해야 한다. [제안: CONVENTIONS §7의 적합성 테스트 요구에 따름]
 
 ## 6. 프롬프트 [제안]
