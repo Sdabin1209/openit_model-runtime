@@ -5,7 +5,7 @@
 ## 1. 범위와 불변 조건
 
 - 학습 후 평가, 게이트의 승인 평가, 서비스 추론이 같은 `render_prompt`, 같은 디코딩 경로, 같은 검증 경로를 쓴다. [확인: 브리프 §1, §4]
-- 출력은 항상 출력 계약(`ParserOutput`, `GeneratorOutput`)의 스키마를 통과하거나 `ModelOutputInvalid`로 끝난다. 조용한 통과는 없다. [확인]
+- `parse`/`generate`는 **항상 출력 계약의 스키마를 통과하는 값**을 돌려준다. 모델 출력이 재시도 뒤에도 유효하지 않으면 예외를 던지지 않고 규칙이 정한 대체 출력을 낸다(출력 보호, D36, §2.5, `docs/rules.md`). 보호는 조용히 지나가지 않는다: `last_call_info`에 종류와 건수를 남기고, `parse_raw`/`generate_raw`로 보호 전 품질을 잴 수 있다. [확인: I9]
 - 소비하는 계약은 문진 스키마(`CONTRACT_VERSION` = 1)뿐이다. 해시 계산만 `boundary_contracts.canonical`(헤드 소유 기준 구현)을 가져다 쓴다(§10). `SUPPORTED_RUNTIME_CONTRACT_VERSION`은 이 정수 한 값이다. [확인]
 - 모델이 판단하게 만드는 프롬프트를 두지 않는다. 파서는 발화를 항목으로 바꾸기만 하고, 생성기는 응답 지시(`Directive`)를 문장으로 바꾸기만 한다. [확인: 브리프 §6]
 - 입력 발화를 로그에 남기지 않는다. 오류 메시지와 예외에도 발화 원문과 모델 출력 원문을 넣지 않는다(위반 위치와 길이만). [확인: 브리프 §5]
@@ -17,7 +17,8 @@
 
 1. **제약 디코딩**: 교체 가능한 백엔드가 출력 스키마로 생성을 제약한다.
 2. **사후 검증**: 제약 디코딩 사용 여부와 상관없이 **항상** 원래(완화하지 않은) 출력 스키마로 검증한다.
-3. **재시도**: 검증 실패 시 작은 상한 안에서 다시 생성한다. 상한을 넘으면 `ModelOutputInvalid`.
+3. **재시도**: 검증 실패 시 작은 상한(`max_attempts`) 안에서 다시 생성한다.
+4. **출력 보호**: 상한을 다 쓴 뒤에도 유효하지 않으면 규칙이 정한 대체 출력을 낸다(§2.5). 예외로 끝나지 않는다.
 
 ### 2.1 제약 디코딩 백엔드
 
@@ -43,12 +44,21 @@
 - **시드 규칙 [확인: I9, 헤드 승인]**: 시도 번호 k(0부터)의 시드는 `기본 시드 + k`다. 기본 시드는 `serving_config`에 기록된다. 온도 0에서 같은 프롬프트·같은 시드를 되풀이하면 결과가 같아 재시도가 무의미하므로, 시드만 바꾼다. 시도 간에 달라지는 값은 시드뿐이다. 시간·난수는 외부에서 읽지 않는다.
 - **재시도 프롬프트 [확인: I9]**: 첫 시도와 같다. 검증 오류를 덧붙이지 않는다.
 - 온도 0에서는 시드가 결과를 바꾸지 못할 수 있다(엔진에 따라 탐욕 디코딩은 시드와 무관). 이 경우 재시도가 같은 출력을 낼 수 있음을 설계가 인정한다. 재시도가 실제로 효과가 있는 설정인지는 `validate_serving_config`가 막지 않고(온도 0도 허용), 평가에서 `attempts` 분포로 확인한다. [제안]
-- 상한 초과 시 `ModelOutputInvalid`를 던진다. 예외는 시도 횟수, 마지막 시도의 위반 종류(JSON 파싱 실패, 스키마 위반의 JSON 포인터 경로와 키워드)를 담고, 발화와 모델 출력 원문은 담지 않는다. [제안]
+- 상한을 다 쓰면 마지막 시도의 출력에 출력 보호를 적용한다(§2.5). 유효 여부 판단에는 스키마 위반뿐 아니라 보호 규칙에 해당하는 것(파서 P2~P6, 생성기 G1·G4)도 들어간다. 규칙 위반도 재시도 대상이다. [해석: docs/rules.md]
 - 재시도 횟수는 호출 결과 메타데이터(`attempts`)로 호출자가 볼 수 있어야 한다. 반환 타입은 출력 계약 그대로여야 하므로, 메타데이터는 `ModelSession`의 별도 조회 경로로 제공한다(§3). [제안]
+
+### 2.5 출력 보호 (D36) [확인: I9, 규칙은 `docs/rules.md`]
+
+- **파서**: 형식을 못 지키면 빈 목록, 항목이 규칙을 어기면(의도·진행 조작·안내 ID·대상·값) 규칙이 정한 대로 고친다(P1~P6). 의도를 바꿀 때는 대상·값·진행 조작·안내 ID를 비운다. 대상이 문항 정의에 없는 항목은 고치지 않는다.
+- **생성기**: 모델은 `response_text`만 낸다. 출력 스키마에서 `is_fallback`을 뺀 "모델 출력 스키마"로 제약·검증하고, `is_fallback`은 코드가 채운다(정상 false). 형식 위반이나 기계로 확인되는 규칙 위반(G1 응답 지시에 없는 숫자, G4 위험 안내 문장 누락)이면 문장 재료를 그대로 읽는 대체 문장(`fallback_text`, 발화를 쓰지 않는 순수 함수)을 내고 `is_fallback = true`. 규칙 2·3은 기계로 확인하지 못하고 프롬프트로만 지시한다(보호 전 품질은 `generate_raw` 평가로 본다).
+- **보호는 조용히 지나가지 않는다**: `last_call_info.outcome`(ok·repaired·fallback·raw)과 `protections`(이름, 건수). 원문은 담지 않는다.
+- **`*_raw`**: 재시도 루프는 같고 보호만 적용하지 않는다. `RawResult(output, valid, errors)`. output은 마지막 시도의 JSON으로 읽힌 모델 출력(읽지 못하면 None), errors는 원문 없는 이름(`json`, `schema:<경로>:<키워드>`, `rule:<이름>`).
+- **보호 정책 버전**: 규칙을 바꾸면 `PROTECTION_POLICY_VERSION`(현재 `protect-1`)을 올리고 `serving_config.protection_policy_version`에 기록해 해시에 반영한다.
+- 해석이 모호한 부분(문장 재료 조립 순서, G1·G4의 기계 확인 범위)은 `change-requests/001-output-protection-interpretation.md`에서 확인을 요청한다.
 
 ### 2.4 예외
 
-- `ModelOutputInvalid`, `ServingConfigMismatch`, `UnsupportedServingConfig`는 라이브러리 예외이며 `BoundaryError`가 아니다. [확인: I9]
+- 라이브러리 예외는 인프라·설정 문제에만 쓴다: `ServingConfigMismatch`, `UnsupportedServingConfig`, `ContractVersionMismatch`, `BackendNotAvailable`, 입력·설정 형식 위반의 `ContractViolation`. 모두 `BoundaryError`가 아니다. 출력 문제에는 예외를 쓰지 않는다(`ModelOutputInvalid` 삭제). [확인: I9, D36]
 - 입력이 입력 계약을 위반하면 모델을 부르기 전에 거부한다. 예외는 `ContractViolation`(I8과 같은 이름)을 쓴다. [제안]
 - 로딩 거부 예외는 §4.3.
 
@@ -62,9 +72,11 @@
 | `backends` | `ConstraintBackend` Protocol과 구현. |
 | `session` | `ModelSession` 구현: 렌더 → 생성 → 검증 → 재시도 루프. |
 | `fake` | `FakeModelSession`. `session`과 **같은 루프**를 쓰고 백엔드만 가짜로 바꾼다(§5). |
-| `errors` | `ModelOutputInvalid`, `ContractViolation`, `ServingConfigMismatch`, `UnsupportedServingConfig`. |
+| `protection` | 파서 대체 출력 규칙(P1~P6)과 생성기 규칙 확인(G1·G4). 순수 함수. |
+| `fallback` | 생성기 대체 문장 조립. 순수 함수. |
+| `errors` | `ContractViolation`, `ServingConfigMismatch`, `UnsupportedServingConfig`, `ContractVersionMismatch`, `BackendNotAvailable`. |
 
-`ModelSession`은 Protocol로 정의하고 `parse`, `generate` 외에 `serving_config_hash`와 마지막 호출의 메타데이터(`last_call_info`: 시도 횟수, 완화된 키워드 목록)를 노출한다. 발화·출력 원문은 메타데이터에 넣지 않는다. [제안]
+`ModelSession`은 Protocol로 정의하고 `parse`, `generate`, `parse_raw`, `generate_raw` 외에 `serving_config_hash`와 마지막 호출의 메타데이터(`last_call_info`: 시도 횟수, 완화된 키워드, 보호 결과)를 노출한다. 발화·출력 원문은 메타데이터에 넣지 않는다. [제안]
 
 ## 4. ServingConfig와 serving_config_hash [확인: I9, 헤드 결정]
 
@@ -84,6 +96,7 @@ decoding:
   seed: int                            # 기본 시드. 시도 k의 시드 = seed + k
   (top_p, max_tokens 등 샘플링 파라미터)
 max_attempts: int
+protection_policy_version: str        # 출력 보호 규칙 버전(현재 protect-1)
 constraint:                            # 백엔드 이름·버전, supported_features, 완화 정책 버전
 output_contract: int                   # 문진 스키마 정수 버전(CONTRACT_VERSION)
 ```
@@ -107,7 +120,7 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 
 ## 5. FakeModelSession [결정]
 
-- 실제 `ModelSession`과 같은 클래스 경로(렌더 → 백엔드 → 사후 검증 → 재시도 → `ModelOutputInvalid`)를 쓴다. 가짜인 것은 `ConstraintBackend` 하나다(`FakeBackend`). [결정]
+- 실제 `ModelSession`과 같은 클래스 경로(렌더 → 백엔드 → 사후 검증 → 재시도 → 출력 보호)를 쓴다. 가짜인 것은 `ConstraintBackend` 하나다(`FakeBackend`). [결정]
 - `FakeBackend`는 시험용 스크립트(시도별로 돌려줄 문자열 목록, 또는 입력에서 결정적으로 유도한 출력)를 받는다. 위반 출력을 시도 N번째에 내보내게 해서 재시도·상한 초과 경로를 GPU 없이 시험한다.
 - `FakeModelSession`도 `serving_config`와 `expected_serving_config_hash`를 받고 로딩 거부 규칙(§4.3)을 같은 코드로 적용한다.
 - 적합성 테스트: 실제 `ModelSession`(스크립트된 백엔드를 붙인 것)과 `FakeModelSession`이 같은 시나리오 표를 통과해야 한다. [제안: CONVENTIONS §7의 적합성 테스트 요구에 따름]
@@ -127,7 +140,8 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 ## 8. 테스트 계획 [제안]
 
 - 단위: `relax`(허용 범위가 줄지 않는 속성 테스트), `serving_config` 정규화·해시 안정성, `render_prompt` 결정성.
-- 경로: 첫 시도 성공, 2번째 시도 성공, 상한 초과 시 `ModelOutputInvalid`, 완화 때문에 제약이 놓친 위반(`ANSWERED_INTENT`인데 `value`가 null)을 사후 검증이 잡음.
+- 경로: 첫 시도 성공, 재시도 뒤 성공, 상한 뒤 보호(파서 항목 고침·빈 목록, 생성기 대체 문장), 완화 때문에 제약이 놓친 위반(`ANSWERED_INTENT`인데 `value`가 null)을 사후 검증이 잡음.
+- 보호 규칙: 파서 P1~P6와 생성기 규칙 1~5를 규칙 문장 단위로 한 시험씩(`tests/test_protection.py`). 규칙 2·3은 기계 확인이 없어 프롬프트 포함 여부와 대체 문장 동작으로 시험한다.
 - 개인정보: 예외와 로그에 발화·출력 원문이 없음을 확인하는 테스트.
 - 적합성: 실제 세션(스크립트된 백엔드)과 `FakeModelSession`의 동일 시나리오 통과.
 - 입출력 예시: `tests/examples/`에 입력 계약 예시와 기대 출력 예시를 둔다. 예시는 문진 스키마로 검증한다.
@@ -147,10 +161,10 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 
 ## 10. 구현에서 정한 것 (2026-10-15 기준) [확인: 테스트로 확인한 것은 `tests/test_runtime.py`]
 
-- 구현은 `src/model_runtime/`. 의존은 `jsonschema`뿐이다. 이 환경에는 pip과 pytest가 없어 시험은 `unittest`로 한다(`PYTHONPATH=src:tests python3 -m unittest discover -s tests`).
-- `load`에 I9에 없는 선택 키워드 인자 `backend`, `schema_dir`를 더했다. 시험과 조립용이며 I9의 필수 인자는 바꾸지 않았다. `backend`가 없으면 `BackendNotAvailable`(`UnsupportedServingConfig`의 하위)을 던진다. vLLM 백엔드는 아직 없다.
+- 구현은 `src/model_runtime/`. 의존은 `jsonschema`와 `boundary-contracts`. 개발은 `.venv`(pytest, jsonschema 4.26, `pip install -e ../boundary-contracts -e .`)에서 한다. 시험: `.venv/bin/python -m pytest`.
+- `load`의 선택 인자 `backend`(시험·조립용, I9에 반영됨). `backend`가 없으면 `BackendNotAvailable`(`UnsupportedServingConfig`의 하위)을 던진다. vLLM 백엔드는 아직 없다.
 - 스키마를 메모리로 읽을 때 `$id`를 뺀다. 문진 스키마의 상대 `$id`(`standalone/...`) 때문에 `#/$defs/..` 참조가 원격 주소로 풀리려 해서다. 파일은 고치지 않는다.
-- **스키마 위치 [확인: HEAD 결정, I9]**: 라이브러리에 묶지 않는다. 호출자가 `schema_dir`로 넘긴다(다른 영역은 `../survey-service/schema/schemas`, 서비스는 자기 `schema/`). `schemas/` 디렉터리와 그 상위 `schema/`(CONTRACT_VERSION과 `schemas/`를 가진 곳) 둘 다 받는다(HEAD 메시지의 두 표현이 달라 둘 다 받게 했다). `schema_dir` 인자가 없는 호출(`render_prompt`)은 `configure(schema_dir=...)`로 먼저 위치를 정해야 하고, 없으면 `SchemaDirRequired`. 환경 변수는 읽지 않는다. `CONTRACT_VERSION`이 `SUPPORTED_RUNTIME_CONTRACT_VERSION`과 다르거나 읽을 수 없으면 `ContractVersionMismatch`(`UnsupportedServingConfig`가 아니다).
+- **스키마 위치 [확인: I9 개정]**: 라이브러리에 묶지 않는다. 호출자가 `schema_dir`를 필수 키워드 인자로 넘긴다. 항상 `<계약명>.json`이 있는 `.../schema/schemas` 디렉터리이고 `CONTRACT_VERSION`은 그 상위에서 읽는다(서비스든 다른 영역이든 같다). `configure` 전역 설정은 없다. 버전이 다르거나 읽을 수 없으면 `ContractVersionMismatch`. 환경 변수는 읽지 않는다.
 - **해시 [확인: HEAD 결정]**: 자체 JCS 구현을 지우고 `boundary_contracts.canonical.sha256_hash`를 쓴다(개발 중 `PYTHONPATH=../boundary-contracts`, 설치는 Git 태그). 실수 직렬화를 직접 하지 않는다. 브리프 §3의 "경계 계약에 의존하지 않는다"는 이 해시 라이브러리 의존으로 달라졌다. 공통 규칙은 boundary-contracts를 의존 대상으로 허용한다.
 - 파서 출력의 의미 검사(예: `evidence` 오프셋이 발화 범위 안인지)는 스키마가 정하지 않아 하지 않는다.
 - 출력 JSON의 `NaN`·`Infinity`는 거부한다.
@@ -170,3 +184,6 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 9. **결정성 점검**: 같은 서버를 두 번 띄워 같은 입력·시드 결과가 같은지. 평가와 서비스가 같은 서버 설정을 쓸 때 차이가 나는 요인(배치 크기, 텐서 병렬 등).
 10. **적합성**: 같은 시나리오 표(`tests/test_examples_conformance.py`)를 실제 백엔드로 돌려 `FakeBackend`와 같은 예외·시도 횟수가 나오는지(출력 내용은 스크립트와 달라도 계약은 같아야 한다).
 11. **개인정보**: 엔진·서버가 프롬프트·출력을 로그에 남기는 기본 설정이 있는지, 끄는 방법.
+
+### 12. 변경 기록 (설계)
+- 2026-10-15: 출력 보호(D36) 반영. `ModelOutputInvalid` 삭제, `*_raw`, `is_fallback`을 코드가 채움, `schema_dir` 단일화·`configure` 삭제, `protection_policy_version` 추가, 프롬프트 `prompt-1` 삭제 후 `prompt-2`(생성기 규칙 1~4 포함, 모델은 `response_text`만 출력). `prompt-1`은 어느 릴리스·모델 패키지에도 쓰인 적이 없다(0.x 미배포).
