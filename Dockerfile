@@ -14,7 +14,7 @@ LABEL io.openit.service="model-runtime" \
       io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
       io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
       io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
-      io.openit.model-runtime="0.4.0"
+      io.openit.model-runtime="0.5.0"
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 MODEL_RUNTIME_HOST=0.0.0.0 MODEL_RUNTIME_PORT=8080
 WORKDIR /app
 COPY requirements-${VARIANT}.lock /tmp/requirements.lock

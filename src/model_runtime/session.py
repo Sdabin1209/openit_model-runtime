@@ -17,7 +17,7 @@ from .schema_guard import (INPUT_CONTRACT, OUTPUT_CONTRACT, RELAX_POLICY_VERSION
                            SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet, relax)
 from .serving_config import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.4.0"
+RUNTIME_VERSION = "0.5.0"
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
 

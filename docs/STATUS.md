@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-15 (9차)
+갱신: 2026-10-15 (10차)
+
+- 10차: 버전 0.5.0(pyproject, `RUNTIME_VERSION`, 이미지 라벨, CHANGELOG, 문서). 런북에 이미지 두 변형·환경 변수 표·compose 예시·fake PUT 조건 정리. 태그는 헤드가 v0.5.0을 붙인다.
 
 - 9차(CR-003 회신): 서버를 HTTP.md I9 절(릴리스 단위 PUT/GET/parse/generate, `X-Openit-*`, 큐 503, 적재 실패 격리)로 변경, `retry_temperature` 추가, SIGTERM에서 엔진 정리(고아 EngineCore 수정). 시험 100개 통과(참조 I4 서버와 실제 HttpReleaseReader 한 바퀴 포함). gpu-dev에서 PUT 경로 한 바퀴 확인(design §11-U). 재시도 온도 0.7에서 파서·생성기 보호 개입 0/100(이전 20%·6%, 1회씩 참고값).
 
