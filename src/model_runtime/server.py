@@ -5,11 +5,11 @@ GET /v1/info · GET /healthz · GET /readyz. 서버가 I4(HttpReleaseReader)에�
 적재 실패는 이미 적재된 릴리스를 건드리지 않는다. 보호 결과는 응답 헤더 X-Openit-Outcome|Attempts|Protections.
 엔진 호출은 직렬화하고, 대기가 길 것 같으면 큐에 쌓지 않고 503으로 거절한다. 발화·출력 원문은 로그에 남기지 않는다.
 
-환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(필수, .../schema/schemas),
-MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버), MODEL_RUNTIME_BUNDLE_DIR(기본 /tmp/model-runtime-bundles),
+환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
+MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
-MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
+MODEL_RUNTIME_FAKE_RISK_PHRASE(fake 전용 시험 스위치, 기본 꺼짐; vllm에서 설정하면 시작 거부), MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
 from __future__ import annotations
 
 import json
@@ -18,6 +18,7 @@ import os
 import re
 import signal
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,9 +30,14 @@ from boundary_contracts.errors import BoundaryError
 from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
                FakeBackend, ModelRuntimeError, ServingConfigMismatch, UnsupportedServingConfig, load, serving_config_hash)
 from .errors import BackendNotAvailable
+from .prompts import SUPPORTED_TEMPLATE_VERSIONS
+from .protection import PROTECTION_POLICIES
+from .schema_guard import RELAX_POLICY_VERSION
 
 log = logging.getLogger("model_runtime.server")
 MAX_BODY = 4 * 1024 * 1024
+DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
+EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
           "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
@@ -57,7 +63,8 @@ class Release:
 class Service:
     def __init__(self, *, schema_dir: Path, bundle_dir: Path, base_backend_factory: Callable[[], object],
                  reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
-                 queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4):
+                 queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None):
+        self.test_hooks = dict(test_hooks or {})
         self.schema_dir, self.bundle_dir = Path(schema_dir), Path(bundle_dir)
         self.reader_factory, self.backend_name = reader_factory, backend_name
         self.tokens = dict(tokens or {})
@@ -69,7 +76,22 @@ class Service:
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
         self.base = None
         self.ready, self.not_ready_reason = False, "백엔드를 올리는 중"
+        self.bundle_error = self._check_bundle_dir()
+        if self.bundle_error:
+            log.error("%s", self.bundle_error)
+            self.not_ready_reason = self.bundle_error
+            return   # 백엔드를 올리지 않는다. /readyz는 503과 이유를 낸다
         threading.Thread(target=self._start_backend, args=(base_backend_factory,), daemon=True).start()
+
+    def _check_bundle_dir(self) -> str | None:
+        """번들 캐시를 만들고 쓸 수 있는지 시작할 때 확인한다. 볼륨을 처음 마운트해도 동작해야 한다."""
+        try:
+            self.bundle_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryFile(dir=self.bundle_dir):
+                pass
+        except OSError as e:
+            return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
+        return None
 
     def close(self):
         """종료 시 엔진을 내린다(시그널 처리에서 부른다). 내리지 않으면 EngineCore가 GPU 메모리를 쥔 채 남는다."""
@@ -92,7 +114,7 @@ class Service:
     def put(self, rid: str):
         """(상태 코드, 본문). 멱등: LOADED면 200, LOADING이면 대기 후 상태, FAILED·ABSENT면 새로 시도한다."""
         if not self.ready:
-            return 503, BoundaryError("UNAVAILABLE", "서버가 아직 준비되지 않았다").to_record()
+            return 503, BoundaryError("UNAVAILABLE", self.not_ready_reason or "서버가 아직 준비되지 않았다").to_record()
         with self.rlock:
             r = self.releases.get(rid)
             if r is None or r.state == "FAILED":
@@ -142,9 +164,19 @@ class Service:
         with self.rlock:
             loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
             hashes = self.releases[loaded[-1]].hashes if loaded else {}
+        base = self.base
+        expect = None
+        if base is not None:   # 매니페스트의 serving_config가 맞춰야 하는 값(deploy·model-lab이 참고한다)
+            expect = {"constraint": {"backend": base.name, "backend_version": base.version,
+                                     "supported_features": sorted(base.supported_features),
+                                     "relax_policy_version": RELAX_POLICY_VERSION},
+                      "prompt_template_versions": sorted(SUPPORTED_TEMPLATE_VERSIONS),
+                      "protection_policy_versions": sorted(PROTECTION_POLICIES),
+                      "output_contract": SUPPORTED_RUNTIME_CONTRACT_VERSION}
         return {"service": "model-runtime", "runtime_version": RUNTIME_VERSION,
                 "supported_contract_versions": [SUPPORTED_RUNTIME_CONTRACT_VERSION], "backend": self.backend_name,
-                "loaded": loaded, "serving_config_hash": hashes}   # 해시는 가장 최근에 적재한 릴리스의 것
+                "loaded": loaded, "serving_config_hash": hashes,   # 해시는 가장 최근에 적재한 릴리스의 것
+                "serving_config_expectation": expect, "test_hooks": self.test_hooks}
 
     # --- 추론 ---
     def infer(self, rid: str, op: str, body):
@@ -246,11 +278,15 @@ def make_handler(svc: Service):
 
 def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None) -> Service:
     backend_name = env.get("MODEL_RUNTIME_BACKEND", "vllm")
-    if not env.get("MODEL_RUNTIME_SCHEMA_DIR"):
-        raise SystemExit("MODEL_RUNTIME_SCHEMA_DIR가 필요하다")
+    schema_dir = env.get("MODEL_RUNTIME_SCHEMA_DIR") or (EMBEDDED_SCHEMA_DIR if Path(EMBEDDED_SCHEMA_DIR).is_dir() else None)
+    if not schema_dir:
+        raise SystemExit("MODEL_RUNTIME_SCHEMA_DIR가 필요하다(이미지에 스키마가 들어 있지 않다)")
     tokens = dict(kv.split("=", 1) for kv in env.get("MODEL_RUNTIME_TOKENS", "").split(",") if "=" in kv)
+    risk = env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE") or None
+    if risk and backend_name != "fake":
+        raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 fake 백엔드에서만 쓴다(운영 모드에서는 거부)")
     if backend_name == "fake":
-        factory = FakeBackend
+        factory = lambda: FakeBackend(risk_phrase=risk)
     elif backend_name == "vllm":
         def factory():
             from .vllm_backend import VLLMBackend, load_profile
@@ -265,8 +301,8 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         def reader_factory():
             from boundary_contracts.clients.releases import HttpReleaseReader
             return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], env.get("MODEL_RUNTIME_RELEASE_TOKEN", ""), timeout=120)
-    return Service(schema_dir=Path(env["MODEL_RUNTIME_SCHEMA_DIR"]),
-                   bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", "/tmp/model-runtime-bundles")),
+    return Service(schema_dir=Path(schema_dir), test_hooks={"fake_risk_phrase": bool(risk)},
+                   bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),
                    put_wait_s=float(env.get("MODEL_RUNTIME_PUT_WAIT_S", "3.0")),

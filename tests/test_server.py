@@ -38,7 +38,7 @@ class StubReader:
 
 
 def start(tmp, plan=None, tokens=None, **kw):
-    env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "5"}
+    env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "5", "MODEL_RUNTIME_BUNDLE_DIR": str(Path(tmp) / "bundles")}
     env.update(kw)
     if tokens:
         env["MODEL_RUNTIME_TOKENS"] = tokens
@@ -152,3 +152,50 @@ class Server(unittest.TestCase):
     def test_old_paths_gone(self):
         _, url, _, _ = self.srv()
         self.assertEqual(call(url, "/v1/parse", PARSER_INPUT)[0], 404)
+
+
+class Cr17(unittest.TestCase):
+    def setUp(self):
+        self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
+
+    def test_info_exposes_serving_config_expectation_for_fake(self):
+        srv, url, _, _ = start(self._t.name); self.addCleanup(srv.shutdown)
+        e = call(url, "/v1/info")[1]["serving_config_expectation"]
+        b = mr.FakeBackend()
+        self.assertEqual(e["constraint"], {"backend": "fake", "backend_version": "1", "supported_features": sorted(b.supported_features),
+                                           "relax_policy_version": mr.RELAX_POLICY_VERSION})
+        self.assertEqual(e["prompt_template_versions"], ["prompt-2"])
+        # 기대값으로 만든 설정은 PUT이 받아 준다(deploy가 이 값으로 매니페스트를 만들 수 있다)
+        self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 200)
+
+    def test_unwritable_bundle_dir_makes_readyz_503_with_reason(self):
+        blocker = Path(self._t.name) / "file"; blocker.write_text("x")
+        srv, url, svc, _ = start(self._t.name, MODEL_RUNTIME_BUNDLE_DIR=str(blocker / "sub")); self.addCleanup(srv.shutdown)
+        s, body, _ = call(url, "/readyz")
+        self.assertEqual(s, 503); self.assertIn("번들 디렉터리", body["reason"])
+        s, body, _ = call(url, "/v1/releases/r1", method="PUT")
+        self.assertEqual(s, 503); self.assertIn("번들 디렉터리", body["message"])
+        self.assertEqual(call(url, "/healthz")[0], 200)
+
+    def test_missing_bundle_dir_is_created(self):
+        d = Path(self._t.name) / "new" / "bundles"
+        srv, url, _, _ = start(self._t.name, MODEL_RUNTIME_BUNDLE_DIR=str(d)); self.addCleanup(srv.shutdown)
+        self.assertEqual(call(url, "/readyz")[0], 200); self.assertTrue(d.is_dir())
+
+    def test_fake_risk_phrase_yields_valid_risk_signal(self):
+        srv, url, _, _ = start(self._t.name, MODEL_RUNTIME_FAKE_RISK_PHRASE="가슴이 조여요"); self.addCleanup(srv.shutdown)
+        self.assertTrue(call(url, "/v1/info")[1]["test_hooks"]["fake_risk_phrase"])
+        call(url, "/v1/releases/r1", method="PUT")
+        s, out, h = call(url, "/v1/releases/r1/parse", dict(PARSER_INPUT, utterance="갑자기 가슴이 조여요 그리고 숨이 차요"))
+        self.assertEqual((s, h["X-Openit-Outcome"]), (200, "ok"))   # 보호 없이 계약을 통과
+        self.assertEqual([i["intent"] for i in out["items"]], ["RISK_SIGNAL"])
+        self.assertEqual(out["items"][0]["source_text"], "갑자기 가슴이 조여요 그리고 숨이 차요")
+        self.assertEqual(mr.SchemaSet(SCHEMA_DIR).output_violations("LORA_A", out), [])
+        self.assertEqual(call(url, "/v1/releases/r1/parse", PARSER_INPUT)[1], {"items": []})   # 다른 발화는 그대로
+
+    def test_risk_phrase_off_by_default_and_refused_for_vllm(self):
+        srv, url, _, _ = start(self._t.name); self.addCleanup(srv.shutdown)
+        self.assertFalse(call(url, "/v1/info")[1]["test_hooks"]["fake_risk_phrase"])
+        with self.assertRaises(SystemExit):
+            server.build_service({"MODEL_RUNTIME_BACKEND": "vllm", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
+                                  "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x"})

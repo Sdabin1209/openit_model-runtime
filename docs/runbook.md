@@ -18,18 +18,21 @@
 | CPU/fake (기본) | `docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .` | `MODEL_RUNTIME_BACKEND=fake`. GPU·모델 없이 호출 경로·서비스 연동 시험 | 작음 |
 | GPU | `docker build --build-arg VARIANT=gpu --build-context boundary=../boundary-contracts -t model-runtime:gpu .` | `MODEL_RUNTIME_BACKEND=vllm`(기본). vLLM 0.31.0, 서빙 목표 RTX 4090 24GB | 약 13GB |
 
+스키마를 이미지에 넣는 선택 옵션: `--build-context schema=<.../survey-service/schema>`를 더하면 `/opt/survey-schema`에 들어가고, `MODEL_RUNTIME_SCHEMA_DIR`가 없을 때 `/opt/survey-schema/schemas`를 쓴다(읽기 전용 마운트 불필요). 안 주면 빈 스테이지라 이미지에 스키마가 없고 마운트가 필요하다. 어느 쪽이든 정수 버전은 라벨 `io.openit.contracts.survey-schema`(`--build-arg SURVEY_SCHEMA_VERSION=<n>`)로 밝히고, 스키마 버전이 바뀌면 이미지를 다시 만든다(D21).
+
 라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n> TURN_ENGINE_VERSION=<v>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 0.5.0). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
 
 ### 환경 변수 (설정은 환경 변수로만 받는다)
 | 변수 | 필수 | 기본 | 뜻 |
 | --- | --- | --- | --- |
 | `MODEL_RUNTIME_BACKEND` | 아니오 | `vllm` | `vllm` 또는 `fake` |
-| `MODEL_RUNTIME_SCHEMA_DIR` | **예** | | 문진 스키마의 `.../schema/schemas`(상위에 `CONTRACT_VERSION`). 이미지에 넣지 않으므로 **읽기 전용 마운트** |
+| `MODEL_RUNTIME_SCHEMA_DIR` | 이미지에 스키마를 넣지 않았으면 **예** | `/opt/survey-schema/schemas`(넣은 경우) | 문진 스키마의 `.../schema/schemas`(상위에 `CONTRACT_VERSION`). 이미지에 넣지 않으므로 **읽기 전용 마운트** |
 | `MODEL_RUNTIME_RELEASE_URL` | **예** | | I4(release-gate) 서버 주소. 서버가 여기서 번들을 읽는다 |
 | `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, 이미지·리포지토리에 넣지 않음) |
 | `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게 |
 | `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(잠정, 미시험)이 있다 |
-| `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/tmp/model-runtime-bundles` | 받은 번들을 푸는 곳(쓰기 가능, 볼륨 권장) |
+| `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/var/lib/model-runtime/bundles` | 받은 번들을 푸는 곳. 이미지가 uid 10001 소유로 만들어 두므로 **새 이름 있는 볼륨을 처음 마운트해도 쓸 수 있다**(확인함). 바인드 마운트는 호스트에서 소유자를 10001로 맞춘다. 쓸 수 없으면 서버는 `/readyz` 503과 이유(`reason`)를 내고 `PUT`도 503 |
+| `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | 꺼짐 | **fake 전용 시험 스위치**: 파서 입력 발화에 이 문구가 있으면 `RISK_SIGNAL` 항목 하나(`target`·`value` null, `source_text`는 발화)를 낸다. 위험 정지 → 직원 RESUME 시험용. vllm 백엔드에서 설정하면 서버가 시작을 거부하고, 켜져 있는지는 `/v1/info`의 `test_hooks.fake_risk_phrase`에 나온다 |
 | `MODEL_RUNTIME_QUEUE_WAIT_S` | 아니오 | `3.0` | 예상 대기가 이보다 길면 503. 서비스의 호출 타임아웃(기본 4초)보다 작게 |
 | `MODEL_RUNTIME_PUT_WAIT_S` | 아니오 | `3.0` | `PUT` 응답이 적재 완료를 기다리는 시간. 넘으면 202 LOADING(이후 `GET`으로 확인) |
 | `MODEL_RUNTIME_MAX_RELEASES` | 아니오 | `4` | 동시에 적재해 두는 릴리스 수 |
@@ -53,6 +56,7 @@ model-runtime:
 
 ### fake 백엔드로 `PUT` 적재가 되려면
 CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용도다. 번들이 다음을 만족해야 한다.
+0. **기대값 조회**: 서버가 `GET /v1/info`의 `serving_config_expectation`(`constraint`, 지원 프롬프트·보호 정책 버전, `output_contract`)으로 매니페스트가 맞춰야 할 값을 낸다(백엔드가 준비된 뒤). deploy는 이 값을 그대로 `serving_config`에 쓰면 된다.
 1. `manifest.adapters.{LORA_A,LORA_B}.serving_config.constraint`가 `{"backend": "fake", "backend_version": "1", "supported_features": [FakeBackend 기본 집합], "relax_policy_version": "relax-1"}`. 집합은 `sorted(FakeBackend().supported_features)` = `$defs, $ref, additionalProperties, anyOf, enum, items, properties, required, type`. 만드는 가장 쉬운 방법은 `model_runtime.fake_serving_configs()`의 결과를 매니페스트에 넣는 것이다.
 2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-2`, `output_contract: 1`, `protection_policy_version: protect-1`, `decoding`, `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
 3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.5.x).

@@ -255,6 +255,7 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 - 조건 규칙(`allOf`/`if/then`/`not`) 무시와 `uniqueItems` 거부는 알려진 한계이고 보호가 맡는다.
 
 ### 12. 변경 기록 (설계)
+- 2026-10-15 (0.5.1): 번들 디렉터리 쓰기 확인, fake 위험 신호 시험 스위치(운영 모드 거부), `/v1/info` 기대값, 스키마 포함 빌드 옵션.
 - 2026-10-15 (0.5.0): 서버·I9 경로·`retry_temperature`·`bind/close` 버전을 0.5.0으로 올림.
 - 2026-10-15 (D62 확정): 서버를 HTTP.md I9 절(릴리스 단위, `X-Openit-*`)로 변경, `decoding.retry_temperature` 추가(§2.3, §11-U), `VLLMBackend.bind/close`.
 - 2026-10-15 (D62): 추론 서버·Dockerfile·4090 프로파일(잠정)·실제 어댑터 시험(§11-T), 변경 요청 003.

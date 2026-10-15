@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -32,11 +33,12 @@ class FakeBackend:
     name = "fake"
     version = "1"
 
-    def __init__(self, responder: Callable[[GenerationRequest], str] | None = None,
+    def __init__(self, responder: Callable[[GenerationRequest], str] | None = None, *, risk_phrase: str | None = None,
                  supported_features: Sequence[str] = ("type", "properties", "required", "enum", "items",
                                                       "anyOf", "$defs", "$ref", "additionalProperties")):
         self.supported_features = frozenset(supported_features)
-        self._responder = responder or _default_responder
+        self.risk_phrase = risk_phrase or None   # 시험용 스위치. 기본 꺼짐. 켜면 파서가 이 문구가 든 발화에 RISK_SIGNAL을 낸다
+        self._responder = responder or (lambda r: _default_responder(r, self.risk_phrase))
         self.requests: list[GenerationRequest] = []
 
     @classmethod
@@ -56,7 +58,16 @@ class FakeBackend:
         return self._responder(request)
 
 
-def _default_responder(req: GenerationRequest) -> str:
+_UTTERANCE = re.compile(r'"utterance":("(?:[^"\\]|\\.)*")')
+
+
+def _default_responder(req: GenerationRequest, risk_phrase: str | None = None) -> str:
     if req.role == "LORA_A":
+        if risk_phrase:
+            m = _UTTERANCE.search(req.prompt)
+            utterance = json.loads(m.group(1)) if m else ""
+            if risk_phrase in utterance:
+                return json.dumps({"items": [{"item_no": 0, "target": None, "value": None, "source_text": utterance,
+                                              "intent": "RISK_SIGNAL", "progress_op": None, "guide_id": None}]}, ensure_ascii=False)
         return json.dumps({"items": []})
     return json.dumps({"response_text": "(가짜 응답)"}, ensure_ascii=False)

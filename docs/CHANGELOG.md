@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 0.5.1 (미배포) — 2026-10-15 (deploy CR-D17)
+- 번들 캐시 기본 경로를 `/var/lib/model-runtime/bundles`(이미지에서 uid 10001 소유)로 바꿨다. 쓸 수 없으면 `/readyz` 503과 이유, `PUT` 503. 새 이름 있는 볼륨 마운트 확인.
+- `FakeBackend(risk_phrase=)`, 환경 변수 `MODEL_RUNTIME_FAKE_RISK_PHRASE`(fake 전용, 기본 꺼짐, vllm이면 시작 거부): 해당 문구가 든 발화에 `RISK_SIGNAL` 항목을 낸다(출력 계약 통과, 보호 없음).
+- `/v1/info`에 `serving_config_expectation`, `test_hooks` 추가. 이미지에 스키마를 넣는 선택 옵션(`--build-context schema=`, `/opt/survey-schema`), 라벨로 스키마 버전 표시. 시험 105개.
+
 ## 0.5.0 (미배포) — 2026-10-15
 - 추론 서버 `python -m model_runtime.server`와 이미지(`Dockerfile`, CPU/fake·GPU 두 변형). 경로는 `boundary-contracts/HTTP.md` I9 절(릴리스 단위 `PUT`/`GET /v1/releases/{id}`, `POST .../parse|generate`, `/v1/info`, `/healthz`, `/readyz`), 보호 결과는 `X-Openit-Outcome|Attempts|Protections`. 적재는 I4 `HttpReleaseReader`로 서버가 스스로 하고 실패는 그 릴리스에만 기록한다. 대기가 길면 503. SIGTERM에서 엔진을 내린다.
 - `decoding.retry_temperature`(선택): 시도 1 이상의 온도. 없으면 기존 동작이며 기존 해시는 그대로다.
