@@ -63,12 +63,12 @@ def fake_importer(sp=FakeSP, llm_holder=None):
     return imp
 
 
-def adapters(tmp, base="Qwen/Qwen2.5-1.5B-Instruct"):
+def adapters(tmp, base="Qwen/Qwen2.5-1.5B-Instruct", rank=8):
     out = {}
     for role in ("LORA_A", "LORA_B"):
         d = Path(tmp) / role
         d.mkdir()
-        (d / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": base}))
+        (d / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": base, "r": rank}))
         out[role] = d
     return out
 
@@ -107,13 +107,35 @@ class Assembly(unittest.TestCase):
         self.assertEqual((kw["max_loras"], kw["max_lora_rank"], kw["gpu_memory_utilization"]), (2, 16, 0.6))
         self.assertEqual((b.name, b.version), ("vllm", "9.9.9"))
 
-    def test_base_model_from_adapter_config_and_mismatch(self):
+    def test_base_model_from_adapter_config(self):
         self.backend()
         self.assertEqual(self.llms[0].init_kw["model"], "Qwen/Qwen2.5-1.5B-Instruct")
-        (self.ad["LORA_B"] / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "other"}))
+
+    def test_base_model_mismatch_rejected_before_engine(self):
+        (self.ad["LORA_B"] / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "other", "r": 8}))
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            self.backend()
+        with self.assertRaises(mr.UnsupportedServingConfig):   # 명시한 기반 모델과 달라도 거부
+            self.backend(base_model="x/y")
+        self.assertEqual(self.llms, [])
+
+    def test_rank_above_max_rejected_before_engine(self):
+        (self.ad["LORA_A"] / "adapter_config.json").write_text(
+            json.dumps({"base_model_name_or_path": "Qwen/Qwen2.5-1.5B-Instruct", "r": 32}))
+        with self.assertRaises(mr.UnsupportedServingConfig) as c:
+            self.backend(profile=mr.load_profile(ROOT / "profiles" / "gpu-dev-12g.json"))
+        self.assertIn("LORA_A", str(c.exception))
+        self.assertEqual(self.llms, [])   # 엔진을 만들지 않았다
+        self.backend(profile={"engine": {"max_lora_rank": 32}})   # 상한을 올리면 통과
+
+    def test_non_peft_adapter_rejected(self):
+        (self.ad["LORA_A"] / "adapter_config.json").write_text("{}")
         with self.assertRaises(mr.ContractViolation):
             self.backend()
-        self.backend(base_model="x/y")   # 명시하면 허용
+        (self.ad["LORA_A"] / "adapter_config.json").unlink()
+        with self.assertRaises(mr.ContractViolation):
+            self.backend()
+        self.assertEqual(self.llms, [])
 
     def test_adapter_roles_must_be_both(self):
         with self.assertRaises(mr.ContractViolation):

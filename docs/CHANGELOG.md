@@ -1,6 +1,8 @@
 # 변경 이력
 
-## 다음 (버전은 헤드가 정한다; 추가뿐이라 I9 시그니처 변경 없음) — 2026-10-15
+## 0.4.0 (미배포) — 2026-10-15
+- I9 시그니처 변경 없음. 실제 백엔드 추가와 어댑터 사전 검사(순위 r > `max_lora_rank`, 기반 모델 불일치는 `UnsupportedServingConfig`, PEFT 형식 아님은 `ContractViolation`)로 MINOR를 올렸다.
+- 제안(survey-service가 정할 일): 이미지 라벨에 vLLM·xgrammar 버전도 남긴다.
 - `VLLMBackend`(vLLM 0.31.0 + 구조화 출력 + LoRA) 추가, `pip install .[vllm]`. 지연 import라 vLLM이 없는 환경에서도 패키지와 기존 시험이 그대로 돌고 `BackendNotAvailable`이다. `load(..., backend=None)`은 모든 역할의 `constraint.backend`가 `"vllm"`이면 `VLLMBackend(adapters)`를 만든다(기반 모델은 어댑터의 `adapter_config.json`에서 읽는다).
 - `load_profile`, `DEFAULT_SUPPORTED_FEATURES`, 프로파일 `profiles/gpu-dev-12g.json`, GPU 시험 스크립트(`scripts/gpu_check.sh`, `gpu_probe.py`, `gpu_report.py`, `make_tiny_lora.py`), 단위 시험 14개(vLLM 모킹). 시험 81개.
 - 변경 요청 002.

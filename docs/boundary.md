@@ -16,7 +16,7 @@
 
 ## 백엔드
 - 첫 실제 백엔드는 vLLM이다(선택 의존 `.[vllm]`). `serving_config.constraint.backend`는 `"vllm"`, `backend_version`은 설치된 vLLM 버전, `supported_features`는 `DEFAULT_SUPPORTED_FEATURES`여야 `load`가 받는다. 이미지에 vLLM이 없으면 `BackendNotAvailable`.
-- 어댑터 디렉터리는 PEFT 형식(`adapter_config.json`, `adapter_model.safetensors`)이어야 하고 두 어댑터의 기반 모델이 같아야 한다. 어댑터 순위는 서버의 `max_lora_rank` 이하여야 한다(넘으면 엔진이 죽는다, 변경 요청 002).
+- 어댑터 디렉터리는 PEFT 형식(`adapter_config.json`, `adapter_model.safetensors`)이어야 하고 두 어댑터의 기반 모델이 같아야 한다. `load`는 엔진 전에 `adapter_config.json`의 `r`이 `max_lora_rank` 이하이고 `base_model_name_or_path`가 기반 모델과 같은지 검사한다(어긋나면 `UnsupportedServingConfig`, PEFT 형식이 아니면 `ContractViolation`). 재현성은 같은 서버 프로세스 안에서만 약속한다.
 
 ## 호출자가 지켜야 할 것
 - 역할마다 `ModelPackageManifest.serving_config`와 `serving_config_hash`를 `serving_configs[role]`, `expected_serving_config_hashes[role]`로 넘긴다. 어댑터·설정·해시의 역할 집합은 {LORA_A, LORA_B}로 같아야 한다(아니면 `ContractViolation`). 한 역할만 어긋나도 로딩을 거부한다(`ServingConfigMismatch.role`).

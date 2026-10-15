@@ -225,7 +225,13 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 7. 호스트 환경: gpu-dev는 nvcc가 없어 FlashInfer 샘플러를 껐다. 큰 스테이션 이미지에서 같은 설정이 필요한지 확인한다(`VLLM_USE_FLASHINFER_SAMPLER`).
 8. 실제 학습된 어댑터로 시나리오 적합성 표(§11-10)와 보호 개입 빈도.
 
+### 11-S. 사전 검사와 재현성 약속 (헤드 결정 D48, 0.4.0)
+- 엔진에 올리기 전에 어댑터의 `adapter_config.json`을 읽어 검사한다: 없거나 `r`이 없으면 `ContractViolation`(PEFT 형식 아님), `r`이 엔진의 `max_lora_rank`(프로파일 `engine`, 기본 16)를 넘거나 `base_model_name_or_path`가 사용할 기반 모델과 다르면 `UnsupportedServingConfig`(메시지에 역할). 엔진을 만들기 전에 거부하므로 엔진이 죽는 일이 없다(모킹 시험).
+- 재현성은 **같은 서버 프로세스 안에서만** 약속한다. 평가는 온도 0에서 한다. 서버 재시작 간 완전 일치는 약속하지 않는다.
+- 조건 규칙(`allOf`/`if/then`/`not`) 무시와 `uniqueItems` 거부는 알려진 한계이고 보호가 맡는다.
+
 ### 12. 변경 기록 (설계)
+- 2026-10-15 (0.4.0): 어댑터 사전 검사(§11-S), 재현성 약속 범위.
 - 2026-10-15: `VLLMBackend`와 gpu-dev 시험 결과(§11-R), 큰 스테이션 재확인 목록, 변경 요청 002.
 - 2026-10-15: 출력 보호(D36) 반영. `ModelOutputInvalid` 삭제, `*_raw`, `is_fallback`을 코드가 채움, `schema_dir` 단일화·`configure` 삭제, `protection_policy_version` 추가, 프롬프트 `prompt-1` 삭제 후 `prompt-2`(생성기 규칙 1~4 포함, 모델은 `response_text`만 출력). `prompt-1`은 어느 릴리스·모델 패키지에도 쓰인 적이 없다(0.x 미배포).
 - 2026-10-15 (0.3.0): `load`를 역할별 설정·기대 해시로 변경(D45). `ModelSession.serving_config_hash` → `serving_config_hashes`(역할별), `ServingConfigMismatch.role`, 역할 집합 불일치는 `ContractViolation`. 소비자는 survey-service 하나(0.2.0 사용 중)였다.

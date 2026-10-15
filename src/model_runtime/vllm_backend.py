@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .backends import GenerationRequest
-from .errors import BackendNotAvailable, ContractViolation
+from .errors import BackendNotAvailable, ContractViolation, UnsupportedServingConfig
 
 # gpu-dev 시험(vLLM 0.31.0 + xgrammar 0.2.7, 2026-10-15, design.md §11)으로 제약이 지켜지는 것을 확인한 키워드.
 # 넣지 않은 것: oneOf(const 열거는 enum으로 바꿔 쓴다. 객체 가지는 표본이 적어 anyOf로 넓힌다), allOf·if/then/not(조용히 무시됨),
@@ -39,11 +39,16 @@ def load_profile(path: Path | str) -> dict:
     return p
 
 
-def _base_model_of(adapter_dir: Path) -> str | None:
+def read_adapter_config(role: str, adapter_dir: Path) -> dict:
+    """PEFT 어댑터 디렉터리의 adapter_config.json을 읽는다. 형식이 아니면 ContractViolation(원문 없이 역할만)."""
     try:
-        return json.loads((adapter_dir / "adapter_config.json").read_text(encoding="utf-8")).get("base_model_name_or_path")
+        cfg = json.loads((Path(adapter_dir) / "adapter_config.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        raise ContractViolation(f"{role} 어댑터가 PEFT 형식이 아니다(adapter_config.json을 읽을 수 없다)") from None
+    r = cfg.get("r") if isinstance(cfg, dict) else None
+    if not isinstance(r, int) or isinstance(r, bool) or r < 1:
+        raise ContractViolation(f"{role} 어댑터 설정에 순위 r이 없다")
+    return cfg
 
 
 class VLLMBackend:
@@ -64,10 +69,17 @@ class VLLMBackend:
             raise BackendNotAvailable("vLLM이 설치되어 있지 않다 (pip install .[vllm])") from None
         profile = dict(profile or {})
         dirs = {r: Path(p) for r, p in adapters.items()}
-        bases = {_base_model_of(d) for d in dirs.values()}
-        model = base_model or profile.get("base_model") or (bases.pop() if len(bases) == 1 else None)
+        cfgs = {r: read_adapter_config(r, d) for r, d in dirs.items()}
+        model = base_model or profile.get("base_model") or cfgs["LORA_A"].get("base_model_name_or_path")
         if not model:
-            raise ContractViolation("기반 모델을 알 수 없다(base_model, 프로파일, 어댑터 설정 중 하나가 필요하다)")
+            raise ContractViolation("기반 모델을 알 수 없다(base_model, 프로파일, LORA_A 어댑터 설정 중 하나가 필요하다)")
+        # 엔진에 올리기 전에 막는다: 순위 초과는 엔진 전체를 죽이고, 다른 기반 모델의 어댑터는 쓸 수 없다.
+        max_rank = int(dict(profile.get("engine", {})).get("max_lora_rank", 16))
+        for r in ROLES:
+            if cfgs[r]["r"] > max_rank:
+                raise UnsupportedServingConfig(f"{r} 어댑터 순위가 max_lora_rank({max_rank})를 넘는다")
+            if cfgs[r].get("base_model_name_or_path") != model:
+                raise UnsupportedServingConfig(f"{r} 어댑터의 기반 모델이 사용할 기반 모델과 다르다")
         self.supported_features = frozenset(supported_features)
         self.version = str(getattr(vllm, "__version__", "unknown"))
         self.base_model = model
@@ -77,6 +89,7 @@ class VLLMBackend:
         engine = dict(profile.get("engine", {}))
         engine.setdefault("enable_lora", True)
         engine.setdefault("max_loras", len(ROLES))
+        engine.setdefault("max_lora_rank", max_rank)
         engine.setdefault("disable_log_stats", True)   # 프롬프트·출력 로그 방지(§11-11)는 GPU 시험에서 확인
         self._structured_new = hasattr(sp_mod, "StructuredOutputsParams")
         # 구조화 출력 엔진 인자 이름이 vLLM 버전마다 다르다(guided_decoding_backend → structured_outputs_config). 확인 전.
