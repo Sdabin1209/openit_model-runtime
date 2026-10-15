@@ -124,8 +124,11 @@ class _Session:
         n = 0
         for k in range(cfg["max_attempts"]):
             n = k + 1
+            d = dec
+            if k > 0 and "retry_temperature" in dec:   # 재시도 온도(§2.3). 시도 0은 항상 temperature
+                d = {**dec, "temperature": dec["retry_temperature"]}
             raw = self._backend.generate(
-                GenerationRequest(role, prompt, schema if constrained else None, dec, dec["seed"] + k, k))
+                GenerationRequest(role, prompt, schema if constrained else None, d, dec["seed"] + k, k))
             try:
                 value = json.loads(raw, parse_constant=_reject_constant)
             except (ValueError, TypeError):

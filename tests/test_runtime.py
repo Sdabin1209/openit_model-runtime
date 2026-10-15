@@ -279,3 +279,22 @@ class Privacy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetryTemperature(unittest.TestCase):
+    def test_retry_temperature_used_from_second_attempt_only(self):
+        dec = {"constraint_mode": "constrained", "temperature": 0, "seed": 10, "max_tokens": 64, "retry_temperature": 0.7}
+        b, cfgs, s = make({"LORA_A": ["x", "y", GOOD_PARSE]}, decoding=dec)
+        s.parse(PARSER_INPUT)
+        self.assertEqual([r.decoding["temperature"] for r in b.requests], [0, 0.7, 0.7])
+        self.assertEqual([r.seed for r in b.requests], [10, 11, 12])
+
+    def test_absent_key_keeps_temperature(self):
+        b, cfgs, s = make({"LORA_A": ["x", GOOD_PARSE]})
+        s.parse(PARSER_INPUT)
+        self.assertEqual({r.decoding["temperature"] for r in b.requests}, {0})
+
+    def test_invalid_value_rejected(self):
+        cfg = mr.fake_serving_config(); cfg["decoding"]["retry_temperature"] = 3
+        with self.assertRaises(mr.ContractViolation):
+            mr.validate_serving_config(cfg)

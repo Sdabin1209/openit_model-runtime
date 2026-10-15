@@ -10,6 +10,7 @@
 
 ## 서버와 컨테이너 (D62)
 - 실행: `python -m model_runtime.server`(환경 변수는 `src/model_runtime/server.py` 머리말). 이미지: `docker build [--build-arg VARIANT=gpu] --build-context boundary=../boundary-contracts .`. 스키마 디렉터리와 어댑터는 읽기 전용 마운트.
+- 적재: `PUT /v1/releases/{id}` → `GET`으로 상태(ABSENT/LOADING/LOADED/FAILED, 실패는 `error`의 `code`). 412는 설정 해시·어댑터 순위/기반 모델·PASS 아님, 422는 버전·무결성. 재기동 뒤에는 서비스가 PUT을 다시 보낸다(미적재 릴리스는 404).
 - 스모크: `scripts/smoke.sh`(CPU/가짜 백엔드, 빈 포트 자동, 라벨과 non-root 확인). 실제 모델: `RUN_ID=<id> scripts/gpu_check.sh serve`(gpu-dev, flock).
 - 확인 순서: `/readyz`가 503이면 서버 로그(표준 출력)에서 `BackendNotAvailable`·`UnsupportedServingConfig`(순위/기반 모델)·`ServingConfigMismatch`를 본다. 응답 헤더 `X-Model-Runtime-Outcome`이 fallback으로 자주 오면 보호 집계를 본다. 엔진이 죽으면(503 `UNAVAILABLE` 계속) 프로세스를 다시 띄운다.
 

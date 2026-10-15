@@ -238,3 +238,28 @@ class Session(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Bind(unittest.TestCase):
+    def setUp(self):
+        self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
+        self.llms = []
+        self.b = mr.VLLMBackend(None, profile={"base_model": "Qwen/Qwen2.5-1.5B-Instruct", "engine": {"max_lora_rank": 16}},
+                                _import=fake_importer(llm_holder=self.llms))
+
+    def make(self, name, **kw):
+        Path(self._t.name, name).mkdir(); return adapters(Path(self._t.name) / name, **kw)
+
+    def test_engine_only_then_bind_shares_engine_with_unique_ids(self):
+        b1, b2 = self.b.bind(self.make("r1")), self.b.bind(self.make("r2"))
+        self.assertEqual(len(self.llms), 1)
+        self.assertEqual(len({b1.build_lora_request(r).int_id for r in ("LORA_A", "LORA_B")} |
+                             {b2.build_lora_request(r).int_id for r in ("LORA_A", "LORA_B")}), 4)
+        with self.assertRaises(mr.ContractViolation):
+            self.b.build_lora_request("LORA_A")   # 묶기 전
+
+    def test_bind_prechecks_rank_and_base(self):
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            self.b.bind(self.make("hi", rank=32))
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            self.b.bind(self.make("other", base="other/model"))

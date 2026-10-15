@@ -19,7 +19,7 @@
 - 어댑터 디렉터리는 PEFT 형식(`adapter_config.json`, `adapter_model.safetensors`)이어야 하고 두 어댑터의 기반 모델이 같아야 한다. `load`는 엔진 전에 `adapter_config.json`의 `r`이 `max_lora_rank` 이하이고 `base_model_name_or_path`가 기반 모델과 같은지 검사한다(어긋나면 `UnsupportedServingConfig`, PEFT 형식이 아니면 `ContractViolation`). 재현성은 같은 서버 프로세스 안에서만 약속한다.
 
 ## 추론 서버 (D62)
-- 라이브러리 외에 HTTP 서버 `python -m model_runtime.server`와 이미지를 낸다. 경로·헤더·오류는 `docs/change-requests/003-inference-http-api.md`(제안, survey-service 규약 확인 대기).
+- 라이브러리 외에 HTTP 서버 `python -m model_runtime.server`와 이미지를 낸다. 경로·헤더·오류는 `boundary-contracts/HTTP.md`의 I9 절이 기준이다(소비: 릴리스는 I4 HttpReleaseReader로 읽음, 환경 변수 `MODEL_RUNTIME_RELEASE_URL/TOKEN`).
 
 ## 호출자가 지켜야 할 것
 - 역할마다 `ModelPackageManifest.serving_config`와 `serving_config_hash`를 `serving_configs[role]`, `expected_serving_config_hashes[role]`로 넘긴다. 어댑터·설정·해시의 역할 집합은 {LORA_A, LORA_B}로 같아야 한다(아니면 `ContractViolation`). 한 역할만 어긋나도 로딩을 거부한다(`ServingConfigMismatch.role`).

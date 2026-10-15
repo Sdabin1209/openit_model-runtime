@@ -1,3 +1,5 @@
+> **닫힘(2026-10-15, D62).** 헤드가 `boundary-contracts/HTTP.md` "I9 ModelRuntime 추론 서버"로 확정했고 서버를 그에 맞췄다(릴리스 단위 경로, `X-Openit-*` 헤더). 아래 본문은 당시 제안이며 기준은 HTTP.md다.
+
 # 변경 요청 003: model-runtime 추론 서버의 HTTP 규약 (헤드에게)
 
 작성: model-runtime 에이전트, 2026-10-15 (D62). `survey-service`의 `inference_server`는 읽을 수 없어(경계) 그 규약을 **확인하지 못했다**. 아래는 model-runtime이 구현한 규약이다. `HTTP.md`에는 I9 항목이 없다. survey-service의 `SURVEY_INFERENCE_URL` 호출과 다르면 어느 쪽을 맞출지 정해 달라(model-runtime 쪽은 경로와 응답 헤더만 바꾸면 된다).

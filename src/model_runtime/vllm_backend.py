@@ -5,7 +5,9 @@ vLLM은 선택 의존(`pip install .[vllm]`)이고 생성할 때 import한다. �
 전에는 확인되지 않았다. 12GB 같은 환경별 값은 코드에 두지 않고 프로파일(profiles/*.json)로 받는다."""
 from __future__ import annotations
 
+import copy
 import importlib
+import itertools
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -54,13 +56,13 @@ def read_adapter_config(role: str, adapter_dir: Path) -> dict:
 class VLLMBackend:
     name = "vllm"
 
-    def __init__(self, adapters: Mapping[str, Path], *, profile: Mapping[str, Any] | None = None,
+    _next_lora_id = itertools.count(1)   # vLLM의 lora_int_id는 어댑터마다 서버 안에서 유일해야 한다
+
+    def __init__(self, adapters: Mapping[str, Path] | None = None, *, profile: Mapping[str, Any] | None = None,
                  supported_features=DEFAULT_SUPPORTED_FEATURES, base_model: str | None = None,
                  _import=importlib.import_module):
-        """adapters: 역할 → 어댑터 디렉터리. 두 어댑터를 한 기반 모델에 올린다.
+        """adapters: 역할 → 어댑터 디렉터리. None이면 엔진만 올리고(base_model 또는 프로파일 필요) 어댑터는 bind()로 묶는다. 두 어댑터를 한 기반 모델에 올린다.
         base_model: 없으면 profile["base_model"], 없으면 어댑터의 adapter_config.json에서 읽는다(두 어댑터가 같아야 한다)."""
-        if set(adapters) != set(ROLES):
-            raise ContractViolation("adapters의 역할 집합이 LORA_A, LORA_B와 다르다")
         try:
             vllm = _import("vllm")
             sp_mod = _import("vllm.sampling_params")
@@ -68,28 +70,25 @@ class VLLMBackend:
         except ImportError:
             raise BackendNotAvailable("vLLM이 설치되어 있지 않다 (pip install .[vllm])") from None
         profile = dict(profile or {})
-        dirs = {r: Path(p) for r, p in adapters.items()}
-        cfgs = {r: read_adapter_config(r, d) for r, d in dirs.items()}
-        model = base_model or profile.get("base_model") or cfgs["LORA_A"].get("base_model_name_or_path")
+        self._max_rank = int(dict(profile.get("engine", {})).get("max_lora_rank", 16))
+        model = base_model or profile.get("base_model")
+        if adapters is not None and not model:
+            cfgs0 = self._check_adapters(adapters, None)
+            model = cfgs0["LORA_A"].get("base_model_name_or_path")
         if not model:
             raise ContractViolation("기반 모델을 알 수 없다(base_model, 프로파일, LORA_A 어댑터 설정 중 하나가 필요하다)")
-        # 엔진에 올리기 전에 막는다: 순위 초과는 엔진 전체를 죽이고, 다른 기반 모델의 어댑터는 쓸 수 없다.
-        max_rank = int(dict(profile.get("engine", {})).get("max_lora_rank", 16))
-        for r in ROLES:
-            if cfgs[r]["r"] > max_rank:
-                raise UnsupportedServingConfig(f"{r} 어댑터 순위가 max_lora_rank({max_rank})를 넘는다")
-            if cfgs[r].get("base_model_name_or_path") != model:
-                raise UnsupportedServingConfig(f"{r} 어댑터의 기반 모델이 사용할 기반 모델과 다르다")
+        self.base_model = model
+        self._adapters = {}
+        if adapters is not None:
+            self._adapters = self._ids(self._check_adapters(adapters, model) and adapters)
         self.supported_features = frozenset(supported_features)
         self.version = str(getattr(vllm, "__version__", "unknown"))
-        self.base_model = model
         self._sp = sp_mod
         self._LoRARequest = lora_mod.LoRARequest
-        self._adapters = {r: (i + 1, str(d)) for i, (r, d) in enumerate(sorted(dirs.items()))}
         engine = dict(profile.get("engine", {}))
         engine.setdefault("enable_lora", True)
         engine.setdefault("max_loras", len(ROLES))
-        engine.setdefault("max_lora_rank", max_rank)
+        engine.setdefault("max_lora_rank", self._max_rank)
         engine.setdefault("disable_log_stats", True)   # 프롬프트·출력 로그 방지(§11-11)는 GPU 시험에서 확인
         self._structured_new = hasattr(sp_mod, "StructuredOutputsParams")
         # 구조화 출력 엔진 인자 이름이 vLLM 버전마다 다르다(guided_decoding_backend → structured_outputs_config). 확인 전.
@@ -98,6 +97,36 @@ class VLLMBackend:
             engine["guided_decoding_backend"] = be
         self.engine_args = engine
         self._llm = vllm.LLM(model=model, **engine)
+
+    def close(self) -> None:
+        """엔진 프로세스(EngineCore)를 내린다. 종료 시그널을 받았을 때 서버가 부른다. 실패해도 예외를 내지 않는다."""
+        llm = getattr(self, "_llm", None)
+        try:
+            llm.llm_engine.engine_core.shutdown()   # 속성 이름은 vLLM 0.31.0에서 확인한 것. 다른 버전이면 __del__에 맡긴다
+        except Exception:   # noqa: BLE001
+            pass
+
+    def _check_adapters(self, adapters, model):
+        """엔진에 올리기 전 사전 검사. 읽은 어댑터 설정을 돌려준다."""
+        if set(adapters) != set(ROLES):
+            raise ContractViolation("adapters의 역할 집합이 LORA_A, LORA_B와 다르다")
+        cfgs = {r: read_adapter_config(r, Path(adapters[r])) for r in ROLES}
+        for r in ROLES:
+            if cfgs[r]["r"] > self._max_rank:
+                raise UnsupportedServingConfig(f"{r} 어댑터 순위가 max_lora_rank({self._max_rank})를 넘는다")
+            if model is not None and cfgs[r].get("base_model_name_or_path") != model:
+                raise UnsupportedServingConfig(f"{r} 어댑터의 기반 모델이 사용할 기반 모델과 다르다")
+        return cfgs
+
+    def _ids(self, adapters):
+        return {r: (next(VLLMBackend._next_lora_id), str(Path(adapters[r]))) for r in ROLES}
+
+    def bind(self, adapters: Mapping[str, Path]) -> "VLLMBackend":
+        """같은 엔진(기반 모델 1개)에 다른 어댑터 쌍을 묶은 백엔드. 사전 검사를 통과해야 한다. 엔진은 새로 만들지 않는다."""
+        self._check_adapters(adapters, self.base_model)
+        b = copy.copy(self)
+        b._adapters = self._ids(adapters)
+        return b
 
     # --- 요청 조립(단위 시험 대상) ---
     def build_sampling_params(self, request: GenerationRequest):
@@ -115,7 +144,7 @@ class VLLMBackend:
 
     def build_lora_request(self, role: str):
         if role not in self._adapters:
-            raise ContractViolation("알 수 없는 역할")
+            raise ContractViolation("어댑터가 묶이지 않았거나 알 수 없는 역할")
         int_id, path = self._adapters[role]
         return self._LoRARequest(role, int_id, path)
 

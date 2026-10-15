@@ -25,6 +25,9 @@ SERVING_CONFIG_SCHEMA: dict[str, Any] = {
                 "temperature": {"type": "number", "minimum": 0, "maximum": 2},
                 "seed": {"type": "integer", "minimum": 0, "maximum": 2**31 - 1},
                 "max_tokens": {"type": "integer", "minimum": 1},
+                # 재시도(시도 번호 1 이상)에 쓰는 온도. 없으면 temperature 그대로(기존 설정·해시 불변).
+                # 온도 0에서는 시드가 효과가 없어 재시도가 같은 출력을 되풀이하므로 0이면 0 초과 값을 권장한다(docs/design.md §2.3).
+                "retry_temperature": {"type": "number", "minimum": 0, "maximum": 2},
                 "top_p": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
             },
         },

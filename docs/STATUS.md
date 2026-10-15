@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-15 (8차)
+갱신: 2026-10-15 (9차)
+
+- 9차(CR-003 회신): 서버를 HTTP.md I9 절(릴리스 단위 PUT/GET/parse/generate, `X-Openit-*`, 큐 503, 적재 실패 격리)로 변경, `retry_temperature` 추가, SIGTERM에서 엔진 정리(고아 EngineCore 수정). 시험 100개 통과(참조 I4 서버와 실제 HttpReleaseReader 한 바퀴 포함). gpu-dev에서 PUT 경로 한 바퀴 확인(design §11-U). 재시도 온도 0.7에서 파서·생성기 보호 개입 0/100(이전 20%·6%, 1회씩 참고값).
 
 - 8차(D62): 추론 서버·Dockerfile(CPU 스모크 통과)·잠금 파일·4090 프로파일(잠정) 추가. gpu-dev에서 실제 서버+model-lab 어댑터로 표본 100개 시험(design §11-T): 파서 보호 개입 20%, 생성기 6%, 메모리 최대 7585 MiB, p50 0.11/0.22s. 시험 88개 통과. GPU 변형 이미지는 이 PC에서 빌드됨(13.1GB, 컨테이너 안에서 vllm 0.31.0 import 확인, GPU 없는 PC라 추론은 안 돌림). 4090 실측·survey-service 규약 일치는 확인하지 못함(변경 요청 003).
 
