@@ -215,6 +215,23 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 
 `DEFAULT_SUPPORTED_FEATURES`는 위 ○ 키워드 가운데 `oneOf`를 뺀 집합이다(`oneOf` 상수 열거는 완화가 `enum`으로 바꾸고, 객체 가지는 표본이 작아 `anyOf`로 넓힌다).
 
+### 11-T. 추론 서버와 실제 어댑터 시험 (D62, 2026-10-15) [확인: `runs/s1/serve/serve_check.json`, 스크립트 `scripts/gpu_serve_check.py`]
+
+- 서버: `python -m model_runtime.server`(표준 라이브러리 HTTP, 환경 변수 설정, `/healthz`·`/readyz`·`/v1/parse`·`/v1/generate`·`/v1/info`; 변경 요청 003). 이미지: `Dockerfile`(non-root uid 10001, 라벨 D50, 잠금 파일 `requirements-{cpu,gpu}.lock`). GPU 변형은 서빙 목표 RTX 4090 24GB용이며 프로파일 `profiles/rtx4090-24g.json`은 **잠정이고 그 하드웨어에서는 시험하지 못했다**.
+- 시험 환경: gpu-dev(12GB), 실제 `VLLMBackend`, 기반 `Qwen2.5-1.5B-Instruct` bf16(3GB라 4비트 없이 올라가서 양자화는 쓰지 않았다), model-lab이 학습한 어댑터 2개(순위 16, `runs-ref/run-0a26...`; 호스트에서 읽기 전용 경로로 가리킴, 복사 없음), 서버를 띄워 HTTP로 평가 표본 각 50개(LORA_A 파서, LORA_B 생성기)를 보냈다. 기본 `serving_config`(온도 0, 시도 3, 제약 디코딩, 완화본).
+- 메모리: GPU 사용 459 MiB(시작 전) → 7519 MiB(준비, `gpu_memory_utilization` 0.6) → 최대 7585 MiB. 준비까지 34초.
+- 결과(보호 개입, D36):
+
+| 역할 | n | ok | repaired | fallback | 재시도 발생 | 보호 건수 |
+| --- | --- | --- | --- | --- | --- | --- |
+| LORA_A 파서 | 50 | 40 | 3 | 7 | 10 | P1 7(빈 목록), P5 3 |
+| LORA_B 생성기 | 50 | 47 | 0 | 3 | 3 | G0 2, G1 1 → 대체 문장 G5 3 |
+
+  개입률: 파서 20%(10/50), 생성기 6%(3/50). 보호 후 모든 출력이 출력 계약을 통과했다(`_assert_valid`가 어기면 예외, 예외는 없었음). 파서 정답 일치는 1/50으로 낮다. 이 어댑터는 작은 고정 데이터로 파이프라인 검증용으로 학습된 것이라 **성능 판단 근거가 아니다**.
+- 지연(서버 안, 요청당): 파서 p50 0.11s, 생성기 p50 0.22s. 꼬리는 길다: 파서 p95 15.4s, 최대 15.8s(재시도 3회가 모두 실패한 요청). **온도 0에서는 재시도가 같은 출력을 되풀이한다**(시드가 효과 없음, §2.3)ㅡ실패 요청의 지연이 시도 수만큼 커지고 결과는 같다. 개입 원인이 모두 `max_tokens` 도달(공백 반복)인지는 **확인하지 못했다**(원인별 집계는 헤더의 보호 이름까지만 있음; P1은 스키마 위반 일반). 후속: 온도 0에서는 `max_attempts` 1, 또는 재시도용 온도>0 설정을 model-lab/헤드와 정한다.
+- 조건 규칙 무시(allOf/if/then)에 대한 확인: 제약이 `ANSWERED_INTENT`인데 `target`/`value`가 null인 출력을 막지 못하는 경우를 사후 검증이 걸러 P5로 3건 고쳤다. 대체 출력으로 막는다는 것은 이 표본에서 확인됐다(보호 후 위반 0). 실제 서비스 입력 분포에서의 개입률은 아님.
+- 증거(입력 → 출력, 동일 실행): 생성기 `ASK_NEXT` → `{"response_text": "담배는 피우시나요?", "is_fallback": false}`(0.25s). 파서 "일주일에요" → `{"items": []}`(ok, 시도 1, 0.11s). 파서 "일주일에 두 번, 소주 한 병씩요" → 시도 3회 실패 → 보호 `{"items": []}`(fallback, 15.8s).
+
 ### 큰 스테이션에서 재확인 (모델·하드웨어가 바뀌면 다시 확인할 것) [제안]
 1. 채팅 템플릿: 지금은 `render_prompt`가 만든 문자열을 템플릿 없이 그대로 `generate`에 넣는다(학습 변환도 같은 문자열을 쓴다는 전제). 지시 튜닝 모델은 채팅 템플릿을 기대할 수 있으므로 새 기반 모델마다 학습과 서빙이 같은 입력 형식을 쓰는지 확인한다. 바뀌면 프롬프트 템플릿 버전을 올린다.
 2. 구조화 출력: 새 vLLM/xgrammar 버전과 새 모델의 토크나이저에서 §11-4·5 키워드 표를 다시 만든다(`scripts/gpu_check.sh`). `allOf`/`if/then`/`not` 지원이 생기면 `supported_features`를 넓히고 새 `serving_config`를 낸다. 공백 무한 생성을 막는 xgrammar의 공백 설정(vLLM 인자 이름은 버전마다 달라 미확인)을 검토한다.
@@ -231,6 +248,7 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 - 조건 규칙(`allOf`/`if/then`/`not`) 무시와 `uniqueItems` 거부는 알려진 한계이고 보호가 맡는다.
 
 ### 12. 변경 기록 (설계)
+- 2026-10-15 (D62): 추론 서버·Dockerfile·4090 프로파일(잠정)·실제 어댑터 시험(§11-T), 변경 요청 003.
 - 2026-10-15 (0.4.0): 어댑터 사전 검사(§11-S), 재현성 약속 범위.
 - 2026-10-15: `VLLMBackend`와 gpu-dev 시험 결과(§11-R), 큰 스테이션 재확인 목록, 변경 요청 002.
 - 2026-10-15: 출력 보호(D36) 반영. `ModelOutputInvalid` 삭제, `*_raw`, `is_fallback`을 코드가 채움, `schema_dir` 단일화·`configure` 삭제, `protection_policy_version` 추가, 프롬프트 `prompt-1` 삭제 후 `prompt-2`(생성기 규칙 1~4 포함, 모델은 `response_text`만 출력). `prompt-1`은 어느 릴리스·모델 패키지에도 쓰인 적이 없다(0.x 미배포).

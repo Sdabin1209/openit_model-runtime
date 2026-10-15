@@ -1,0 +1,14 @@
+{
+  "_comment": "서빙 목표 RTX 4090 24GB. 잠정: 이 하드웨어에서는 시험하지 못했다(gpu-dev 12GB 결과에서 비례해 잡은 값). 스테이션에서 design.md 11-R '큰 스테이션에서 재확인'을 먼저 돌린다.",
+  "base_model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "engine": {
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "gpu_memory_utilization": 0.85,
+    "max_num_seqs": 16,
+    "max_loras": 2,
+    "max_lora_rank": 16,
+    "enforce_eager": false
+  },
+  "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "이미지에 nvcc가 없으면 FlashInfer JIT 샘플러가 실패한다(gpu-dev에서 확인). 이미지에 툴킷을 넣으면 제거를 검토한다."}
+}

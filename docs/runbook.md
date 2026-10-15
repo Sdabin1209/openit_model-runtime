@@ -8,6 +8,11 @@
 ## GPU 시험 (gpu-dev, D47)
 `scripts/gpu_check.sh [preflight|sync|setup|run|fetch|all]`. 호스트에 `python3-pip`·`python3-venv`가 있어야 한다(없으면 종료 코드 3, 설치하지 않는다). SSH가 두 번 실패하면 종료 코드 4(호스트 불가)이고 멈춘다. `sync`는 코드와 읽기 전용 입력의 사본(boundary-contracts, 문진 스키마)을 `~/openit-gpu/model-runtime/`로 보낸다. `setup`은 호스트 `.venv`에 `.[vllm]`을 설치하고(수 GB, GPU 안 씀) `runs/env-versions.txt`를 남긴다. `run`은 `flock -w 1800 ~/openit-gpu/.gpu.lock` 아래에서 `gpu_probe.py`를 서버 두 번(결정성)과 LoRA 끈 기준선 한 번 돌리고 `setsid nohup`으로 분리해 폴링한다. `fetch`는 `runs/<RUN_ID>/`(gitignore)로 가져와 `gpu_report.py`로 요약한다. 12GB 값은 `profiles/gpu-dev-12g.json`에 있다. 알려진 함정: nvcc가 없으면 `VLLM_USE_FLASHINFER_SAMPLER=0`(프로파일 `env`), 순위 초과 어댑터는 엔진을 죽인다. 결과 해석은 design.md §11-R.
 
+## 서버와 컨테이너 (D62)
+- 실행: `python -m model_runtime.server`(환경 변수는 `src/model_runtime/server.py` 머리말). 이미지: `docker build [--build-arg VARIANT=gpu] --build-context boundary=../boundary-contracts .`. 스키마 디렉터리와 어댑터는 읽기 전용 마운트.
+- 스모크: `scripts/smoke.sh`(CPU/가짜 백엔드, 빈 포트 자동, 라벨과 non-root 확인). 실제 모델: `RUN_ID=<id> scripts/gpu_check.sh serve`(gpu-dev, flock).
+- 확인 순서: `/readyz`가 503이면 서버 로그(표준 출력)에서 `BackendNotAvailable`·`UnsupportedServingConfig`(순위/기반 모델)·`ServingConfigMismatch`를 본다. 응답 헤더 `X-Model-Runtime-Outcome`이 fallback으로 자주 오면 보호 집계를 본다. 엔진이 죽으면(503 `UNAVAILABLE` 계속) 프로세스를 다시 띄운다.
+
 ## 증상별
 
 | 증상(예외) | 뜻 | 확인 |
