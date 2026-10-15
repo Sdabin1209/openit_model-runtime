@@ -60,3 +60,13 @@
 ## 9. 요구하는 산출물
 
 - `docs/design.md`, `docs/boundary.md`, 입출력 예시와 테스트, 에이전트용 `CLAUDE.md`, 변경 이력
+
+## GPU 호스트(gpu-dev) 사용 규칙 (D47)
+
+- 접속: `ssh -o BatchMode=yes -o ConnectTimeout=10 gpu-dev <명령>`. 작업 폴더는 호스트의 `~/openit-gpu/<리포지토리 이름>/` 하나다. 이 밖에는 읽기만 하고, 모델 내려받기용 캐시(`~/.cache`) 외에는 쓰지 않는다. `sudo`를 쓰지 않는다.
+- 코드와 데이터는 이 환경에서 `rsync -a --exclude .venv --exclude .git --exclude runs <리포지토리>/ gpu-dev:openit-gpu/<이름>/`로 보낸다. 호스트에서 GitHub에 접속하지 않는다. 비밀 값(SSH 키, 웹훅 주소, 토큰, `.env`)을 호스트로 보내지 않는다. 결과는 `rsync`로 이 환경의 `runs/`(gitignore)로 가져온 뒤 이쪽에서 게시한다.
+- 가상환경은 호스트의 작업 폴더 안 `.venv`에 만든다. `pip`는 호스트에 아직 없을 수 있다. 없으면 설치하지 말고 사용자에게 알려라(사용자가 `sudo apt install python3-pip python3-venv`를 한다).
+- GPU는 한 장(약 12GB)이고 다른 세션도 쓴다. GPU를 쓰는 모든 명령은 `flock -w 1800 ~/openit-gpu/.gpu.lock <명령>`으로 감싸고, 오래 걸리는 것은 `timeout`을 건다.
+- 서버는 항상 켜져 있지 않고 중간에 꺼질 수 있다. 긴 작업은 `setsid nohup`으로 분리해 실행하고 로그를 폴링한다. 모든 학습은 체크포인트에서 이어 실행되어야 한다. SSH가 실패하면 두 번까지만 다시 시도하고, 그래도 안 되면 하던 일을 `docs/STATUS.md`에 정리하고 멈춘 뒤 보고에 "호스트 불가"라고 적는다. 반복 재시도 루프를 만들지 않는다.
+- 이 호스트는 개발용이고 실제 스테이션은 더 크다. 12GB에 맞춘 값(기반 모델, 양자화, 최대 길이, 배치, 메모리 비율)은 코드에 박지 말고 `profiles/gpu-dev-12g.*` 설정 프로파일로 둔다. 이 호스트의 학습 결과는 파이프라인 검증용이며 성능 판단 근거가 아니다. 어댑터는 기반 모델에 묶이므로 다른 기반 모델로 옮길 수 없다.
+- 임시 기반 모델은 `Qwen/Qwen2.5-1.5B-Instruct`(Apache-2.0)다. 실제 기반 모델 선정은 헤드가 별도로 올린다.
