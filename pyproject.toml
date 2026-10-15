@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["jsonschema>=4.10", "boundary-contracts"]
 
 [project.optional-dependencies]
-vllm = []   # 첫 백엔드 의존. 버전은 GPU 환경 스파이크 뒤에 고정한다.
+vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU 시험 뒤에 고정한다(scripts/gpu_check.sh가 설치 버전을 기록).
 
 [tool.setuptools.packages.find]
 where = ["src"]

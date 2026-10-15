@@ -210,9 +210,12 @@ def load(adapters: Mapping[str, Path], serving_configs: Mapping[str, Mapping], *
         if not Path(p).is_dir():
             raise ContractViolation(f"{role} 어댑터 디렉터리가 없다")
     if backend is None:
-        name = ", ".join(sorted({str(c.get("constraint", {}).get("backend")) for c in serving_configs.values()
-                                 if isinstance(c, Mapping)}))
-        raise BackendNotAvailable(f"백엔드 {name}는 이 환경에 구현·설치되어 있지 않다")
+        names = {str(c.get("constraint", {}).get("backend")) for c in serving_configs.values() if isinstance(c, Mapping)}
+        if names == {"vllm"}:
+            from .vllm_backend import VLLMBackend   # vLLM이 없으면 BackendNotAvailable
+            backend = VLLMBackend(adapters)
+        else:
+            raise BackendNotAvailable(f"백엔드 {', '.join(sorted(names))}는 이 환경에 구현·설치되어 있지 않다")
     return _build(serving_configs, expected_serving_config_hashes, backend, schema_dir)
 
 

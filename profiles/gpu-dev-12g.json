@@ -1,0 +1,14 @@
+{
+  "_comment": "gpu-dev(RTX 4070 SUPER 12GB) 개발용. 파이프라인 검증용이며 성능 판단 근거가 아니다. 값은 GPU 시험 전 잠정이다.",
+  "base_model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "engine": {
+    "dtype": "bfloat16",
+    "max_model_len": 4096,
+    "gpu_memory_utilization": 0.6,
+    "max_num_seqs": 4,
+    "max_loras": 2,
+    "max_lora_rank": 16,
+    "enforce_eager": false
+  },
+  "probe": {"tiny_lora_rank": 8, "tiny_lora_targets": ["q_proj", "v_proj"]}
+}
