@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 다음 (버전은 헤드가 정한다; 추가뿐이라 I9 시그니처 변경 없음) — 2026-10-15
+- `VLLMBackend`(vLLM 0.31.0 + 구조화 출력 + LoRA) 추가, `pip install .[vllm]`. 지연 import라 vLLM이 없는 환경에서도 패키지와 기존 시험이 그대로 돌고 `BackendNotAvailable`이다. `load(..., backend=None)`은 모든 역할의 `constraint.backend`가 `"vllm"`이면 `VLLMBackend(adapters)`를 만든다(기반 모델은 어댑터의 `adapter_config.json`에서 읽는다).
+- `load_profile`, `DEFAULT_SUPPORTED_FEATURES`, 프로파일 `profiles/gpu-dev-12g.json`, GPU 시험 스크립트(`scripts/gpu_check.sh`, `gpu_probe.py`, `gpu_report.py`, `make_tiny_lora.py`), 단위 시험 14개(vLLM 모킹). 시험 81개.
+- 변경 요청 002.
+
 ## 0.3.0 (미배포) — 2026-10-15
 - **API 변경(D45)**: `load(adapters, serving_configs, *, schema_dir, expected_serving_config_hashes, backend=None)`. 설정과 기대 해시가 역할(LORA_A, LORA_B)별이다. 해시·지원 여부 검증은 역할별이며 `ServingConfigMismatch.role`에 어느 역할인지 담는다. 어댑터·설정·기대 해시의 역할 집합이 다르면 `ContractViolation`.
 - 재시도 상한·시드·디코딩·프롬프트 버전·보호 정책을 역할별 설정으로 적용한다. 두 역할은 한 백엔드를 공유한다.

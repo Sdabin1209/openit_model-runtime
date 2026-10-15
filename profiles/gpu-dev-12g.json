@@ -10,5 +10,15 @@
     "max_lora_rank": 16,
     "enforce_eager": false
   },
-  "probe": {"tiny_lora_rank": 8, "tiny_lora_targets": ["q_proj", "v_proj"]}
+  "probe": {
+    "tiny_lora_rank": 8,
+    "tiny_lora_targets": [
+      "q_proj",
+      "v_proj"
+    ]
+  },
+  "env": {
+    "VLLM_USE_FLASHINFER_SAMPLER": "0",
+    "_comment": "gpu-dev에는 nvcc(CUDA 툴킷)가 없어 FlashInfer JIT 샘플러가 실패한다. 프로세스 환경에 설정해서 vLLM을 띄운다."
+  }
 }

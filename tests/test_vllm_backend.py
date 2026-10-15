@@ -177,7 +177,7 @@ class Session(unittest.TestCase):
         self.assertEqual({c[1].kw["temperature"] for c in self.llms[0].calls}, {0.5})
         sent = json.loads(self.llms[0].calls[0][1].kw["structured_outputs"].json)
         text = json.dumps(sent)
-        for kw in ("oneOf", '"if"', '"then"', '"not"', "minLength", "minimum"):
+        for kw in ("oneOf", '"if"', '"then"', '"not"', "allOf"):
             self.assertNotIn(kw, text)   # 지원 집합 밖 키워드는 완화로 빠진다
         self.assertEqual(s.last_call_info.attempts, 3)
         self.assertIn("oneOf->enum", s.last_call_info.relaxed)

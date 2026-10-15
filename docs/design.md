@@ -1,6 +1,6 @@
 # model-runtime 설계
 
-상태: 초안. 호출 경로(Fake 백엔드까지)는 구현됐고 실제 백엔드는 없다(`docs/STATUS.md`). 표시 규칙: **[확인]** 계약·브리프에서 읽은 것, **[결정]** 사용자가 정한 것, **[제안]** 이 문서의 제안, **[미정]** 정해지지 않은 것.
+상태: 초안. 호출 경로는 구현됐고 실제 백엔드(vLLM)는 gpu-dev 시험을 거쳤다(§11-R, `docs/STATUS.md`). 표시 규칙: **[확인]** 계약·브리프에서 읽은 것, **[결정]** 사용자가 정한 것, **[제안]** 이 문서의 제안, **[미정]** 정해지지 않은 것.
 
 ## 1. 범위와 불변 조건
 
@@ -26,7 +26,8 @@
 - 엔진 선택은 model-runtime이 정한다. [확인: INTERFACES I9, O14] 엔진 선택은 백엔드 구현에만 영향을 주고 검증·재시도에는 영향을 주지 않는다. 백엔드 이름·버전은 `serving_config`에 기록되므로 해시에는 반영된다.
 - **첫 백엔드: vLLM(프로세스 안 엔진) + 구조화 출력(JSON 스키마 제약, 문법 엔진은 xgrammar) + LoRA 어댑터 요청.** [제안]
   - 근거: (1) `load`가 어댑터 **디렉터리 경로**를 받으므로 경로로 LoRA를 붙이는 엔진이어야 하고, 한 베이스 모델에 LORA_A·LORA_B 두 어댑터를 올려 쓰는 구조가 맞다. (2) JSON 스키마 제약과 요청별 시드를 지원한다. 시드 규칙(기본 시드 + 시도 번호)에 필요하다. (3) 서비스의 추론 서버(survey-service 소유)와 같은 계열을 쓰면 학습 후 평가와 서비스가 같은 디코딩 경로를 쓰기 쉽다.
-  - **확인하지 못한 것**: 이 환경에서 엔진 버전별 지원 기능(`oneOf`, `if/then`, `uniqueItems` 등)과 LoRA+구조화 출력 동시 사용을 확인하지 않았다. 위 근거는 사전 지식이며, 구현 첫 단계에서 GPU 환경으로 확인하는 스파이크를 하고 `supported_features`를 그 결과로 채운다. 맞지 않으면 백엔드만 교체한다.
+  - ~~확인하지 못한 것~~ (§11-R에서 확인): 이 환경에서 엔진 버전별 지원 기능(`oneOf`, `if/then`, `uniqueItems` 등)과 LoRA+구조화 출력 동시 사용을 확인하지 않았다. 위 근거는 사전 지식이며, 구현 첫 단계에서 GPU 환경으로 확인하는 스파이크를 하고 `supported_features`를 그 결과로 채운다. 맞지 않으면 백엔드만 교체한다.
+  - 첫 시험 결과는 §11-R에 있다(2026-10-15, vLLM 0.31.0로 확정, 구현 `vllm_backend.py`).
   - 개발·CI에서는 GPU가 없으므로 `FakeBackend`를 쓰고, vLLM 의존은 선택 설치(extra)로 둔다. [제안]
 - 백엔드는 자기가 지원하는 스키마 기능 집합을 선언한다(`supported_features`). [제안]
 
@@ -192,6 +193,39 @@ GPU 서버가 필요하다. 이 항목을 확인하기 전에는 `BackendNotAvai
 10. **적합성**: 같은 시나리오 표(`tests/test_examples_conformance.py`)를 실제 백엔드로 돌려 `FakeBackend`와 같은 예외·시도 횟수가 나오는지(출력 내용은 스크립트와 달라도 계약은 같아야 한다).
 11. **개인정보**: 엔진·서버가 프롬프트·출력을 로그에 남기는 기본 설정이 있는지, 끄는 방법.
 
+### 11-R. gpu-dev 시험 결과 (2026-10-15) [확인: `runs/r5` 등, 스크립트 `scripts/gpu_check.sh`·`gpu_probe.py`]
+
+환경: RTX 4070 SUPER 12GB(드라이버 591.86, WSL2), vLLM 0.31.0, xgrammar 0.2.7, torch 2.13.0, transformers 5.17.0, 기반 모델 `Qwen/Qwen2.5-1.5B-Instruct`, 어댑터는 무작위 초기화 LoRA(순위 8, q_proj·v_proj, 품질 없음). 프로파일 `profiles/gpu-dev-12g.json`(`gpu_memory_utilization` 0.6, `max_model_len` 4096, `max_loras` 2, `max_lora_rank` 16). 호스트에 nvcc가 없어 `VLLM_USE_FLASHINFER_SAMPLER=0`이 필요했다(프로파일 `env`, 없으면 워밍업에서 `Could not find nvcc`로 엔진이 시작하지 못함).
+
+| 항목 | 결과 |
+| --- | --- |
+| 1 환경/버전 | ○ `backend_version`에는 vLLM 정확한 버전(`0.31.0`)을 적는다. xgrammar 버전은 `runs/<id>/env-versions.txt`로 따로 기록(해시 밖). |
+| 2 LoRA 로딩·선택 | ○ 두 디렉터리 어댑터를 한 기반 모델에 올렸고 요청마다 `LoRARequest`로 선택된다(A·B·무어댑터 출력이 서로 다름). 순위가 `max_lora_rank`를 넘으면 **엔진이 죽는다**(변경 요청 002 §2). |
+| 3 LoRA + 구조화 출력 | ○ 어댑터를 붙인 요청에 JSON 스키마 제약이 적용됨(`GeneratorOutput` 완화 스키마 8/8 유효). |
+| 4·5 스키마 기능 | 제약이 지켜짐(○): `type`(배열 포함), `properties`, `required`, `enum`, `const`, `oneOf`(const 열거·객체 가지), `anyOf`, `$defs/$ref`, `additionalProperties:false`, `minLength`, `minimum`. **조용히 무시(×)**: `allOf`, `if/then`, `not`. **오류로 거부(×)**: `uniqueItems`(`Unimplemented keys`). 판정은 표본 4~6개의 경험적 판정이며 잘려서 JSON이 닫히지 않은 표본은 뺐다. |
+| 4b 실제 스키마 | `GeneratorOutput`: 원본·완화 모두 8/8. `ParserOutput` 원본(`allOf`·`if/then`·`not` 포함)은 0/8로 스키마 위반 — 무시되는 키워드가 많아 원본을 그대로 쓰면 안 된다. 완화본은 파싱된 출력 중 위반 0건, 나머지는 닫히지 않은 JSON(무작위 어댑터가 공백을 무한 생성; 품질 문제이지 스키마 문제가 아님). |
+| 6 시드 | ○ 같은 서버에서 온도 0.8·같은 시드는 같은 출력, `시드+시도 번호` 4개는 서로 다름. 온도 0에서는 시드를 바꿔도 출력이 같다(재시도 무효, §2.3이 이미 인정). |
+| 7 max_tokens | `finish_reason = "length"`, JSON이 닫히지 않음 → 사후 검증의 `json` 위반으로 잡힌다. 백엔드는 잘림 표시를 돌려주지 않고 텍스트만 돌려준다. |
+| 8 지연 | 첫 요청 0.9s, p50 0.91s, p95 0.91s(96토큰 상한, 1.5B, 문법 컴파일 포함 첫 요청도 유사). 서비스 요구 수치는 없음. LoRA 커널 JIT 경고가 한 번 있음. |
+| 9 결정성 | 서버를 두 번 띄워 같은 4개 요청: 3회 시도 중 1회만 완전 일치, 불일치는 긴 출력의 중간 단어 하나였다(수치 비결정). 보장하지 않는다. |
+| 10 적합성 | ○ `load` → `parse`/`generate`가 실제 백엔드에서 예외 없이 끝나고 출력이 스키마를 통과(무작위 어댑터라 파서는 3회 시도 뒤 `repaired`). 전체 시나리오 표 재실행은 학습된 어댑터가 있어야 의미가 있어 남음. |
+| 11 개인정보 | ○ 표식 문자열을 프롬프트에 넣어 돌린 vLLM 로그 3개에 노출 없음(`disable_log_stats`, 기본 로그 수준). |
+| (d) VRAM | 기반 모델 가중치 2.98 GiB(LoRA 끔) → 3.05 GiB(LoRA 켬, 두 어댑터 사용): 어댑터 둘의 증가분은 가중치 기준 약 0.07 GiB. nvidia-smi 총 사용량은 `gpu_memory_utilization`=0.6이 지배해 7.65 GB(LoRA 켬) 대 7.65 GB(끔)로 구별되지 않는다. 동시성 여지(KV 캐시)는 4096토큰 요청 기준 31.7배(켬) 대 32.7배(끔). |
+| (e) 첫 백엔드 확정 | 근거: LoRA 디렉터리 경로 요청별 선택, LoRA와 구조화 출력 동시 사용, 요청별 시드, 같은 계열의 서버로 갈 수 있음이 이 호스트에서 ○. 한계: `allOf`/`if/then`/`not` 미지원(사후 검증이 담당), 순위 초과 시 엔진 사망, 서버 재시작 간 완전 재현 불가. **vLLM을 첫 백엔드로 확정**한다(교체 가능한 Protocol 유지). |
+
+`DEFAULT_SUPPORTED_FEATURES`는 위 ○ 키워드 가운데 `oneOf`를 뺀 집합이다(`oneOf` 상수 열거는 완화가 `enum`으로 바꾸고, 객체 가지는 표본이 작아 `anyOf`로 넓힌다).
+
+### 큰 스테이션에서 재확인 (모델·하드웨어가 바뀌면 다시 확인할 것) [제안]
+1. 채팅 템플릿: 지금은 `render_prompt`가 만든 문자열을 템플릿 없이 그대로 `generate`에 넣는다(학습 변환도 같은 문자열을 쓴다는 전제). 지시 튜닝 모델은 채팅 템플릿을 기대할 수 있으므로 새 기반 모델마다 학습과 서빙이 같은 입력 형식을 쓰는지 확인한다. 바뀌면 프롬프트 템플릿 버전을 올린다.
+2. 구조화 출력: 새 vLLM/xgrammar 버전과 새 모델의 토크나이저에서 §11-4·5 키워드 표를 다시 만든다(`scripts/gpu_check.sh`). `allOf`/`if/then`/`not` 지원이 생기면 `supported_features`를 넓히고 새 `serving_config`를 낸다. 공백 무한 생성을 막는 xgrammar의 공백 설정(vLLM 인자 이름은 버전마다 달라 미확인)을 검토한다.
+3. LoRA: 모델·어댑터 순위, `max_lora_rank`, 대상 모듈이 기반 모델과 맞는지, 어댑터 동시 적재 수(`max_loras`)와 VRAM, LoRA 커널 JIT 지연(첫 호출 워밍업 필요 여부).
+4. VRAM·메모리 비율·최대 길이·배치(`max_num_seqs`)는 프로파일에서 새로 정한다. 양자화(`quantization`)를 쓰면 LoRA와의 호환을 확인한다.
+5. 시드 재현과 결정성(§11-6, 9): 텐서 병렬·배치 크기가 바뀌면 달라진다.
+6. 지연 p50·p95와 동시 요청 시 지연(survey-service와 요구 수치를 정한 뒤).
+7. 호스트 환경: gpu-dev는 nvcc가 없어 FlashInfer 샘플러를 껐다. 큰 스테이션 이미지에서 같은 설정이 필요한지 확인한다(`VLLM_USE_FLASHINFER_SAMPLER`).
+8. 실제 학습된 어댑터로 시나리오 적합성 표(§11-10)와 보호 개입 빈도.
+
 ### 12. 변경 기록 (설계)
+- 2026-10-15: `VLLMBackend`와 gpu-dev 시험 결과(§11-R), 큰 스테이션 재확인 목록, 변경 요청 002.
 - 2026-10-15: 출력 보호(D36) 반영. `ModelOutputInvalid` 삭제, `*_raw`, `is_fallback`을 코드가 채움, `schema_dir` 단일화·`configure` 삭제, `protection_policy_version` 추가, 프롬프트 `prompt-1` 삭제 후 `prompt-2`(생성기 규칙 1~4 포함, 모델은 `response_text`만 출력). `prompt-1`은 어느 릴리스·모델 패키지에도 쓰인 적이 없다(0.x 미배포).
 - 2026-10-15 (0.3.0): `load`를 역할별 설정·기대 해시로 변경(D45). `ModelSession.serving_config_hash` → `serving_config_hashes`(역할별), `ServingConfigMismatch.role`, 역할 집합 불일치는 `ContractViolation`. 소비자는 survey-service 하나(0.2.0 사용 중)였다.
