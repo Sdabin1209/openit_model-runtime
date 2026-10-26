@@ -1,5 +1,22 @@
 # model-runtime 설계
 
+> **계약 2.0.0 이전(0.6.0, 2026-10-27, D74·D75) — 이 절이 아래 본문보다 우선한다.** 아래 §2~§12 본문은 v1(`parse`/`generate`, 파서·생성기 JSON 출력) 기준으로 쓰였고, 이 절에서 바뀐 부분을 정정한다. 바뀌지 않은 것(백엔드 구조, 완화 `relax-1`, 재시도 규칙, `serving_config` 해시, 역할별 설정, 큐/적재/서버 구조, GPU 시험 결과의 해석 방법)은 본문 그대로이다. GPU 시험 결과(§11)는 Qwen2.5-1.5B와 v1 스키마로 얻은 것이라 **Qwen3와 v2 스키마에서는 다시 확인해야 한다(미확인)**.
+>
+> | 항목 | v1 | 2.0.0 |
+> | --- | --- | --- |
+> | 호출 | `parse`/`generate`, `ParserOutput`/`GeneratorOutput`(JSON) | `extract`(`ActionExtractionInput` -> `ActionExtraction`, JSON), `respond`(`ResponseRequest` -> 문장 그대로의 텍스트) |
+> | 모델 입출력 스키마 | 문진 스키마(`schema_dir`)에서 읽음 | `boundary_contracts` 패키지(`load_schema`, `validator`). `schema_dir`는 `CONTRACT_VERSION`(문진 스키마 정수 버전, D75)만 확인 |
+> | 시스템 프롬프트 | 코드의 템플릿 문장(`prompt-2`) | **모델 패키지의 파일**(어댑터 디렉터리, 해시 `system_prompt.sha256`). 코드는 조립 규칙(`prompt-3`)만 갖는다. `load(..., system_prompts=)`가 읽고 해시를 확인한다 |
+> | 채팅 형식 | 한 덩어리 문자열 | Qwen3 ChatML, `enable_thinking=False`(`<think>\n\n</think>\n\n`를 어시스턴트 시작에 붙임). 입력 JSON은 JCS 직렬화. **토크나이저 결과와의 바이트 일치, 학습 데이터 직렬화와의 일치는 미확인**(prompts.py 머리말) |
+> | extract 실패 | 보호(P1~P6), 빈 목록 | 보호 없음. `ModelOutputInvalid`(HTTP 503 `OUTPUT_INVALID`). 값을 지어내지 않는다(D75) |
+> | respond 실패 | 대체 문장 + `is_fallback`(JSON) | 재료(`known`, `ask`, `hold`, `next.text`)를 이은 대체 문장, `is_fallback`/`X-Openit-Outcome: fallback`. 정책 `protect-2` |
+> | 제약 디코딩 | A·B 모두 JSON 스키마 | A만(`ActionExtraction`을 `relax-1`로 완화). B는 텍스트라 제약 없음. action별 `allOf/if/then`과 `pattern`·`minItems`는 엔진이 지키는지 미확인이라 보내지 않고 사후 검증이 한다 |
+> | 프로파일 | `gpu-12g`=Qwen2.5-1.5B | `gpu-12g`=Qwen3-4B, `rtx4090-24g`=Qwen3-8B(둘 다 적재 가능 여부·A+B 동시 적재 미확인). 어댑터와 프로파일의 기반 모델이 다르면 적재 거부 |
+> | 서버 | `.../parse`·`.../generate` JSON | `.../extract`(JSON), `.../respond`(`text/plain`), `X-Openit-Protections`는 보호가 있을 때만, `/v1/info`에 `system_prompt_sha256` 추가 |
+> | fake | 위험 신호 스위치 | 스위치 없음(환경 변수가 남아 있으면 시작 거부). 기본 출력은 `ActionExtraction` 최소값과 `(가짜 응답)` |
+>
+> 열린 항목(2.0.0): ① `load`에 `system_prompts` 인자 추가를 계약에 요청(CR-004), ② respond 대체 문장의 END 등 재료 없는 경우 문구(도메인 소유자), ③ v1 G1(숫자 검사) 대응 규칙을 둘지, ④ 사용자 발화에 `<|im_end|>` 같은 특수 토큰 문자열이 들어올 때의 처리(채팅 템플릿에 그대로 들어간다. 학습과 같은 동작이라 막지 않았다), ⑤ Qwen3에서의 `enable_thinking=False` 외 디코딩 값(온도 등)은 model-lab이 정하는 `serving_config` 몫.
+
 상태: 초안. 호출 경로는 구현됐고 실제 백엔드(vLLM)는 gpu-dev 시험을 거쳤다(§11-R, `docs/STATUS.md`). 표시 규칙: **[확인]** 계약·브리프에서 읽은 것, **[결정]** 사용자가 정한 것, **[제안]** 이 문서의 제안, **[미정]** 정해지지 않은 것.
 
 ## 1. 범위와 불변 조건

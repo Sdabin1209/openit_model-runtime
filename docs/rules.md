@@ -1,55 +1,34 @@
-# 출력 보호 규칙 (D36)
+# 출력 보호 규칙 (D36, D75) — 계약 2.0.0 기준
 
-출처: HealthCheckSchema 업무 규칙 4절·9절·원칙 9, 헤드 전달(2026-10-15 교신). 이 리포지토리에는 원문 전체가 없고, 아래 인용은 헤드가 보낸 원문을 옮긴 것이다. 이후 이 규칙의 구현과 해석은 model-runtime이 소유한다(turn-engine과 달리).
-문서에 없는 것을 추측해 채우지 않는다. 구현이 읽은 방식(해석)은 "구현 매핑" 절에 따로 적고, 모호한 곳은 `change-requests/`로 알린다.
+이 문서는 2.0.0(D74, D75)에서 다시 썼다. v1의 파서 보호(P1~P6)와 생성기 규칙(G1~G5, 위험 안내 포함)은 v1 계약이 기술하던 단계(정규화기·판정기·Plan, 위험 신호 의도)와 함께 없어졌다. v1 문서는 git 기록(0.5.3 이전)에 남아 있다.
+보호 규칙의 구현과 해석은 model-runtime이 소유한다. 계약이 정한 것과 이 리포지토리가 해석한 것을 구분해서 적는다.
 
-## 원칙 9 (인용)
-"각 컴포넌트는 출력이 자신의 계약을 지키는 것까지 책임지고, 지키지 못할 때 낼 대체 출력도 정해 둔다. 모델 출력은 깨질 수 있다(J7)"
+## 계약이 정한 것 (INTERFACES I9, HTTP.md I9, D36, D75)
 
-그래서 `parse`/`generate`는 재시도를 다 쓴 뒤에도 유효하지 않으면 예외를 던지지 않고 아래 대체 출력을 돌려준다(턴은 실패하지 않는다). 이유: 모델 출력이 깨져도 뒤의 컴포넌트는 규칙에 맞는 값만 받아야 한다. 깨진 항목은 "다시 말씀해 주세요"로 이어진다.
-
-## Response Generator 규칙 (인용)
-1. 응답 지시에 없는 값·문항을 말하지 않는다. 발화는 받아 주는 말에만 쓰고, 그 안의 값을 기록된 값처럼 말하지 않는다.
-2. 발화 속 물음에 응답 지시 밖의 내용(안내 목록에 없는 의료 판단, 시설 안내, 앞선 답 등)으로 답하지 않고, 도와드리기 어렵다고만 한다.
-3. 행동이 무관 안내 후 다시 묻기면 받아 주는 말을 하고 기다리는 답을 묻는다. 응답 지시의 행동은 바꾸지 않는다.
-4. 행동이 위험 안내면 발화를 받아 주지 않고 문장 재료와 알릴 것대로만 말한다.
-5. 대체 출력: 위를 지키지 못하면 문장 재료를 그대로 읽는 문장(말할 값·알릴 것은 이름·값을 그대로 넣음)을 내고 대체 출력(is_fallback) = true.
-
-## Utterance Parser 대체 출력 (인용)
-형식을 못 지키면 빈 목록. 의도가 어휘 밖이면 인식불가(UNRECOGNIZED)로. 진행 조작이 어휘 밖이거나 의도가 진행 조작인데 진행 조작이 없으면 인식불가로. 안내 항목 ID가 받은 목록 밖이거나 의도가 안내 요청인데 없으면 무관(OUT_OF_SCOPE)으로. 답함·모름·거절의 대상을 정하지 못했거나 답함에 값이 없거나 답함·정정이 문항 전체에 값을 붙였으면 인식불가로. 정정에 값은 있는데 대상이 없으면 값을 비워 값 없는 정정으로. 의도를 바꿀 때는 대상·값·진행 조작·안내 항목 ID를 비운다. 대상이 문항 정의에 없는 항목은 고치지 않고 그대로 낸다(정규화·검증이 "정의에 없는 대상"으로 표시한다; 형식 위반이 아니라 내용 문제이기 때문).
-
-## 헤드의 구현 조건 (인용 요약)
-(a) 보호 적용은 조용히 지나가지 않는다. `last_call_info`에 어떤 보호가 몇 건 적용됐는지 남긴다. (b) `parse_raw`/`generate_raw`(`RawResult`: output, valid, errors)로 보호 전 모델 품질을 잴 수 있게 한다. (c) 생성기 대체 문장은 응답 지시의 문장 재료에서 결정적으로 만든다. 해석이 모호하면 추측하지 않고 변경 요청으로 쓴다. (d) `ModelOutputInvalid`는 출력 문제에 쓰지 않는다. 인프라 문제(`BackendNotAvailable` 등)만 예외로 남긴다. (e) 보호 규칙의 시험을 파서·생성기 각각 규칙 문장 단위로 쓴다.
-`is_fallback`은 모델이 채우지 않는다. 코드가 채운다(정상이면 false). 모델은 `response_text`만 낸다.
-
-## 구현 매핑 (이 리포지토리의 해석)
-
-보호 이름은 `last_call_info.protections`와 `RawResult.errors`에 쓰인다. 오류 문자열에는 발화·출력 원문을 담지 않는다.
-
-### 파서 (`protection.py`)
-적용 순서는 인용문의 문장 순서와 같다. 의도를 바꾸면 대상·값·진행 조작·안내 항목 ID를 비우므로 뒤 규칙은 바뀐 의도 기준으로 적용된다.
-
-| 이름 | 규칙 문장 | 구현 |
+| 호출 | 형식 | 끝내 못 지키면 |
 | --- | --- | --- |
-| P1 | 형식을 못 지키면 빈 목록 | 출력이 JSON 객체가 아니거나 키가 `items` 하나가 아니거나 `items`가 목록이 아니거나 항목이 객체가 아니면 `{"items": []}`. 아래 고침을 다 적용한 뒤에도 스키마를 통과하지 못하면 마찬가지로 빈 목록. |
-| P2 | 의도가 어휘 밖이면 인식불가 | `intent`가 `Intent` 어휘에 없으면 UNRECOGNIZED. |
-| P3 | 진행 조작이 어휘 밖이거나, 의도가 진행 조작인데 없으면 인식불가 | `progress_op`이 null이 아닌데 어휘(REPEAT, WAIT, LATER, STOP)에 없거나, `intent`가 PROGRESS_OP인데 `progress_op`이 null이면 UNRECOGNIZED. |
-| P4 | 안내 항목 ID가 받은 목록 밖이거나, 안내 요청인데 없으면 무관 | `guide_id`가 null이 아닌데 입력 `guide_list`에 없거나, `intent`가 GUIDE_REQUEST인데 `guide_id`가 null이면 OUT_OF_SCOPE. |
-| P5 | 답함·모름·거절의 대상 없음, 답함에 값 없음, 답함·정정이 문항 전체에 값을 붙임 → 인식불가 | `intent`가 ANSWERED_INTENT·SAYS_UNKNOWN·SAYS_REFUSAL인데 `target`이 null, ANSWERED_INTENT인데 `value`가 null, ANSWERED_INTENT·CORRECTION_MARKED인데 `target`이 문항 전체(`whole_question`)이고 `value`가 null이 아니면 UNRECOGNIZED. |
-| P6 | 정정에 값은 있는데 대상이 없으면 값을 비워 값 없는 정정 | `intent`가 CORRECTION_MARKED이고 `value`가 있고 `target`이 null이면 `value`를 null로(의도는 유지). |
-| (고치지 않음) | 대상이 문항 정의에 없는 항목 | 입력의 `question_names`와 대조하지 않는다. 그대로 낸다. |
+| `extract`(LoRA-A) | 출력은 `ActionExtraction` 스키마를 엄격하게 통과해야 한다 | **대체 출력을 만들지 않는다**(값을 지어내지 않는다). 라이브러리는 `ModelOutputInvalid`, HTTP는 503 `UNAVAILABLE`(`details.reason=OUTPUT_INVALID`, `details.attempts`). 정상이면 `X-Openit-Outcome: ok` |
+| `respond`(LoRA-B) | 출력은 문장 그대로의 텍스트(`ResponseText`: 비어 있지 않은 문자열) | 입력의 재료(`known`, `ask`, `hold`, `next.text`)를 이어 붙여 읽는 문장을 대신 내고 `is_fallback=true`(HTTP는 `X-Openit-Outcome: fallback`, 상태 200). 정상이면 `ok` |
 
-보호 전 유효 여부(`RawResult.valid`)와 재시도 판단: 스키마를 통과하고 P2~P6 해당이 하나도 없어야 유효하다. 하나라도 있으면 재시도하고, 다 쓴 뒤 마지막 시도의 출력에 보호를 적용한다. [해석: 규칙 위반도 "유효하지 않음"으로 본다]
+공통: 재시도는 `max_attempts`까지, 프롬프트는 첫 시도와 같고 시드만 `기본 시드 + 시도 번호`다(재시도 온도는 `retry_temperature`). `is_fallback`은 모델이 아니라 코드가 채운다. 보호·재시도는 조용히 지나가지 않고 `last_call_info`(시도 횟수, outcome, 보호 건수)와 응답 헤더 `X-Openit-Attempts`·`X-Openit-Protections`에 남긴다. 발화와 출력 원문은 로그·예외·헤더에 담지 않는다. 라이브러리 예외는 인프라·설정·입력 문제에만 쓰는 원칙은 그대로이며, 예외인 `ModelOutputInvalid`는 D75가 정한 것이다.
 
-### 생성기 (`protection.py`, `fallback.py`)
-모델 출력은 `response_text` 하나다. 이 모양을 지키지 못하면(JSON이 아님, 키가 다름, 빈 문자열) 유효하지 않다.
+의미 검증(`targets`가 `values`의 부분집합, `next_item` 규칙, 건너뛰기 순서, `save` 규칙)은 이 영역이 하지 않는다. turn-engine의 `validate_extraction`을 survey-service가 부른다(D75). 이 영역은 스키마(형식)만 검증한다. 스키마의 `allOf/if/then`(action별 규칙)은 사후 검증이 한다(아래 §제약 디코딩).
 
-| 이름 | 규칙 문장 | 기계로 확인하는 것 |
-| --- | --- | --- |
-| G1 | 규칙 1: 응답 지시에 없는 값을 말하지 않는다 | `response_text`의 모든 숫자열(`\d+`)이 응답 지시(`say_values`, `notices`, `sentence_materials`, 질문 이름)에 나온 숫자열이어야 한다. 발화(`utterance`)에만 있는 숫자는 허용하지 않는다. 숫자가 아닌 값·문항 언급은 기계로 확인하지 못한다. |
-| G2 | 규칙 2: 응답 지시 밖의 내용으로 답하지 않는다 | 기계로 확인하지 않는다. 프롬프트로만 지시하고, 보호 전 품질은 `generate_raw` 평가로 본다. |
-| G3 | 규칙 3: 무관 안내 후 다시 묻기는 행동을 바꾸지 않는다 | 기계로 확인하지 않는다(프롬프트 지시). 대체 문장은 이 규칙을 따른다(OOS_NOTICE 문장 뒤에 기다리는 질문). |
-| G4 | 규칙 4: 위험 안내는 문장 재료와 알릴 것대로만 | 행동이 RISK_NOTICE이면 `fixed_sentences`의 RISK_NOTICE 문장이 `response_text`에 그대로 들어 있어야 한다. 발화를 받아 주지 않았는지는 확인하지 못한다. |
-| G5 | 규칙 5: 대체 출력 | 위 확인 중 하나라도 실패하거나 출력 모양이 틀린 채 재시도를 다 쓰면 `fallback_text`를 내고 `is_fallback = true`. 정상이면 `is_fallback = false`. |
+## 보호 정책 `protect-2` (이 리포지토리의 해석, `protection.py`)
+정책 버전은 `serving_config.protection_policy_version`에 기록되어 `serving_config_hash`에 반영된다. 바꾸려면 새 버전을 만든다. v1의 `protect-1`은 지원하지 않는다(적재 시 `UnsupportedServingConfig`).
 
-대체 문장 조립(`fallback_text`)은 순수 함수이며 발화를 쓰지 않는다. 조립 순서와 문장 재료 해석은 `change-requests/001-output-protection-interpretation.md`에서 확인을 요청했고 헤드가 잠정 승인했다. 정책 버전에 묶인 값(재료가 없을 때의 문구 [잠정])과 판단 J1~J3은 `design.md` §2.5의 "보호 정책 버전"에 있다.
+| 이름 | 내용 |
+| --- | --- |
+| J1 | respond 형식: 앞뒤 공백을 뗀 문자열이 비어 있지 않으면 통과한다. 길이 상한은 두지 않는다(계약: 길이는 평가 지표, 미정). 출력이 `max_tokens`에서 잘렸는지는 백엔드가 알려 주지 않아 확인하지 못한다 |
+| J2 | 대체 문장 조립(`fallback.py`, 순수 함수, 발화를 쓰지 않는다): `known`, `ask`, `hold`, `next.text` 순으로 비어 있지 않은 조각을 공백 하나로 잇고, 바로 앞과 같은 조각은 한 번만 쓴다. 재료가 하나도 없으면 `empty_fallback_text`("죄송합니다. 다시 한 번 말씀해 주세요.", **잠정**) |
+| J3 | extract는 보호하지 않는다. 항목을 고치거나 비우지 않는다 |
+
+보호 이름(`last_call_info.protections`, `X-Openit-Protections`): `G0`(respond 형식 위반, 원인), `G5`(대체 문장 사용). extract에는 보호 이름이 없다(실패는 예외).
+
+### 제거한 것과 이유
+- 파서 P1~P6: 값을 고치거나 비워 "다시 말씀해 주세요"로 잇는 규칙이었다. v2에서는 값을 지어내지 않는 쪽이 안전하다는 결정(D75)으로 없앴다.
+- 생성기 G1(숫자 허용 범위), G4(위험 안내 문장 포함): v1의 응답 지시(`say_values`, `RISK_NOTICE`)에 묶여 있었다. v2 입력(`ResponseRequest`)에는 그에 대응하는 구조가 없다. **G1에 해당하는 검사(응답의 숫자가 입력 재료에 있는지)를 v2에서 다시 둘지는 미정**이다(제안: change-requests/004의 항목 3). 지금은 두지 않았다.
+- G2, G3은 v1에서도 기계로 확인하지 않았다(프롬프트 지시). 지금은 프롬프트를 이 영역이 갖지 않으므로(시스템 프롬프트는 모델 패키지, D75) 해당 없음.
+
+## 제약 디코딩과 `ActionExtraction`
+vLLM(xgrammar)은 `allOf`·`if/then/else`·`not`을 조용히 무시하는 것이 v1 시험(design §11-R)에서 확인되었고, 이 때문에 `relax-1`이 이를 뺀다. `ActionExtraction`은 action별 규칙을 `allOf/if/then`으로 쓰므로 **제약 디코딩만으로는 `reason`/`targets`/`note`의 action별 허용값과 `save`·`value`의 status별 규칙이 지켜지지 않는다.** 사후 검증(항상 거침)이 이를 잡고 재시도한다. `key`/`next_item`의 `pattern`, `targets`의 `minItems`도 엔진 지원을 확인하지 않았으므로 완화로 빠진다(**Qwen3·실제 xgrammar에서의 동작은 미확인**). 재시도가 자주 일어나는지는 GPU 시험에서 `X-Openit-Attempts`로 본다.

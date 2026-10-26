@@ -1,5 +1,18 @@
 # 변경 이력
 
+## 0.6.0 (미배포) — 2026-10-27 (계약 2.0.0, D74·D75)
+**깨지는 변경(MINOR이지만 0.x의 API 변경).** 지시: head/docs/migration-2.0.0.md. 0.5.x로 만든 릴리스와 `serving_config`는 거부된다.
+- I9 라이브러리: `parse`/`generate` -> `extract`/`respond`, `parse_raw`/`generate_raw` -> `extract_raw`/`respond_raw`. `respond`는 `ResponseResult(text, is_fallback)`. extract가 재시도 후에도 `ActionExtraction`을 못 지키면 **`ModelOutputInvalid`**(D75; 대체 출력 없음). 0.2.0에서 삭제했던 이름이지만 의미가 다르다(출력 보호 예외가 아니라 값을 지어내지 않는 실패).
+- 모델 입출력 스키마는 `boundary_contracts`(태그 v2.0.0)에서 읽는다. `tests/fixtures/schema`의 모델 스키마 복사본을 삭제했다(`CONTRACT_VERSION`만 남김). `schema_dir`는 문진 스키마 정수 버전 확인용.
+- 시스템 프롬프트는 모델 패키지의 파일(D75): `load(..., system_prompts=)`(계약 I9 시그니처에 없는 추가 인자, CR-004), `render_prompt(..., system_prompt=)`, `SystemPromptMismatch`(서버는 422 `INTEGRITY_ERROR`), `session.system_prompt_hashes`, `/v1/info`의 `system_prompt_sha256`.
+- 프롬프트 템플릿 `prompt-3`(Qwen3 ChatML, `enable_thinking=False`, 입력 JSON은 JCS). `prompt-2` 삭제. 문장 본문은 코드에 없다.
+- 보호 정책 `protect-2`: respond 형식(비어 있지 않은 문장)과 재료를 이은 대체 문장. v1 파서 보호 P1~P6, 생성기 G1·G4 삭제. `protect-1` 삭제. 보호 이름 `G0`, `G5`.
+- LoRA-B는 제약 디코딩을 쓰지 않는다(텍스트). 제약 스키마에서 `$comment`를 뺀다.
+- 서버: `POST /v1/releases/{id}/extract`(JSON), `.../respond`(`text/plain`), 503 `UNAVAILABLE` `details.reason=OUTPUT_INVALID`(`attempts`), `X-Openit-Protections`는 있을 때만. `/v1/parse`·`generate` 경로 삭제. `MODEL_RUNTIME_FAKE_RISK_PHRASE`와 `FakeBackend(risk_phrase=)` 삭제(설정이 남아 있으면 시작 거부).
+- 프로파일: `gpu-12g`=Qwen3-4B, `rtx4090-24g`=Qwen3-8B(`status.loadable`=unverified). `gpu-dev-12g`는 파이프라인 시험 전용 표시. 중립 패키지 생성기에 시스템 프롬프트 파일, `head_dim`, B의 `constraint_mode: none`.
+- Dockerfile 라벨: 계약 `v2.0.0`, `io.openit.model-runtime=0.6.0`. smoke.sh는 형제 계약 폴더가 태그 v2.0.0이 아니면 중단하고 라벨을 확인한다. gpu_check.sh도 같다. GPU 스크립트(`gpu_probe.py`, `gpu_serve_check.py`)를 v2 API에 맞췄으나 GPU가 없어 `--mock`으로 논리만 확인했다.
+- 시험: v2로 교체하고 계약의 `HttpModelRuntime`으로 서버 적합성 시험 추가.
+
 ## 0.5.3 (미배포) — 2026-10-26
 - Dockerfile: `ARG REVISION`·버전 `ARG`와 `LABEL` 블록을 맨 뒤(USER 앞)로 옮겼다. 커밋마다 바뀌는 값이 앞에 있으면 무거운 pip 레이어 캐시가 매번 깨진다. `REVISION=aaaa` 뒤 `REVISION=bbbb`(+`BOUNDARY_VERSION` 변경)로 CPU 변형을 다시 빌드해 pip 레이어가 `CACHED`임을 확인. 레이어 순서 시험 갱신.
 - GPU 변형 이미지에 C 컴파일러(`gcc`, `libc6-dev`)와 `CC=gcc` 추가: Triton이 LoRA 커널 등에서 CUDA 유틸 모듈을 C 소스로 빌드해 `Failed to find C compiler`로 실패하던 것. 레이어는 무거운 pip 레이어 뒤·USER 앞(빌드 캐시 재사용). Python 헤더는 python 이미지에 이미 있다.

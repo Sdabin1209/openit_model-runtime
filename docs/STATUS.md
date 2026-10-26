@@ -1,7 +1,11 @@
 # STATUS
 
-갱신: 2026-10-26 (13차)
+갱신: 2026-10-27 (14차, 계약 2.0.0 이전)
 
+- 14차(0.6.0, 브랜치 `migrate-contracts-2.0.0`, 지시: head/docs/migration-2.0.0.md, D74·D75): 계약 v2.0.0(태그로 설치)에 맞춰 I9를 `extract`/`respond`로 바꾸고 서버 경로·헤더·OUTPUT_INVALID, 패키지 시스템 프롬프트(해시 확인), `prompt-3`(Qwen3 ChatML), 보호 정책 `protect-2`, 프로파일(Qwen3-4B/8B), 이미지 라벨을 갱신했다. 시험: `.venv/bin/python -m pytest -q` 109 통과 / 0 실패(이전 기준선 116 통과 / 2 실패는 옛 로컬 계약 0.1.0 설치 때의 값; 시험 구성이 바뀌어 개수는 비교 대상이 아니다). push·태그는 하지 않았다(헤드가 시험과 작성자를 확인한 뒤).
+  - **확인한 것**: 단위·서버 시험(가짜 백엔드와 vLLM 모킹), 계약의 `HttpModelRuntime` 클라이언트로 이 서버에 돌린 적합성 시험(참조 I4 서버 + 실제 `HttpReleaseReader` 포함), CPU 이미지 빌드와 스모크(`scripts/smoke.sh`: `/healthz`, `/readyz`, 라벨, non-root).
+  - **확인하지 못한 것(미확인)**: GPU에서의 모든 동작(이 PC에 GPU 없음). Qwen3-4B가 12GB에 적재되는지, A·B 어댑터 동시 적재, 24GB에서 Qwen3-8B. `ActionExtraction`을 vLLM xgrammar가 어디까지 지키는지(`pattern`, `minItems`, 배열 `type`)와 그에 따른 재시도 빈도. `prompt-3`이 Qwen3 토크나이저·학습 데이터의 형식과 같은지(CR-004 항목 2). 프로파일의 engine 값은 계산한 추정.
+  - **미정/요청**: CR-004(로드 인자 `system_prompts`, 채팅 형식 대조 자료, respond 대체 문장 문구, G1 대응 검사 여부).
 - 13차(0.5.3): GPU 이미지에 gcc(Triton JIT), 캐시·홈·원격 측정 ENV, 시작 시 디렉터리 보장, HF 캐시 검사 포함. 시험 118개. CPU 변형 smoke 통과. GPU 변형 빌드는 하지 않음(정적 검토만). 태그는 헤드가 붙인다.
 
 - 12차(0.5.2): 중립 LoRA 패키지 생성기, 12GB 표준 프로파일, readyz의 I4 도달성, 런북(GPU 표준 컨테이너, 단독 compose). 시험 114개. gpu-dev에서 중립 어댑터의 실제 vLLM 로딩·출력 동일 확인(venv, 이미지 빌드·실행은 하지 않음). GPU 이미지 빌드와 12g 프로파일(0.8/8192/8)의 실측은 사용자 승인 대기.

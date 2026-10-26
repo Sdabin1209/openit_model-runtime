@@ -11,7 +11,7 @@
 ## 서버와 컨테이너 (D62, 0.5.0) — deploy가 compose에 넣을 정보
 
 ### 이미지 두 변형
-같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
+같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.0이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |
@@ -33,9 +33,9 @@
 | `MODEL_RUNTIME_READY_PROBE_TTL_S` | 아니오 | `5` | `/readyz`의 I4 도달성 확인 캐시 시간 |
 | `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, 이미지·리포지토리에 넣지 않음) |
 | `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게 |
-| `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(잠정, 미시험)이 있다 |
+| `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(Qwen3-8B, 적재 가능 여부 미확인)이 있다 |
 | `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/var/lib/model-runtime/bundles` | 받은 번들을 푸는 곳. 이미지가 uid 10001 소유로 만들어 두므로 **새 이름 있는 볼륨을 처음 마운트해도 쓸 수 있다**(확인함). 바인드 마운트는 호스트에서 소유자를 10001로 맞춘다. 쓸 수 없으면 서버는 `/readyz` 503과 이유(`reason`)를 내고 `PUT`도 503 |
-| `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | 꺼짐 | **fake 전용 시험 스위치**: 파서 입력 발화에 이 문구가 있으면 `RISK_SIGNAL` 항목 하나(`target`·`value` null, `source_text`는 발화)를 낸다. 위험 정지 → 직원 RESUME 시험용. vllm 백엔드에서 설정하면 서버가 시작을 거부하고, 켜져 있는지는 `/v1/info`의 `test_hooks.fake_risk_phrase`에 나온다 |
+| `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | (없어짐) | **2.0.0에서 없어졌다.** v2 출력에는 위험 신호 표현이 없다(survey-service와 헤드의 미정 항목). 설정이 남아 있으면 서버가 시작을 거부한다 |
 | `MODEL_RUNTIME_QUEUE_WAIT_S` | 아니오 | `3.0` | 예상 대기가 이보다 길면 503. 서비스의 호출 타임아웃(기본 4초)보다 작게 |
 | `MODEL_RUNTIME_PUT_WAIT_S` | 아니오 | `3.0` | `PUT` 응답이 적재 완료를 기다리는 시간. 넘으면 202 LOADING(이후 `GET`으로 확인) |
 | `MODEL_RUNTIME_MAX_RELEASES` | 아니오 | `4` | 동시에 적재해 두는 릴리스 수 |
@@ -61,7 +61,7 @@ model-runtime:
 ### GPU로 실행하기 (표준 컨테이너)
 **필요 조건**: NVIDIA 드라이버(호스트), Docker. 리눅스는 `nvidia-container-toolkit` 설치와 `docker run --gpus all`(또는 compose의 GPU 예약)이 되어야 한다. WSL2는 Docker Desktop의 WSL GPU 지원이 켜져 있어야 한다. 확인: `docker run --rm --gpus all <이미지> python -c "import vllm"`처럼 GPU 컨테이너가 뜨는지, 호스트에서 `nvidia-smi`가 보이는지.
 
-**프로파일 선택**(같은 이미지, 환경 변수만 다르다): `MODEL_RUNTIME_PROFILE=/app/profiles/<파일>` — `gpu-12g.json`(12GB급 이하, 기반 모델 Qwen2.5-1.5B-Instruct, `gpu_memory_utilization` 0.8, `max_model_len` 8192, `max_num_seqs` 8; 근거는 파일의 `_comment`), `rtx4090-24g.json`(24GB, 잠정), `gpu-dev-12g.json`(실측한 보수적 값). 프로파일을 직접 만들어 마운트해도 된다(형식은 `load_profile`, `tests/test_neutral_package.py`가 형식을 검증). 기반 모델만 바꾸려면 `MODEL_RUNTIME_BASE_MODEL`.
+**프로파일 선택**(같은 이미지, 환경 변수만 다르다): `MODEL_RUNTIME_PROFILE=/app/profiles/<파일>` — `gpu-12g.json`(12GB급, 기반 모델 **Qwen3-4B**, `gpu_memory_utilization` 0.9, `max_model_len` 4096, `max_num_seqs` 4, `enforce_eager` true; 계산한 추정이며 **12GB에서 적재되는지, A·B 어댑터를 동시에 올릴 수 있는지는 미확인**), `rtx4090-24g.json`(24GB급, **Qwen3-8B**, 마찬가지로 미확인), `gpu-dev-12g.json`(Qwen2.5-1.5B로 실측한 보수적 값, 중립 어댑터·파이프라인 시험 전용). 어댑터의 기반 모델이 프로파일과 다르면 적재를 거부한다(412). 근거와 계산은 각 파일의 `_comment`·`status`. 프로파일을 직접 만들어 마운트해도 된다(형식은 `load_profile`, `tests/test_neutral_package.py`가 형식을 검증). 기반 모델만 바꾸려면 `MODEL_RUNTIME_BASE_MODEL`.
 
 **HF 캐시 마운트 경로 주의**: 볼륨은 이미지가 이미 만들고 uid 10001 소유로 해 둔 `/var/lib/model-runtime/hf`(기본 `HF_HOME`)에 마운트한다. 다른 경로(`HF_HOME=/var/lib/hf-cache` 등)를 쓰려면 Dockerfile에서 그 경로를 `mkdir` 하고 `chown 10001` 해야 한다. 아니면 마운트 지점이 root 소유라 서버가 모델을 받지 못하고, 서버는 시작 때 검사해 `/readyz` 503 reason을 `hf cache not writable: <경로> (uid <n>)`로 낸다(오프라인 `HF_HUB_OFFLINE=1`이나 fake 백엔드에서는 검사하지 않는다).
 
@@ -71,7 +71,7 @@ model-runtime:
 
 **오프라인이면**: 인터넷이 되는 곳에서 같은 볼륨(또는 같은 구조의 디렉터리)에 모델을 미리 받아 두고 옮긴다. 예: `docker run --rm -v mr-hf:/var/lib/model-runtime/hf -e HF_HOME=/var/lib/model-runtime/hf <이미지> python -c "from huggingface_hub import snapshot_download as d; d('Qwen/Qwen2.5-1.5B-Instruct')"` 뒤 볼륨을 옮기거나(`docker run --rm -v mr-hf:/v -v $PWD:/o busybox tar -C /v -cf /o/hf.tar .`) 오프라인 서버에서 풀고, 서버에는 `HF_HUB_OFFLINE=1`을 준다(없으면 기동 때 허브 접속을 시도해 실패할 수 있다).
 
-**학습 없이 데모(중립 어댑터)**: `scripts/make_neutral_package.py OUT_DIR [--profile profiles/gpu-12g.json]`가 기반 모델 출력이 그대로 나오는 시험용 LoRA 패키지(LORA_A·LORA_B)를 결정적으로 만든다(표준 라이브러리만 필요, torch·vLLM 불필요; `model_runtime`이 import되는 환경에서). `OUT_DIR/<역할>/adapter/`(PEFT 형식, lora_B=0)와 `manifest.json`(ModelPackageManifest: backend vllm, 프로파일의 기반 모델, `ext."model-runtime".neutral`에 학습하지 않은 시험용 대체임을 명시)과 `SUMMARY.json`(해시)이 나온다. 같은 인자면 같은 해시. `--vllm-version`은 서빙 이미지의 vLLM(현재 0.31.0)과 같게. 모델 모르는 기반이면 `--model-config`로 HF `config.json`을 준다. 이 패키지로 릴리스를 만드는 일은 model-lab/release-gate의 몫이다. gpu-dev(vLLM 0.31.0, 12GB)에서 이 어댑터를 로딩해 온도 0 출력이 기반 모델과 같은 것을 확인했다(`scripts/gpu_neutral_check.py`).
+**학습 없이 데모(중립 어댑터)**: `scripts/make_neutral_package.py OUT_DIR [--profile profiles/gpu-dev-12g.json]`가 기반 모델 출력이 그대로 나오는 시험용 LoRA 패키지(LORA_A·LORA_B)를 결정적으로 만든다(표준 라이브러리만 필요, torch·vLLM 불필요; `model_runtime`이 import되는 환경에서). `OUT_DIR/<역할>/adapter/`(PEFT 형식, lora_B=0)와 `manifest.json`(ModelPackageManifest: backend vllm, 프로파일의 기반 모델, `ext."model-runtime".neutral`에 학습하지 않은 시험용 대체임을 명시)과 `SUMMARY.json`(해시)이 나온다. 같은 인자면 같은 해시. `--vllm-version`은 서빙 이미지의 vLLM(현재 0.31.0)과 같게. 모르는 기반(Qwen3 포함: 확인하지 못한 수치를 내장하지 않는다)이면 `--model-config`로 HF `config.json`(`head_dim` 포함)을 준다. 패키지에는 시험용 자리표시 `system_prompt.txt`가 들어간다(학습과 짝인 프롬프트가 아니다). 이 패키지로 릴리스를 만드는 일은 model-lab/release-gate의 몫이다. gpu-dev(vLLM 0.31.0, 12GB)에서 이 어댑터를 로딩해 온도 0 출력이 기반 모델과 같은 것을 확인했다(`scripts/gpu_neutral_check.py`).
 
 ### 다른 호스트에서 이 컨테이너만 단독으로 띄우기
 이 서비스만 들어 있는 compose다. 서버는 **주소·토큰·프로파일을 환경 변수로만** 받으므로 deploy의 compose 네트워크나 서비스 이름에 의존하지 않는다(코드·이미지에 호스트 이름 기본값 없음; `tests/test_server.py::Location`이 확인).
@@ -84,7 +84,7 @@ services:
     ports: ["8080:8080"]                # 호출하는 쪽이 닿을 수 있는 주소로 게시
     environment:
       MODEL_RUNTIME_BACKEND: vllm
-      MODEL_RUNTIME_PROFILE: /app/profiles/gpu-12g.json      # 24GB면 rtx4090-24g.json
+      MODEL_RUNTIME_PROFILE: /app/profiles/gpu-12g.json      # 24GB급이면 rtx4090-24g.json
       MODEL_RUNTIME_RELEASE_URL: https://release-gate.example.org:8443   # 다른 호스트의 release-gate(I4) 주소
       MODEL_RUNTIME_RELEASE_TOKEN: ${RELEASE_READ_TOKEN}     # I4 읽기 토큰(비밀 값, .env는 리포지토리에 두지 않는다)
       MODEL_RUNTIME_TOKENS: survey=${INFERENCE_CALLER_TOKEN} # 호출자(survey-service) 토큰
@@ -106,7 +106,7 @@ volumes: {hf-cache: {}, bundles: {}}
 
 | 방향 | 무엇을 | 필요한 것 |
 | --- | --- | --- |
-| survey-service → model-runtime | `PUT`/`GET /v1/releases/{id}`, `POST .../parse`·`generate` | 게시한 포트(기본 8080)로의 TCP, 호출자 토큰 |
+| survey-service → model-runtime | `PUT`/`GET /v1/releases/{id}`, `POST .../extract`·`respond` | 게시한 포트(기본 8080)로의 TCP, 호출자 토큰 |
 | model-runtime → release-gate(I4) | 번들 다운로드(`GET /v1/releases/{id}/bundle`)와 `GET /healthz` | `MODEL_RUNTIME_RELEASE_URL`의 주소·포트로의 TCP, 읽기 토큰. 컨테이너가 **그 주소를 해석·도달**할 수 있어야 한다(컴포즈 서비스 이름은 같은 네트워크에서만 풀린다) |
 | model-runtime → huggingface.co | 기반 모델 첫 다운로드 | 443 외부 연결, 또는 캐시 볼륨을 미리 채우고 `HF_HUB_OFFLINE=1` |
 | (운영) 모니터링 → model-runtime | `/healthz`, `/readyz` | 인증 없음. `/readyz`가 503이면 `reason`에 이유(번들 디렉터리 쓰기, I4 주소 미설정·도달 불가 등) |
@@ -117,10 +117,10 @@ volumes: {hf-cache: {}, bundles: {}}
 CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용도다. 번들이 다음을 만족해야 한다.
 0. **기대값 조회**: 서버가 `GET /v1/info`의 `serving_config_expectation`(`constraint`, 지원 프롬프트·보호 정책 버전, `output_contract`)으로 매니페스트가 맞춰야 할 값을 낸다(백엔드가 준비된 뒤). deploy는 이 값을 그대로 `serving_config`에 쓰면 된다.
 1. `manifest.adapters.{LORA_A,LORA_B}.serving_config.constraint`가 `{"backend": "fake", "backend_version": "1", "supported_features": [FakeBackend 기본 집합], "relax_policy_version": "relax-1"}`. 집합은 `sorted(FakeBackend().supported_features)` = `$defs, $ref, additionalProperties, anyOf, enum, items, properties, required, type`. 만드는 가장 쉬운 방법은 `model_runtime.fake_serving_configs()`의 결과를 매니페스트에 넣는 것이다.
-2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-2`, `output_contract: 1`, `protection_policy_version: protect-1`, `decoding`, `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
-3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.5.x).
-4. 어댑터: 역할마다 **디렉터리가 존재하고** `adapter_hash`(`directory_hash`)가 맞으면 된다. fake는 내용을 읽지 않으므로 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`)은 요구하지 않는다. vllm 변형은 PEFT 형식과 `r <= max_lora_rank`, 기반 모델 일치가 필요하다(어긋나면 412).
-5. fake의 출력은 고정이다(파서 `{"items": []}`, 생성기 `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.
+2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-3`, `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
+3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.6.x).
+4. 어댑터: 역할마다 **디렉터리가 존재하고** `adapter_hash`(`directory_hash`)가 맞고, **시스템 프롬프트 파일**(`adapters[role].system_prompt`의 `path`, `sha256`; 어댑터 디렉터리 안, 비어 있지 않은 UTF-8)이 있어야 한다(D75). fake는 내용을 읽지 않으므로 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`)은 요구하지 않는다. vllm 변형은 PEFT 형식과 `r <= max_lora_rank`, 기반 모델 일치가 필요하다(어긋나면 412).
+5. fake의 출력은 고정이다(extract `{"action":"NEXT","next_item":"END","values":[]}`, respond `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.
 참고 구현: `tests/test_server_e2e.py`(참조 I4 서버 + 실제 `HttpReleaseReader`).
 
 ### 확인과 스모크
@@ -137,7 +137,9 @@ CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용�
 | `BackendNotAvailable` | 설정이 가리키는 백엔드가 이 환경에 없다 | GPU 이미지인지, `pip install .[vllm]`이 됐는지. vLLM 엔진이 `EngineDeadError`로 죽은 뒤에는 프로세스를 다시 띄워야 한다(0.4.0부터 순위 초과는 로딩 전에 `UnsupportedServingConfig`로 거부된다). |
 | `ContractVersionMismatch` | `schema_dir` 상위의 `CONTRACT_VERSION`이 지원 값과 다르거나 읽을 수 없다 | `schema_dir`가 `.../schema/schemas`(계약 JSON이 있는 디렉터리)인지, 그 상위에 `CONTRACT_VERSION`이 있는지. |
 | `ContractViolation` | 입력이 입력 계약을 위반했다(모델 호출 전). `serving_config` 형식 위반. 또는 `load`에 넘긴 어댑터·설정·기대 해시의 역할 집합이 {LORA_A, LORA_B}와 다르다 | 예외의 (경로, 키워드) 목록으로 어느 필드인지 본다. 값은 담기지 않는다. |
-| (예외 아님) 출력 보호가 자주 적용된다 | 모델 출력이 깨져 규칙이 정한 대체 출력이 나갔다. 파서는 항목 고침·빈 목록, 생성기는 `is_fallback = true` | `last_call_info.outcome`·`protections`(P1~P6, G0·G1·G4, G5)를 집계한다. 어느 규칙이 많은지 보고, model-lab이 `parse_raw`/`generate_raw`로 보호 전 품질을 잰다. `relaxed` 목록이 크면 백엔드가 제약을 놓치는 것이므로 `supported_features`를 점검한다. 어댑터·템플릿 문제는 model-lab에 알린다. |
+| `ModelOutputInvalid` / 503 `OUTPUT_INVALID` | extract가 재시도를 다 써도 `ActionExtraction`을 못 지켰다. 값을 지어내지 않고 실패로 알린다(D75) | 호출자는 한 번 다시 보내고 그래도 안 되면 턴을 실패 처리한다. 잦으면 `X-Openit-Attempts`·서버 로그(`attempts=`)로 빈도를 보고 model-lab이 `extract_raw`로 형식 위반 종류를 본다. |
+| `SystemPromptMismatch` / 422 `INTEGRITY_ERROR` | 어댑터 디렉터리의 시스템 프롬프트 파일이 없거나 `system_prompt.sha256`과 다르다 | 번들이 훼손됐거나 매니페스트가 어긋났다. 게시를 다시 확인한다. |
+| (예외 아님) respond 대체 문장이 자주 나간다 | 모델 출력이 비어 재료를 이은 대체 문장이 나갔다(`is_fallback = true`, `X-Openit-Outcome: fallback`) | `last_call_info.protections`(G0, G5)를 집계하고 model-lab이 `respond_raw`로 보호 전 품질을 잰다. `relaxed` 목록이 크면 백엔드가 제약을 놓치는 것이므로 `supported_features`를 점검한다. 어댑터·템플릿 문제는 model-lab에 알린다. |
 
 ## 하지 말 것
 - 발화나 모델 출력 원문을 로그에 남기려고 이 라이브러리의 예외·로그를 확장하지 않는다.
