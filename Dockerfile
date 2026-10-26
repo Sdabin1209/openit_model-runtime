@@ -8,16 +8,6 @@
 FROM scratch AS schema
 FROM python:3.12-slim
 ARG VARIANT=cpu
-ARG REVISION=unknown
-ARG BOUNDARY_VERSION=unknown
-ARG SURVEY_SCHEMA_VERSION=unknown
-ARG TURN_ENGINE_VERSION=none
-LABEL io.openit.service="model-runtime" \
-      io.openit.revision="${REVISION}" \
-      io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
-      io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
-      io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
-      io.openit.model-runtime="0.5.3"
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 MODEL_RUNTIME_HOST=0.0.0.0 MODEL_RUNTIME_PORT=8080 MODEL_RUNTIME_BUNDLE_DIR=/var/lib/model-runtime/bundles HF_HOME=/var/lib/model-runtime/hf
 WORKDIR /app
 COPY requirements-${VARIANT}.lock /tmp/requirements.lock
@@ -40,6 +30,17 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
     && mkdir -p /var/lib/model-runtime/bundles /var/lib/model-runtime/hf /var/lib/model-runtime/home /var/lib/model-runtime/cache/vllm \
        /var/lib/model-runtime/cache/torchinductor /var/lib/model-runtime/cache/triton /var/lib/model-runtime/cache/torch \
     && chown -R 10001 /var/lib/model-runtime
+# ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
+ARG REVISION=unknown
+ARG BOUNDARY_VERSION=unknown
+ARG SURVEY_SCHEMA_VERSION=unknown
+ARG TURN_ENGINE_VERSION=none
+LABEL io.openit.service="model-runtime" \
+      io.openit.revision="${REVISION}" \
+      io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
+      io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
+      io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
+      io.openit.model-runtime="0.5.3"
 USER 10001
 # 이 디렉터리들은 serving-data 볼륨을 /var/lib/model-runtime에 마운트하면 가려진다. 그래서 서버가 시작할 때 mkdir -p로 다시 보장하고 쓸 수 없으면 /readyz 503 reason을 낸다.
 # 번들 캐시 디렉터리는 10001 소유로 만들어 둔다(새 이름 있는 볼륨은 이 소유권을 물려받는다). 바인드 마운트라면 호스트에서 소유자를 맞춘다.

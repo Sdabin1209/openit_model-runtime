@@ -1,6 +1,7 @@
 # 변경 이력
 
 ## 0.5.3 (미배포) — 2026-10-26
+- Dockerfile: `ARG REVISION`·버전 `ARG`와 `LABEL` 블록을 맨 뒤(USER 앞)로 옮겼다. 커밋마다 바뀌는 값이 앞에 있으면 무거운 pip 레이어 캐시가 매번 깨진다. `REVISION=aaaa` 뒤 `REVISION=bbbb`(+`BOUNDARY_VERSION` 변경)로 CPU 변형을 다시 빌드해 pip 레이어가 `CACHED`임을 확인. 레이어 순서 시험 갱신.
 - GPU 변형 이미지에 C 컴파일러(`gcc`, `libc6-dev`)와 `CC=gcc` 추가: Triton이 LoRA 커널 등에서 CUDA 유틸 모듈을 C 소스로 빌드해 `Failed to find C compiler`로 실패하던 것. 레이어는 무거운 pip 레이어 뒤·USER 앞(빌드 캐시 재사용). Python 헤더는 python 이미지에 이미 있다.
 - 이미지 ENV 기본값: `HOME`, `XDG_CACHE_HOME`, `VLLM_CACHE_ROOT`, `TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR`, `TORCH_HOME`(모두 `/var/lib/model-runtime` 아래), 원격 측정 차단(`VLLM_NO_USAGE_STATS=1`, `DO_NOT_TRACK=1`, `HF_HUB_DISABLE_TELEMETRY=1`). 서버가 시작할 때 이 디렉터리를 `mkdir -p`로 보장하고 쓸 수 없으면 `/readyz` 503 reason `runtime dir not writable: <경로> (uid <n>)`.
 - 0.5.2 이후의 HF 캐시 쓰기 검사(`hf cache not writable: ...`)를 이 버전에 포함. 시험 118개.

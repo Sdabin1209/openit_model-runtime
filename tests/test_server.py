@@ -305,6 +305,11 @@ class RuntimeDirs(unittest.TestCase):
         pip, apt, env, user = (df.index(x) for x in ("RUN pip install -r /tmp/requirements.lock", "apt-get install -y --no-install-recommends gcc libc6-dev",
                                                      "ENV CC=gcc", "\nUSER 10001"))
         self.assertLess(pip, apt); self.assertLess(apt, env); self.assertLess(env, user)   # apt는 무거운 pip 레이어 뒤, USER 앞
+        # 커밋·버전마다 바뀌는 ARG/LABEL은 무거운 레이어(pip, apt)와 모든 COPY·RUN보다 뒤에 있어야 빌드 캐시가 재사용된다
+        last_layer = max(df.rindex(x) for x in ("\nRUN ", "\nCOPY "))
+        for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "ARG TURN_ENGINE_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
+            self.assertGreater(df.index(x), last_layer, x)
+        self.assertLess(df.index("ARG VARIANT"), df.index("COPY requirements-"))   # 잠금 파일 선택에 쓰이므로 앞
         for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_TELEMETRY=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
                   "TORCHINDUCTOR_CACHE_DIR=", "VLLM_CACHE_ROOT=", "XDG_CACHE_HOME=", "TORCH_HOME=", "HOME=/var/lib/model-runtime/home"):
             self.assertIn(k, df)
