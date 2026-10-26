@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (15차, prompt-4)
+갱신: 2026-10-27 (16차, 0.6.2)
+
+- 16차(0.6.2, 브랜치 `fix-fake-and-package-prompt`, deploy CR-D22 v2 1항·4항): fake의 입력 맞춤 LORA-A 출력(`MODEL_RUNTIME_FAKE_FLOW_FILE`, `MODEL_RUNTIME_FAKE_EXTRACTION`)과 `make_neutral_package.py --system-prompt-a/-b`. 자세한 내용은 CHANGELOG 0.6.2. push·태그 없음.
 
 - 15차(0.6.1, 브랜치 `prompt-4-dataset-serialization`, D77): `prompt-4`(학습 글자와 같은 직렬화)를 추가하고 기본으로 올렸다. `prompt-3`은 폐기 표시만 하고 남겼다. 시험 `.venv/bin/python -m pytest -q` 123 통과 / 0 실패. push·태그 없음.
   - **확인한 것**: 학습 서버 val(읽기 전용, 표준출력 파이프, 저장 안 함)의 A 400행·B 400행에서 user 글자와 전체 프롬프트가 모두 일치, 키 순서를 섞은 입력(각 60행)도 일치. Qwen3-4B `tokenizer_config.json`의 chat_template을 jinja2로 렌더한 결과와 서빙 조립이 같다.

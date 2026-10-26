@@ -89,6 +89,18 @@ class E2E(unittest.TestCase):
             info = call(url, "/v1/info")[1]
             self.assertEqual(info["system_prompt_sha256"], {r: sha256_file(p) for r, p in PROMPTS.items()})   # 패키지 프롬프트가 적재됐다
 
+    def test_fake_flow_file_gives_next_item_over_http(self):
+        """MODEL_RUNTIME_FAKE_FLOW_FILE: 서버 경로 전체(PUT 적재 후 extract)에서 입력 question_id의 다음 문항이 나온다."""
+        with ReferenceServer({"tok": "reader"}) as i4, TemporaryDirectory() as tmp:
+            i4.releases["rel-0001"] = make_release("rel-0001"); i4.release_order.append("rel-0001")
+            flow = Path(tmp) / "flow.json"
+            flow.write_text(json.dumps(["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04"]), encoding="utf-8")
+            svc, url = self.serve(i4, tmp, MODEL_RUNTIME_FAKE_FLOW_FILE=str(flow))
+            self.assertEqual(call(url, "/v1/releases/rel-0001", method="PUT")[1]["state"], "LOADED")
+            s, out, _ = call(url, "/v1/releases/rel-0001/extract", A_INPUT)   # A_INPUT.question_id = Q1.D03
+            self.assertEqual((s, out), (200, {"action": "NEXT", "next_item": "Q1.D04", "values": []}))
+            assert_valid("ActionExtraction", out)
+
     def test_contract_client_conformance(self):
         """계약의 HttpModelRuntime으로 같은 시험(적재 멱등, 404, 입력 검증, 출력 형식, 헤더, OUTPUT_INVALID)을 이 서버에 돌린다."""
         with ReferenceServer({"tok": "reader"}) as i4, TemporaryDirectory() as tmp:

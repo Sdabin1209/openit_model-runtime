@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 0.6.2 (미배포) — 2026-10-27 (deploy CR-D22 v2 1항·4항)
+호환 변경(계약 2.0.0 그대로). 설정 없이 쓰던 fake의 출력은 그대로다.
+- fake 백엔드의 LORA-A 출력을 입력에 맞게 낼 수 있다. `MODEL_RUNTIME_FAKE_FLOW_FILE`(문항 ID 목록 JSON, 또는 `{"order": [...]}`)을 주면 입력 `question_id`의 다음 문항으로 가는 `{"action":"NEXT","next_item":<다음 문항|END>,"values":[]}`를 낸다. `MODEL_RUNTIME_FAKE_EXTRACTION`(고정 출력 JSON)은 flow보다 우선한다. 둘 다 없으면 이전과 같은 고정 출력(`next_item: END`)이다. 설정 오류는 시작 거부.
+  - 근거: values가 비면 저장 값이 없어 건너뛰기 규칙이 적용되지 않으므로 turn-engine v0.3.0 `validate_extraction`의 기대 `next_item`은 순서상 바로 다음 문항(마지막이면 END)이다. model-runtime은 문항 순서를 모르므로 설정으로 받는다. 시험에서 `DATASET_V2_FLOW` 25개 문항 모두 위반 0건을 확인했다.
+  - `GenerationRequest.input`(선택, 기본 None) 추가: 가짜 백엔드가 입력의 문항을 읽는 데만 쓴다. 파이썬 API: `make_default_responder(order, extraction)`, `fake_extraction_for`, `load_fake_flow`.
+- `scripts/make_neutral_package.py`: `--system-prompt-a FILE`, `--system-prompt-b FILE`. 파일 바이트를 그대로 `system_prompt.txt`로 넣고 `manifest.system_prompt`의 경로·해시와 `adapter_hash`가 그 내용으로 만들어진다. 비어 있거나 UTF-8이 아니면 거부. 주지 않으면 자리표시 문장.
+- 시험용 의존 extras `dev`(pytest, turn-engine v0.3.0). 시험 133개(+10).
+
 ## 0.6.1 (미배포) — 2026-10-27 (D77)
 호환 변경(계약 2.0.0 그대로, 0.6.0 릴리스도 적재 가능). 0.6.x MAJOR.MINOR가 같아 `model_runtime_version` 검사를 통과한다.
 - 프롬프트 템플릿 **`prompt-4`** 추가·기본값 승격: user 메시지를 학습 데이터와 글자 단위로 같게 `json.dumps(obj, ensure_ascii=False)`로 쓴다. LORA_A는 최상위 키만 정렬하고 `state` 안은 호출자 순서 보존(survey-service가 학습 규칙대로 만든다), LORA_B는 전 수준 정렬. 채팅 형식은 prompt-3과 같다.

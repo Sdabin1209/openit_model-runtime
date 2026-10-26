@@ -9,6 +9,9 @@ manifest.system_prompt {path, sha256}가 가리킨다(D75). 이 파일의 문장
 
 사용: make_neutral_package.py OUT_DIR [--profile profiles/gpu-12g.json] [--vllm-version 0.31.0] [--rank 8]
   [--revision main] [--targets q_proj,v_proj] [--seed 0] [--model-config HF config.json] [--max-tokens 512]
+  [--system-prompt-a FILE] [--system-prompt-b FILE]
+--system-prompt-a/-b: 역할별 시스템 프롬프트 파일(UTF-8, 비어 있지 않음). 내용을 그대로(바이트 단위) 어댑터 디렉터리의 system_prompt.txt로 복사하고 manifest.system_prompt {path, sha256}를
+  그 파일의 해시로 만든다. 주지 않으면 자리표시 문장을 쓴다.
 결과: OUT_DIR/LORA_A/{adapter/,manifest.json}, OUT_DIR/LORA_B/{adapter/,manifest.json}, OUT_DIR/SUMMARY.json
 기반 모델의 크기(은닉 차원 등)는 알려진 모델은 내장값, 그 밖은 --model-config(HF config.json)로 받는다.
 Qwen3처럼 head_dim이 은닉 차원/헤드 수와 다른 모델은 config.json의 head_dim을 쓴다. Qwen3 값은 내장하지 않는다(확인하지 못한 수치를 넣지 않기 위해 --model-config가 필요하다)."""
@@ -100,7 +103,7 @@ def make_adapter(out: Path, base_model: str, dims: dict, rank: int, targets: lis
 
 
 def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revision: str, targets: list[str], seed: int,
-          model_config: str | None, max_tokens: int) -> dict:
+          model_config: str | None, max_tokens: int, system_prompts: dict[str, bytes] | None = None) -> dict:
     prof = mr.load_profile(profile_path)
     base_model = prof.get("base_model")
     if not base_model:
@@ -114,7 +117,8 @@ def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revisi
     for role, pid in ROLE_IDS.items():
         d = out / role
         make_adapter(d / "adapter", base_model, dims, rank, targets, seed + (0 if role == "LORA_A" else 1))
-        (d / "adapter" / "system_prompt.txt").write_text(NEUTRAL_SYSTEM_PROMPTS[role], encoding="utf-8")   # 해시 계산 전에 쓴다
+        sp = (system_prompts or {}).get(role)
+        (d / "adapter" / "system_prompt.txt").write_bytes(sp if sp is not None else NEUTRAL_SYSTEM_PROMPTS[role].encode("utf-8"))   # 해시 계산 전에 쓴다
         cfg = mr.fake_serving_config(backend)
         # LORA_B 출력은 JSON이 아니라 문장이라 제약 디코딩을 쓰지 않는다
         cfg["decoding"] = {"constraint_mode": "constrained" if role == "LORA_A" else "none", "temperature": 0, "retry_temperature": 0.7,
@@ -151,9 +155,22 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--model-config")
     ap.add_argument("--max-tokens", type=int, default=512)
+    ap.add_argument("--system-prompt-a", help="LORA_A 시스템 프롬프트 파일(없으면 자리표시 문장)")
+    ap.add_argument("--system-prompt-b", help="LORA_B 시스템 프롬프트 파일(없으면 자리표시 문장)")
     a = ap.parse_args()
+    prompts = {}
+    for role, f in (("LORA_A", a.system_prompt_a), ("LORA_B", a.system_prompt_b)):
+        if f:
+            try:
+                data = Path(f).read_bytes()
+                text = data.decode("utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                raise SystemExit(f"{role} 시스템 프롬프트를 읽지 못했다({f}): {type(e).__name__}")
+            if not text.strip():
+                raise SystemExit(f"{role} 시스템 프롬프트가 비어 있다: {f}")
+            prompts[role] = data
     s = build(Path(a.out), profile_path=Path(a.profile), vllm_version=a.vllm_version, rank=a.rank, revision=a.revision,
-              targets=a.targets.split(","), seed=a.seed, model_config=a.model_config, max_tokens=a.max_tokens)
+              targets=a.targets.split(","), seed=a.seed, model_config=a.model_config, max_tokens=a.max_tokens, system_prompts=prompts)
     print(json.dumps(s, indent=1, sort_keys=True))
 
 

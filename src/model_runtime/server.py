@@ -9,6 +9,7 @@ extract가 재시도 후에도 ActionExtraction을 지키지 못하면 값을 �
 
 환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
 MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버; 주소에 닿지 못하면 /readyz 503과 사유, /healthz는 200), MODEL_RUNTIME_READY_PROBE_TTL_S(도달성 확인 캐시, 기본 5), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
+MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON; LORA_A가 입력 question_id의 다음 문항으로 가는 NEXT를 낸다), MODEL_RUNTIME_FAKE_EXTRACTION(fake 전용: LORA_A 고정 출력 JSON, flow보다 우선),
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
@@ -35,6 +36,7 @@ from boundary_contracts.errors import BoundaryError
 from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
                FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
                UnsupportedServingConfig, load, serving_config_hash)
+from .backends import load_fake_flow, make_default_responder
 from .errors import BackendNotAvailable
 from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
 from .protection import PROTECTION_POLICIES
@@ -361,7 +363,13 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
         raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
-        factory = lambda: FakeBackend()
+        try:
+            responder = make_default_responder(
+                load_fake_flow(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else None,
+                json.loads(env["MODEL_RUNTIME_FAKE_EXTRACTION"]) if env.get("MODEL_RUNTIME_FAKE_EXTRACTION") else None)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"fake 출력 설정이 틀렸다(MODEL_RUNTIME_FAKE_FLOW_FILE / MODEL_RUNTIME_FAKE_EXTRACTION): {type(e).__name__}")
+        factory = lambda: FakeBackend(responder)
     elif backend_name == "vllm":
         def factory():
             from .vllm_backend import VLLMBackend, load_profile

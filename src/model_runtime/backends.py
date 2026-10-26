@@ -14,6 +14,7 @@ class GenerationRequest:
     decoding: Mapping[str, Any]      # serving_config.decoding
     seed: int                        # 기본 시드 + 시도 번호
     attempt: int                     # 0부터
+    input: Mapping[str, Any] | None = None   # 모델 입력 객체(프롬프트의 user 내용). 가짜 백엔드가 문항을 읽는 데만 쓰고, 실제 백엔드는 쓰지 않는다
 
 
 class ConstraintBackend(Protocol):
@@ -56,12 +57,44 @@ class FakeBackend:
         return self._responder(request)
 
 
-# 가짜 백엔드의 고정 출력. LoRA-A는 ActionExtraction을 지키는 최소 출력(다음 문항으로 간다), LoRA-B는 문장 그대로의 텍스트다.
+# 가짜 백엔드의 출력. LoRA-A: 문항 순서(flow)를 받았으면 입력 question_id의 다음 문항으로 가는 NEXT(values 비어 있음),
+# 못 받았으면 고정 출력(FAKE_EXTRACTION, 호환). LoRA-B는 문장 그대로의 텍스트다.
 FAKE_EXTRACTION = {"action": "NEXT", "next_item": "END", "values": []}
 FAKE_RESPONSE_TEXT = "(가짜 응답)"
 
 
-def _default_responder(req: GenerationRequest) -> str:
-    if req.role == "LORA_A":
+def load_fake_flow(path: str) -> list[str]:
+    """문항 ID 목록 JSON(`["Q1.D01", ...]` 또는 `{"order": [...]}`)을 읽는다. 형식이 틀리면 ValueError."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    order = data.get("order") if isinstance(data, dict) else data
+    if not isinstance(order, list) or not order or not all(isinstance(x, str) and x for x in order) or len(set(order)) != len(order):
+        raise ValueError("문항 순서 파일은 중복 없는 문항 ID 문자열의 비어 있지 않은 목록이어야 한다")
+    return list(order)
+
+
+def fake_extraction_for(question_id: str, order: Sequence[str]) -> dict:
+    """question_id 다음 문항으로 가는 최소 유효 ActionExtraction. values가 비어 있으면 저장 값이 없어 건너뛰기 규칙이 적용되지 않으므로
+    기대 next_item은 순서상 바로 다음 문항(마지막이면 END)이다(turn-engine v0.3.0 validate_extraction과 일치)."""
+    order = list(order)
+    nxt = order[order.index(question_id) + 1] if question_id in order and order.index(question_id) + 1 < len(order) else "END"
+    return {"action": "NEXT", "next_item": nxt, "values": []}
+
+
+def make_default_responder(order: Sequence[str] | None = None, extraction: Mapping | None = None) -> Callable[[GenerationRequest], str]:
+    """extraction(고정 출력)이 있으면 그것, 아니면 order가 있으면 입력 기준 다음 문항, 둘 다 없으면 FAKE_EXTRACTION."""
+    fixed = json.dumps(extraction, ensure_ascii=False) if extraction is not None else None
+
+    def respond(req: GenerationRequest) -> str:
+        if req.role != "LORA_A":
+            return FAKE_RESPONSE_TEXT
+        if fixed is not None:
+            return fixed
+        qid = (req.input or {}).get("question_id") if order else None
+        if order and isinstance(qid, str):
+            return json.dumps(fake_extraction_for(qid, order), ensure_ascii=False)
         return json.dumps(FAKE_EXTRACTION, ensure_ascii=False)
-    return FAKE_RESPONSE_TEXT
+    return respond
+
+
+_default_responder = make_default_responder()

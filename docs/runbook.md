@@ -36,6 +36,8 @@
 | `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(Qwen3-8B, 적재 가능 여부 미확인)이 있다 |
 | `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/var/lib/model-runtime/bundles` | 받은 번들을 푸는 곳. 이미지가 uid 10001 소유로 만들어 두므로 **새 이름 있는 볼륨을 처음 마운트해도 쓸 수 있다**(확인함). 바인드 마운트는 호스트에서 소유자를 10001로 맞춘다. 쓸 수 없으면 서버는 `/readyz` 503과 이유(`reason`)를 내고 `PUT`도 503 |
 | `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | (없어짐) | **2.0.0에서 없어졌다.** v2 출력에는 위험 신호 표현이 없다(survey-service와 헤드의 미정 항목). 설정이 남아 있으면 서버가 시작을 거부한다 |
+| `MODEL_RUNTIME_FAKE_FLOW_FILE` | 아니오 (fake 전용) | 없음 | 문항 ID 목록 JSON(`["Q1.D01", ...]` 또는 `{"order": [...]}`, survey-service의 문항 순서와 같게). 있으면 LORA-A가 입력 `question_id`의 다음 문항으로 가는 `NEXT`(values 비어 있음, 마지막이면 `END`)를 낸다. 파일이 없거나 형식이 틀리면 서버가 시작을 거부한다 |
+| `MODEL_RUNTIME_FAKE_EXTRACTION` | 아니오 (fake 전용) | 없음 | LORA-A가 항상 내는 고정 출력(JSON 문자열). `FLOW_FILE`보다 우선. 스키마·의미 검증은 하지 않으므로 쓰는 쪽 책임 |
 | `MODEL_RUNTIME_QUEUE_WAIT_S` | 아니오 | `3.0` | 예상 대기가 이보다 길면 503. 서비스의 호출 타임아웃(기본 4초)보다 작게 |
 | `MODEL_RUNTIME_PUT_WAIT_S` | 아니오 | `3.0` | `PUT` 응답이 적재 완료를 기다리는 시간. 넘으면 202 LOADING(이후 `GET`으로 확인) |
 | `MODEL_RUNTIME_MAX_RELEASES` | 아니오 | `4` | 동시에 적재해 두는 릴리스 수 |
@@ -126,7 +128,7 @@ CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용�
 2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-4`(prompt-3은 폐기 예정; `/v1/info`의 `prompt_template_version_default`, `deprecated_prompt_template_versions` 참고), `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
 3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.6.x).
 4. 어댑터: 역할마다 **디렉터리가 존재하고** `adapter_hash`(`directory_hash`)가 맞고, **시스템 프롬프트 파일**(`adapters[role].system_prompt`의 `path`, `sha256`; 어댑터 디렉터리 안, 비어 있지 않은 UTF-8)이 있어야 한다(D75). fake는 내용을 읽지 않으므로 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`)은 요구하지 않는다. vllm 변형은 PEFT 형식과 `r <= max_lora_rank`, 기반 모델 일치가 필요하다(어긋나면 412).
-5. fake의 출력은 고정이다(extract `{"action":"NEXT","next_item":"END","values":[]}`, respond `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.
+5. fake의 출력은 입력과 무관하게 결정적이다(extract: 설정이 없으면 `{"action":"NEXT","next_item":"END","values":[]}` — 첫 문항에서도 END라 survey-service의 `validate_extraction`이 반려한다. 문항 순서를 `MODEL_RUNTIME_FAKE_FLOW_FILE`로 주면 입력 문항의 다음 문항을 낸다. respond `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.
 참고 구현: `tests/test_server_e2e.py`(참조 I4 서버 + 실제 `HttpReleaseReader`).
 
 ### 확인과 스모크
