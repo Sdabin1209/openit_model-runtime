@@ -199,3 +199,55 @@ class Cr17(unittest.TestCase):
         with self.assertRaises(SystemExit):
             server.build_service({"MODEL_RUNTIME_BACKEND": "vllm", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
                                   "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x"})
+
+
+class Location(unittest.TestCase):
+    """서버는 주소·토큰·프로파일을 환경 변수로만 받는다. I4에 닿지 못해도 살아 있고, 닿으면 동작한다."""
+
+    def setUp(self):
+        self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
+
+    def _serve(self, env):
+        svc = server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
+                                    "MODEL_RUNTIME_BUNDLE_DIR": str(Path(self._t.name) / "b"), "MODEL_RUNTIME_READY_PROBE_TTL_S": "0", **env})
+        srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
+        threading.Thread(target=srv.serve_forever, daemon=True).start(); self.addCleanup(srv.shutdown)
+        for _ in range(100):
+            if svc.ready: break
+            time.sleep(0.02)
+        return f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def test_unreachable_release_url_healthz_ok_readyz_503_then_recovers(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()   # 아직 아무도 듣지 않는 포트
+        url = self._serve({"MODEL_RUNTIME_RELEASE_URL": f"http://127.0.0.1:{port}", "MODEL_RUNTIME_PUT_WAIT_S": "5"})
+        self.assertEqual(call(url, "/healthz")[0], 200)
+        st, body, _ = call(url, "/readyz")
+        self.assertEqual(st, 503); self.assertIn(f"127.0.0.1:{port}", body["reason"]); self.assertNotIn("/", body["reason"].replace("127.0.0.1", ""))
+        st, b, _ = call(url, "/v1/releases/r1", method="PUT")
+        self.assertEqual((st, b["code"]), (503, "UNAVAILABLE"))   # 적재 시도도 UNAVAILABLE
+        self.assertEqual(call(url, "/healthz")[0], 200)
+
+        class H(BaseHTTPRequestHandler):   # I4가 뒤늦게 올라온 것처럼
+            def log_message(self, *a): pass
+            def do_GET(self):
+                code, data = (200, b"{}") if self.path == "/healthz" else (404, json.dumps(BoundaryError("NOT_FOUND", "없음").to_record()).encode())
+                self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(data)))
+                self.end_headers(); self.wfile.write(data)
+        up = HTTPServer(("127.0.0.1", port), H); threading.Thread(target=up.serve_forever, daemon=True).start(); self.addCleanup(up.shutdown)
+        self.assertEqual(call(url, "/readyz")[0], 200)
+        st, b, _ = call(url, "/v1/releases/r1", method="PUT")
+        self.assertEqual(st, 404)   # 닿았고 I4가 그 릴리스를 모른다고 답한 것(전체 적재는 test_server_e2e.py)
+
+    def test_missing_release_url_is_readyz_503_with_reason(self):
+        url = self._serve({})
+        self.assertEqual(call(url, "/healthz")[0], 200)
+        st, body, _ = call(url, "/readyz")
+        self.assertEqual(st, 503); self.assertIn("MODEL_RUNTIME_RELEASE_URL", body["reason"])
+        self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 503)
+
+    def test_no_environment_specific_defaults_in_source(self):
+        src = "\n".join(p.read_text(encoding="utf-8") for p in (Path(server.__file__).parent).glob("*.py"))
+        for bad in ("release-gate", "host.docker.internal", "survey-service:", "localhost"):
+            self.assertNotIn(bad, src)

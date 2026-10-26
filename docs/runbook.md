@@ -27,7 +27,10 @@
 | --- | --- | --- | --- |
 | `MODEL_RUNTIME_BACKEND` | 아니오 | `vllm` | `vllm` 또는 `fake` |
 | `MODEL_RUNTIME_SCHEMA_DIR` | 이미지에 스키마를 넣지 않았으면 **예** | `/opt/survey-schema/schemas`(넣은 경우) | 문진 스키마의 `.../schema/schemas`(상위에 `CONTRACT_VERSION`). 이미지에 넣지 않으므로 **읽기 전용 마운트** |
-| `MODEL_RUNTIME_RELEASE_URL` | **예** | | I4(release-gate) 서버 주소. 서버가 여기서 번들을 읽는다 |
+| `MODEL_RUNTIME_RELEASE_URL` | **예** | | I4(release-gate) 서버의 **전체 주소**(예 `https://<호스트>:<포트>`). 컴포즈 서비스 이름이든 다른 호스트든 상관없다. 서버가 여기서 번들을 읽는다. 없거나 닿지 못하면 `/readyz` 503과 사유(`/healthz`는 200), 닿으면 `PUT` 적재가 된다 |
+| `MODEL_RUNTIME_BASE_MODEL` | 아니오 | 프로파일의 `base_model` | 기반 모델 덮어쓰기(어댑터의 `base_model_name_or_path`와 같아야 함) |
+| `HF_HOME`, `HF_HUB_OFFLINE` | 아니오 | `/var/lib/model-runtime/hf`, 꺼짐 | Hugging Face 표준 변수(vLLM이 읽는다): 모델 캐시 위치, 오프라인 모드 |
+| `MODEL_RUNTIME_READY_PROBE_TTL_S` | 아니오 | `5` | `/readyz`의 I4 도달성 확인 캐시 시간 |
 | `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, 이미지·리포지토리에 넣지 않음) |
 | `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게 |
 | `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(잠정, 미시험)이 있다 |
@@ -46,13 +49,65 @@ model-runtime:
   image: model-runtime:gpu
   environment:
     MODEL_RUNTIME_SCHEMA_DIR: /schema/schemas
-    MODEL_RUNTIME_RELEASE_URL: http://release-gate:8080
+    MODEL_RUNTIME_RELEASE_URL: http://release-gate:8080   # 예: 같은 compose 네트워크의 서비스 이름. 다른 호스트면 아래 '단독 실행' 절
     MODEL_RUNTIME_PROFILE: /app/profiles/rtx4090-24g.json
   # MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN은 비밀 값으로 주입
   volumes: ["<문진 스키마>:/schema:ro", "bundles:/tmp/model-runtime-bundles"]
   deploy: {resources: {reservations: {devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]}}}
 ```
 기반 모델 가중치는 이미지에 없다. 첫 적재 때 Hugging Face 캐시(`~/.cache/huggingface`, 컨테이너에서는 `HF_HOME`)로 받으므로 볼륨을 주고 네트워크 정책을 정한다(오프라인이면 미리 채운다).
+
+
+### GPU로 실행하기 (표준 컨테이너)
+**필요 조건**: NVIDIA 드라이버(호스트), Docker. 리눅스는 `nvidia-container-toolkit` 설치와 `docker run --gpus all`(또는 compose의 GPU 예약)이 되어야 한다. WSL2는 Docker Desktop의 WSL GPU 지원이 켜져 있어야 한다. 확인: `docker run --rm --gpus all <이미지> python -c "import vllm"`처럼 GPU 컨테이너가 뜨는지, 호스트에서 `nvidia-smi`가 보이는지.
+
+**프로파일 선택**(같은 이미지, 환경 변수만 다르다): `MODEL_RUNTIME_PROFILE=/app/profiles/<파일>` — `gpu-12g.json`(12GB급 이하, 기반 모델 Qwen2.5-1.5B-Instruct, `gpu_memory_utilization` 0.8, `max_model_len` 8192, `max_num_seqs` 8; 근거는 파일의 `_comment`), `rtx4090-24g.json`(24GB, 잠정), `gpu-dev-12g.json`(실측한 보수적 값). 프로파일을 직접 만들어 마운트해도 된다(형식은 `load_profile`, `tests/test_neutral_package.py`가 형식을 검증). 기반 모델만 바꾸려면 `MODEL_RUNTIME_BASE_MODEL`.
+
+**크기와 첫 기동**: GPU 이미지는 약 13GB이고 기반 모델 가중치(Qwen2.5-1.5B-Instruct)는 약 3GB(디스크 약 2.9GB)다. 가중치는 이미지에 없고 **첫 기동 때 Hugging Face에서 내려받아** `HF_HOME`(기본 `/var/lib/model-runtime/hf`, 이미지가 uid 10001 소유로 만들어 둠)에 캐시한다. HF 캐시는 **이름 있는 볼륨**으로 두면 재기동·재배포에도 다시 받지 않는다. 필요한 디스크는 이미지 13GB + 모델 3GB + 번들 캐시(어댑터 수십 MB)이고 네트워크는 첫 기동 때만 `huggingface.co`에 나가는 연결이 필요하다.
+
+**오프라인이면**: 인터넷이 되는 곳에서 같은 볼륨(또는 같은 구조의 디렉터리)에 모델을 미리 받아 두고 옮긴다. 예: `docker run --rm -v mr-hf:/var/lib/model-runtime/hf -e HF_HOME=/var/lib/model-runtime/hf <이미지> python -c "from huggingface_hub import snapshot_download as d; d('Qwen/Qwen2.5-1.5B-Instruct')"` 뒤 볼륨을 옮기거나(`docker run --rm -v mr-hf:/v -v $PWD:/o busybox tar -C /v -cf /o/hf.tar .`) 오프라인 서버에서 풀고, 서버에는 `HF_HUB_OFFLINE=1`을 준다(없으면 기동 때 허브 접속을 시도해 실패할 수 있다).
+
+**학습 없이 데모(중립 어댑터)**: `scripts/make_neutral_package.py OUT_DIR [--profile profiles/gpu-12g.json]`가 기반 모델 출력이 그대로 나오는 시험용 LoRA 패키지(LORA_A·LORA_B)를 결정적으로 만든다(표준 라이브러리만 필요, torch·vLLM 불필요; `model_runtime`이 import되는 환경에서). `OUT_DIR/<역할>/adapter/`(PEFT 형식, lora_B=0)와 `manifest.json`(ModelPackageManifest: backend vllm, 프로파일의 기반 모델, `ext."model-runtime".neutral`에 학습하지 않은 시험용 대체임을 명시)과 `SUMMARY.json`(해시)이 나온다. 같은 인자면 같은 해시. `--vllm-version`은 서빙 이미지의 vLLM(현재 0.31.0)과 같게. 모델 모르는 기반이면 `--model-config`로 HF `config.json`을 준다. 이 패키지로 릴리스를 만드는 일은 model-lab/release-gate의 몫이다. gpu-dev(vLLM 0.31.0, 12GB)에서 이 어댑터를 로딩해 온도 0 출력이 기반 모델과 같은 것을 확인했다(`scripts/gpu_neutral_check.py`).
+
+### 다른 호스트에서 이 컨테이너만 단독으로 띄우기
+이 서비스만 들어 있는 compose다. 서버는 **주소·토큰·프로파일을 환경 변수로만** 받으므로 deploy의 compose 네트워크나 서비스 이름에 의존하지 않는다(코드·이미지에 호스트 이름 기본값 없음; `tests/test_server.py::Location`이 확인).
+```yaml
+# compose.yaml (GPU 서버 한 대, 이 서비스만)
+services:
+  model-runtime:
+    image: model-runtime:gpu            # 레지스트리 주소·digest는 환경에 맞게
+    restart: unless-stopped
+    ports: ["8080:8080"]                # 호출하는 쪽이 닿을 수 있는 주소로 게시
+    environment:
+      MODEL_RUNTIME_BACKEND: vllm
+      MODEL_RUNTIME_PROFILE: /app/profiles/gpu-12g.json      # 24GB면 rtx4090-24g.json
+      MODEL_RUNTIME_RELEASE_URL: https://release-gate.example.org:8443   # 다른 호스트의 release-gate(I4) 주소
+      MODEL_RUNTIME_RELEASE_TOKEN: ${RELEASE_READ_TOKEN}     # I4 읽기 토큰(비밀 값, .env는 리포지토리에 두지 않는다)
+      MODEL_RUNTIME_TOKENS: survey=${INFERENCE_CALLER_TOKEN} # 호출자(survey-service) 토큰
+      MODEL_RUNTIME_SCHEMA_DIR: /schema/schemas               # 이미지에 스키마를 넣어 빌드했다면 생략
+      # HF_HUB_OFFLINE: "1"                                   # 캐시를 미리 채운 오프라인 서버
+    volumes:
+      - hf-cache:/var/lib/model-runtime/hf
+      - bundles:/var/lib/model-runtime/bundles
+      - ./schema:/schema:ro                                   # 스키마를 이미지에 넣었다면 생략
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+volumes: {hf-cache: {}, bundles: {}}
+```
+호출하는 쪽(survey-service)은 `SURVEY_INFERENCE_URL`에 이 서버의 주소(`http://<이 호스트>:8080`)와 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 호출자 토큰만 알면 된다. 모델 가중치·어댑터는 서버가 스스로 받는다.
+
+**네트워크 조건(양방향 도달성)**
+
+| 방향 | 무엇을 | 필요한 것 |
+| --- | --- | --- |
+| survey-service → model-runtime | `PUT`/`GET /v1/releases/{id}`, `POST .../parse`·`generate` | 게시한 포트(기본 8080)로의 TCP, 호출자 토큰 |
+| model-runtime → release-gate(I4) | 번들 다운로드(`GET /v1/releases/{id}/bundle`)와 `GET /healthz` | `MODEL_RUNTIME_RELEASE_URL`의 주소·포트로의 TCP, 읽기 토큰. 컨테이너가 **그 주소를 해석·도달**할 수 있어야 한다(컴포즈 서비스 이름은 같은 네트워크에서만 풀린다) |
+| model-runtime → huggingface.co | 기반 모델 첫 다운로드 | 443 외부 연결, 또는 캐시 볼륨을 미리 채우고 `HF_HUB_OFFLINE=1` |
+| (운영) 모니터링 → model-runtime | `/healthz`, `/readyz` | 인증 없음. `/readyz`가 503이면 `reason`에 이유(번들 디렉터리 쓰기, I4 주소 미설정·도달 불가 등) |
+
+주의: 서버의 I4 클라이언트는 환경 변수의 프록시 설정(`HTTP_PROXY`)을 읽지 않는다(boundary-contracts 구현). 프록시 뒤에 있으면 I4를 프록시 없이 직접 닿게 하거나 알려야 한다. 시작할 때 I4에 닿지 못해도 프로세스는 살아 있고 `/healthz`는 200, `/readyz`는 503과 사유이며, 닿는 즉시(확인 캐시 5초) 200이 되고 `PUT` 적재가 된다.
 
 ### fake 백엔드로 `PUT` 적재가 되려면
 CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용도다. 번들이 다음을 만족해야 한다.

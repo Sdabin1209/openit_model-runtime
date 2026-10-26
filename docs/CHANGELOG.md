@@ -1,5 +1,11 @@
 # 변경 이력
 
+## 0.5.2 (미배포) — 2026-10-26
+- `scripts/make_neutral_package.py`: 학습 없는 중립 LoRA(lora_B=0, PEFT 형식) 모델 패키지(ModelPackageManifest, backend vllm)를 결정적으로 생성(표준 라이브러리만). `scripts/gpu_neutral_check.py`.
+- 프로파일 `gpu-12g.json`(12GB급 이하, 표준 이름). `MODEL_RUNTIME_BASE_MODEL`, 이미지의 `HF_HOME`(uid 10001 소유 디렉터리).
+- `/readyz`가 I4(`MODEL_RUNTIME_RELEASE_URL`) 도달성을 확인(안 닿거나 미설정이면 503과 사유, `/healthz`는 200). 위치 독립 점검.
+- 런북: GPU 표준 컨테이너 실행, 오프라인 모델 캐시, 단독 실행 compose와 네트워크 조건표. 시험 114개.
+
 ## 0.5.1 (미배포) — 2026-10-15 (deploy CR-D17)
 - 번들 캐시 기본 경로를 `/var/lib/model-runtime/bundles`(이미지에서 uid 10001 소유)로 바꿨다. 쓸 수 없으면 `/readyz` 503과 이유, `PUT` 503. 새 이름 있는 볼륨 마운트 확인.
 - `FakeBackend(risk_phrase=)`, 환경 변수 `MODEL_RUNTIME_FAKE_RISK_PHRASE`(fake 전용, 기본 꺼짐, vllm이면 시작 거부): 해당 문구가 든 발화에 `RISK_SIGNAL` 항목을 낸다(출력 계약 통과, 보호 없음).

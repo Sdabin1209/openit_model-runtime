@@ -1,0 +1,14 @@
+{
+  "_comment": "12GB급(RTX 3060 12GB, 4070 SUPER 12GB 등) 이하 GPU용 표준 프로파일. 호스트 이름이 아니라 VRAM 크기로 고른다. 기반 모델 1.5B(bf16 가중치 약 3.05GiB) + LoRA 2개. 잠정: 같은 모델·엔진 설정으로 gpu-dev-12g.json(utilization 0.6, 길이 4096)은 실측했고(가중치 3.05GiB, 최대 사용 7.6GB), 이 파일의 0.8/8192/8은 그 실측에서 KV 캐시 여유(토큰당 약 28KiB)를 계산해 키운 값이라 실측 전이다. 8GB 이하 GPU면 gpu_memory_utilization 0.7, max_model_len 4096, max_num_seqs 4로 낮춘다.",
+  "base_model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "engine": {
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "gpu_memory_utilization": 0.8,
+    "max_num_seqs": 8,
+    "max_loras": 2,
+    "max_lora_rank": 16,
+    "enforce_eager": false
+  },
+  "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "이미지에 nvcc가 없으면 FlashInfer JIT 샘플러가 실패한다(gpu-dev에서 확인)."}
+}

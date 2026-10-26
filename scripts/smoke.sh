@@ -12,7 +12,10 @@ docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e
   "$TAG" >/dev/null
 PORT="$(docker port "$NAME" 8080/tcp | head -1 | sed 's/.*://')"; URL="http://127.0.0.1:$PORT"
 for i in $(seq 1 30); do curl -sf "$URL/healthz" >/dev/null && break; sleep 1; done
-curl -sf "$URL/healthz"; echo; curl -sf "$URL/readyz"; echo
+curl -sf "$URL/healthz"; echo
+# I4(release-gate)가 없으므로 /readyz는 503과 사유여야 한다(/healthz는 200)
+code="$(curl -s -o /tmp/rz.$$ -w '%{http_code}' "$URL/readyz")"; cat /tmp/rz.$$; echo; rm -f /tmp/rz.$$
+[ "$code" = 503 ] || { echo "I4에 닿지 못하면 readyz 503이어야 한다: $code" >&2; exit 1; }
 curl -sf "$URL/v1/info"; echo
 curl -sf "$URL/v1/releases/smoke-1"; echo
 code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/v1/releases/smoke-1/parse" -H 'Content-Type: application/json' -d '{}')"

@@ -6,8 +6,9 @@ GET /v1/info · GET /healthz · GET /readyz. 서버가 I4(HttpReleaseReader)에�
 엔진 호출은 직렬화하고, 대기가 길 것 같으면 큐에 쌓지 않고 503으로 거절한다. 발화·출력 원문은 로그에 남기지 않는다.
 
 환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
-MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
-MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요),
+MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버; 주소에 닿지 못하면 /readyz 503과 사유, /healthz는 200), MODEL_RUNTIME_READY_PROBE_TTL_S(도달성 확인 캐시, 기본 5), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
+MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
+HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
 MODEL_RUNTIME_FAKE_RISK_PHRASE(fake 전용 시험 스위치, 기본 꺼짐; vllm에서 설정하면 시작 거부), MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
 from __future__ import annotations
@@ -21,6 +22,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
+from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Mapping
@@ -63,8 +66,11 @@ class Release:
 class Service:
     def __init__(self, *, schema_dir: Path, bundle_dir: Path, base_backend_factory: Callable[[], object],
                  reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
-                 queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None):
+                 queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
+                 release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0):
         self.test_hooks = dict(test_hooks or {})
+        self.release_url, self.release_required, self.probe_ttl_s = release_url, release_required, probe_ttl_s
+        self._probe = (0.0, None)   # (시각, 사유 또는 None)
         self.schema_dir, self.bundle_dir = Path(schema_dir), Path(bundle_dir)
         self.reader_factory, self.backend_name = reader_factory, backend_name
         self.tokens = dict(tokens or {})
@@ -93,6 +99,27 @@ class Service:
             return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
         return None
 
+    def readiness(self) -> tuple[bool, str | None]:
+        """요청을 받을 수 있는가: 백엔드·번들 디렉터리·I4 서버 도달성. 사유에는 주소의 호스트:포트만 담는다(토큰·경로 없음).
+        /healthz는 이것과 무관하게 프로세스가 살아 있으면 200이다."""
+        if not self.ready:
+            return False, self.not_ready_reason
+        if self.release_required and not self.release_url:
+            return False, "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다"
+        if self.release_url:
+            t, why = self._probe
+            if time.time() - t >= self.probe_ttl_s:
+                try:
+                    with urllib.request.urlopen(self.release_url.rstrip("/") + "/healthz", timeout=2):
+                        why = None
+                except Exception as e:   # noqa: BLE001
+                    u = urlsplit(self.release_url)
+                    why = f"release 서버({u.hostname}:{u.port or ''})에 닿지 못한다({type(e).__name__})"
+                self._probe = (time.time(), why)
+            if why:
+                return False, why
+        return True, None
+
     def close(self):
         """종료 시 엔진을 내린다(시그널 처리에서 부른다). 내리지 않으면 EngineCore가 GPU 메모리를 쥔 채 남는다."""
         self.ready = False
@@ -115,6 +142,8 @@ class Service:
         """(상태 코드, 본문). 멱등: LOADED면 200, LOADING이면 대기 후 상태, FAILED·ABSENT면 새로 시도한다."""
         if not self.ready:
             return 503, BoundaryError("UNAVAILABLE", self.not_ready_reason or "서버가 아직 준비되지 않았다").to_record()
+        if self.release_required and not self.release_url:
+            return 503, BoundaryError("UNAVAILABLE", "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다").to_record()
         with self.rlock:
             r = self.releases.get(rid)
             if r is None or r.state == "FAILED":
@@ -241,8 +270,8 @@ def make_handler(svc: Service):
             if method == "GET" and p == "/healthz":
                 return self._send(200, {"status": "ok"})
             if method == "GET" and p == "/readyz":
-                return self._send(200, {"status": "ready"}) if svc.ready else self._send(
-                    503, {"status": "not ready", "reason": svc.not_ready_reason})
+                ok, why = svc.readiness()
+                return self._send(200, {"status": "ready"}) if ok else self._send(503, {"status": "not ready", "reason": why})
             if not self._authorized():
                 return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다")
             if method == "GET" and p == "/v1/info":
@@ -294,14 +323,17 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
             for k, v in prof.get("env", {}).items():   # 프로파일이 정한 엔진용 환경(예: VLLM_USE_FLASHINFER_SAMPLER)
                 if not k.startswith(("_",)):
                     os.environ.setdefault(k, str(v))
-            return VLLMBackend(None, profile=prof)
+            return VLLMBackend(None, profile=prof, base_model=env.get("MODEL_RUNTIME_BASE_MODEL") or None)
     else:
         raise SystemExit("MODEL_RUNTIME_BACKEND는 vllm 또는 fake")
+    custom_reader = reader_factory
     if reader_factory is None:
         def reader_factory():
             from boundary_contracts.clients.releases import HttpReleaseReader
             return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], env.get("MODEL_RUNTIME_RELEASE_TOKEN", ""), timeout=120)
-    return Service(schema_dir=Path(schema_dir), test_hooks={"fake_risk_phrase": bool(risk)},
+    return Service(schema_dir=Path(schema_dir), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
+                   release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
+                   test_hooks={"fake_risk_phrase": bool(risk)},
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),
