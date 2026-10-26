@@ -19,12 +19,12 @@ class Golden(unittest.TestCase):
         self.assertEqual(json.loads((GOLD / "serving_config.fake.json").read_text(encoding="utf-8")), cfg)
 
     def test_prompt_golden(self):
-        """prompt-3의 출력이 바뀌면 이 테스트가 깨진다. 템플릿을 고치려면 새 버전(prompt-4)을 만든다.
+        """prompt-4(기본)의 출력이 바뀌면 이 테스트가 깨진다. 템플릿을 고치려면 새 버전을 만든다. prompt-3(폐기 예정)은 test_prompt4.py가 고정한다.
         이 파일은 이 리포지토리가 만든 문자열의 고정일 뿐이며 Qwen3 토크나이저의 결과와 같은지는 확인하지 못했다(prompts.py 머리말)."""
         kw = dict(serving_config=json.loads((GOLD / "serving_config.fake.json").read_text(encoding="utf-8")),
                   system_prompt=SYSTEM, schema_dir=SCHEMA_DIR)
-        self.assertEqual(mr.render_prompt("LORA_A", A_INPUT, **kw), (GOLD / "lora_a.prompt-3.txt").read_text(encoding="utf-8"))
-        self.assertEqual(mr.render_prompt("LORA_B", B_INPUT, **kw), (GOLD / "lora_b.prompt-3.txt").read_text(encoding="utf-8"))
+        self.assertEqual(mr.render_prompt("LORA_A", A_INPUT, **kw), (GOLD / "lora_a.prompt-4.txt").read_text(encoding="utf-8"))
+        self.assertEqual(mr.render_prompt("LORA_B", B_INPUT, **kw), (GOLD / "lora_b.prompt-4.txt").read_text(encoding="utf-8"))
 
     def test_example_end_to_end(self):
         b = mr.FakeBackend.scripted({"LORA_A": [GOOD_A], "LORA_B": [GOOD_B]})

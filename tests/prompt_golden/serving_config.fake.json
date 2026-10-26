@@ -23,6 +23,6 @@
  },
  "max_attempts": 3,
  "output_contract": 1,
- "prompt_template_version": "prompt-3",
+ "prompt_template_version": "prompt-4",
  "protection_policy_version": "protect-2"
 }

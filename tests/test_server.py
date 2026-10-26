@@ -221,7 +221,7 @@ class Cr17(unittest.TestCase):
         b = mr.FakeBackend()
         self.assertEqual(e["constraint"], {"backend": "fake", "backend_version": "1", "supported_features": sorted(b.supported_features),
                                            "relax_policy_version": mr.RELAX_POLICY_VERSION})
-        self.assertEqual(e["prompt_template_versions"], ["prompt-3"])
+        self.assertEqual(e["prompt_template_versions"], ["prompt-3", "prompt-4"])
         self.assertEqual(e["protection_policy_versions"], ["protect-2"])
         # 기대값으로 만든 설정은 PUT이 받아 준다(deploy가 이 값으로 매니페스트를 만들 수 있다)
         self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 200)

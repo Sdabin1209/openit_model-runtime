@@ -397,11 +397,13 @@ class Prompt(unittest.TestCase):
         kw = dict(serving_config=cfg, system_prompt="시스템 문장", schema_dir=SCHEMA_DIR)
         a = mr.render_prompt("LORA_A", A_INPUT, **kw)
         b = mr.render_prompt("LORA_A", dict(reversed(list(A_INPUT.items()))), **kw)
-        self.assertEqual(a, b)   # 키 순서와 무관
+        self.assertEqual(a, b)   # 최상위 키 순서와 무관(prompt-4: A의 최상위는 서버가 정렬, state 안은 호출자 순서)
         self.assertTrue(a.startswith("<|im_start|>system\n시스템 문장<|im_end|>\n<|im_start|>user\n{"))
         self.assertTrue(a.endswith("<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"))   # enable_thinking=False
         self.assertIn("십 년 전에 고혈압 진단을 받았어요.", a)   # ensure_ascii=False
-        self.assertIn(canonicalize(A_INPUT).decode("utf-8"), a)
+        self.assertIn(json.dumps(dict(sorted(A_INPUT.items())), ensure_ascii=False), a)   # prompt-4: 학습 글자(D77)
+        a3 = mr.render_prompt("LORA_A", A_INPUT, **{**kw, "serving_config": mr.fake_serving_config(prompt_template_version="prompt-3")})
+        self.assertIn(canonicalize(A_INPUT).decode("utf-8"), a3)   # prompt-3(폐기 예정): JCS
 
     def test_errors(self):
         cfg = mr.fake_serving_config()

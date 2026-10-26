@@ -36,7 +36,7 @@ from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVers
                FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
                UnsupportedServingConfig, load, serving_config_hash)
 from .errors import BackendNotAvailable
-from .prompts import SUPPORTED_TEMPLATE_VERSIONS
+from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
 from .protection import PROTECTION_POLICIES
 from .schema_guard import RELAX_POLICY_VERSION
 
@@ -235,6 +235,8 @@ class Service:
                                      "supported_features": sorted(base.supported_features),
                                      "relax_policy_version": RELAX_POLICY_VERSION},
                       "prompt_template_versions": sorted(SUPPORTED_TEMPLATE_VERSIONS),
+                      "prompt_template_version_default": DEFAULT_TEMPLATE_VERSION,   # 새 매니페스트는 이 값을 쓴다(D77)
+                      "deprecated_prompt_template_versions": sorted(DEPRECATED_TEMPLATE_VERSIONS),
                       "protection_policy_versions": sorted(PROTECTION_POLICIES),
                       "output_contract": SUPPORTED_RUNTIME_CONTRACT_VERSION}
         return {"service": "model-runtime", "runtime_version": RUNTIME_VERSION,
