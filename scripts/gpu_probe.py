@@ -125,8 +125,10 @@ def main():
     def gen(*a, **k):
         return backend.generate(req(*a, **k))
 
-    gen_schema = schemas.model_output_schema("LORA_B")
+    # 2.0.0: JSON을 내는 역할은 LORA_A(ActionExtraction)뿐이다. LORA_B는 문장 그대로의 텍스트라 출력 스키마가 없다.
+    # 이 점검은 v1(Qwen2.5-1.5B, 무작위 LoRA) 시험을 v2 API에 맞춘 것이고 GPU가 없는 PC에서는 --mock으로 논리만 확인했다(실제 vLLM에서는 미시험).
     par_schema = schemas.model_output_schema("LORA_A")
+    gen_schema = par_schema   # 역할과 무관한 엔진 점검(최대 토큰, 결정성)에 쓰는 스키마
 
     @check("2_lora_load_select")
     def _():
@@ -144,14 +146,16 @@ def main():
     @check("3_lora_plus_structured")
     def _():
         res = {}
-        for role, sch in (("LORA_A", par_schema), ("LORA_B", gen_schema)):
+        for role, sch in (("LORA_A", par_schema),):
             relaxed, removed = relax(sch, backend.supported_features)
             txt = gen(role, relaxed, temp=0.7, mt=256)
             try:
                 v = json.loads(txt)
-                res[role] = {"json": True, "removed": removed, "violations": mr.SchemaSet.output_violations(schemas, role, v) if role == "LORA_A" else schemas.model_output_violations(role, v)}
+                res[role] = {"json": True, "removed": removed, "violations": schemas.output_violations(role, v)}
             except ValueError:
                 res[role] = {"json": False, "removed": removed}
+        txt = gen("LORA_B", None, temp=0.7, mt=64, prompt="안녕하세요 오늘은", mode="none")   # LORA_B: 제약 없는 텍스트
+        res["LORA_B"] = {"text_len": len(txt), "violations": schemas.output_violations("LORA_B", txt.strip())}
         return res
     _()
 
@@ -181,7 +185,7 @@ def main():
     @check("4b_real_schemas")
     def _():
         res = {}
-        for role, sch in (("LORA_A", par_schema), ("LORA_B", gen_schema)):
+        for role, sch in (("LORA_A", par_schema),):
             row = {}
             for label, s in (("raw", sch), ("relaxed", relax(sch, backend.supported_features)[0])):
                 try:
@@ -190,7 +194,7 @@ def main():
                         txt = gen(role, s, seed=sd, temp=0.9, mt=400)
                         try:
                             v = json.loads(txt)
-                            vs = schemas.output_violations(role, v) if role == "LORA_A" else schemas.model_output_violations(role, v)
+                            vs = schemas.output_violations(role, v)
                         except ValueError:
                             vs = [("", "json")]
                         if not vs:
@@ -247,15 +251,24 @@ def main():
 
     @check("10_conformance_via_load")
     def _():
-        from helpers import GENERATOR_INPUT, PARSER_INPUT
+        from boundary_contracts.canonical import file_hash
+        from helpers import A_INPUT, B_INPUT
         cfgs = mr.fake_serving_configs(backend)
         hs = {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
-        s = mr.load(ad, cfgs, schema_dir=schema_dir, expected_serving_config_hashes=hs, backend=backend)
-        pa = s.parse(PARSER_INPUT); ia = s.last_call_info
-        pb = s.generate(GENERATOR_INPUT); ib = s.last_call_info
-        sa = schemas.output_violations("LORA_A", pa); sb = schemas.output_violations("LORA_B", pb)
-        return {"parse": {"attempts": ia.attempts, "outcome": ia.outcome, "schema_violations": len(sa)},
-                "generate": {"attempts": ib.attempts, "outcome": ib.outcome, "schema_violations": len(sb)}}
+        refs = {}
+        for r, d in ad.items():   # 시험 어댑터에 패키지 프롬프트 자리표시 파일을 둔다(학습과 짝인 프롬프트가 아니다)
+            (Path(d) / "system_prompt.txt").write_text(f"({r} 점검용 자리표시 시스템 프롬프트)\n", encoding="utf-8")
+            refs[r] = {"path": "system_prompt.txt", "sha256": file_hash(Path(d) / "system_prompt.txt")}
+        s = mr.load(ad, cfgs, schema_dir=schema_dir, expected_serving_config_hashes=hs, system_prompts=refs, backend=backend)
+        try:
+            pa = s.extract(A_INPUT); sa = schemas.output_violations("LORA_A", pa); ia = s.last_call_info
+            ra = {"attempts": ia.attempts, "outcome": ia.outcome, "schema_violations": len(sa)}
+        except mr.ModelOutputInvalid as e:   # 무작위 LoRA라 형식을 못 지킬 수 있다. 값을 지어내지 않는 것이 정상 동작이다
+            ra = {"attempts": e.attempts, "outcome": "invalid", "schema_violations": None}
+        pb = s.respond(B_INPUT); ib = s.last_call_info
+        return {"extract": ra,
+                "respond": {"attempts": ib.attempts, "outcome": ib.outcome, "is_fallback": pb.is_fallback,
+                            "schema_violations": len(schemas.output_violations("LORA_B", pb.text))}}
     _()
 
     @check("2b_rank_ceiling")   # 엔진이 죽는 것을 확인하는 시험이라 맨 마지막에 둔다

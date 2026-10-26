@@ -1,8 +1,11 @@
 """실제 서버(python -m model_runtime.server, 실제 VLLMBackend)를 띄우고, 참조 I4 서버(boundary-contracts/conformance)에 릴리스를 올려
-두고 PUT /v1/releases/{id}로 적재한 뒤 parse/generate로 평가 표본을 보내 지연·메모리·보호 개입률을 잰다.
+두고 PUT /v1/releases/{id}로 적재한 뒤 extract/respond(계약 2.0.0)로 평가 표본을 보내 지연·메모리·대체 문장 비율을 잰다.
+2.0.0 이전(v1)용 스크립트를 v2 API에 맞춘 것이며 이 PC에 GPU가 없어 실행해 보지 못했다(미시험). 어댑터 디렉터리에 system_prompt.txt(패키지의 시스템 프롬프트)가 있어야 한다.
+표본 파일은 역할 폴더의 eval_samples.jsonl이고 각 줄은 {"input", "expected"}(ActionExtractionSample / ResponseSample)라고 가정한다(확인하지 못함).
 호스트의 venv에서 flock 아래에서 돌린다. 어댑터는 읽기 전용 경로를 가리키기만 한다(복사하지 않음).
 사용: gpu_serve_check.py --out DIR --adapters-root RUN_DIR --samples-root RUN_DIR/data --schema-dir S --profile P [--n 50]"""
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -28,10 +31,13 @@ def put(url):
 
 
 def post(url, body):
+    """extract는 JSON, respond는 text/plain 문장 그대로를 돌려준다."""
     t = time.time()
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=300) as r:
-        return json.loads(r.read()), dict(r.headers), time.time() - t
+        raw = r.read()
+        out = raw.decode("utf-8") if r.headers.get_content_type() == "text/plain" else json.loads(raw)
+        return out, dict(r.headers), time.time() - t
 
 
 def main():
@@ -50,15 +56,19 @@ def main():
     feats = mr.DEFAULT_SUPPORTED_FEATURES
     be = type("B", (), {"name": "vllm", "version": vllm.__version__, "supported_features": frozenset(feats)})()
     cfgs = mr.fake_serving_configs(be)
-    for c in cfgs.values():
+    for r, c in cfgs.items():
         c["decoding"]["retry_temperature"] = 0.7   # 재시도는 온도를 올린다(design.md 2.3)
+    cfgs["LORA_B"]["decoding"]["constraint_mode"] = "none"   # LoRA-B 출력은 JSON이 아니라 문장이다
     files = {r: {f.name: f.read_bytes() for f in Path(f"{a.adapters_root}/adapters/{r}").iterdir() if f.is_file()} for r in cfgs}
     ex = json.loads((root / "vendor" / "boundary-contracts" / "examples" / "ReleaseManifest.json").read_text())
     bank = {"version": 1, "questions": []}
     ex.update(release_id="rel-gpu-dev", model_runtime_version=mr.RUNTIME_VERSION, runtime_contract_version=1,
               question_set=ref_of("qs-main", "1", bank))
     for r, c in cfgs.items():
-        ex["adapters"][r] = {"adapter_hash": adapter_digest(files[r]), "serving_config": c, "serving_config_hash": mr.serving_config_hash(c)}
+        if "system_prompt.txt" not in files[r]:
+            raise SystemExit(f"{r} 어댑터 디렉터리에 system_prompt.txt가 없다(패키지의 시스템 프롬프트, D75)")
+        ex["adapters"][r] = {"adapter_hash": adapter_digest(files[r]), "serving_config": c, "serving_config_hash": mr.serving_config_hash(c),
+                             "system_prompt": {"path": "system_prompt.txt", "sha256": "sha256:" + hashlib.sha256(files[r]["system_prompt.txt"]).hexdigest()}}
     i4 = ReferenceServer({"tok": "reader"}).start()
     i4.releases["rel-gpu-dev"] = {"manifest": sealed(ex), "bank": bank, "adapters": files, "pass": True}
     i4.release_order.append("rel-gpu-dev")
@@ -90,19 +100,19 @@ def main():
         res["gpu_mib_loaded"] = smi_used()
         res["info"] = json.loads(urllib.request.urlopen(base + "/v1/info").read())
         peak = res["gpu_mib_ready"]
-        for role, path, name in (("LORA_A", "parse", "eval_samples.jsonl"), ("LORA_B", "generate", "eval_samples.jsonl")):
+        for role, path, name in (("LORA_A", "extract", "eval_samples.jsonl"), ("LORA_B", "respond", "eval_samples.jsonl")):
             rows = [json.loads(l) for l in (Path(a.samples_root) / role / name).read_text(encoding="utf-8").splitlines()[:a.n]]
             ts, outc, atts, prot, exact, ex = [], {}, [], {}, 0, []
             for i, r in enumerate(rows):
                 o, h, dt = post(f"{base}/v1/releases/{RID}/{path}", r["input"])
                 ts.append(dt); oc = h["X-Openit-Outcome"]; outc[oc] = outc.get(oc, 0) + 1
                 atts.append(int(h["X-Openit-Attempts"]))
-                for kv in filter(None, h["X-Openit-Protections"].split(",")):
+                for kv in filter(None, h.get("X-Openit-Protections", "").split(",")):
                     k = kv.split(":")[0]; prot[k] = prot.get(k, 0) + 1
                 if role == "LORA_A":
                     exact += o == r["expected"]
                 if i < 2:
-                    ex.append({"input_utterance": r["input"].get("utterance") or r["input"].get("directive", {}).get("action"),
+                    ex.append({"input_action": r["input"].get("action") or r["input"].get("question_id"),   # 발화 원문은 남기지 않는다
                                "output": o, "outcome": oc, "attempts": h["X-Openit-Attempts"], "seconds": round(dt, 2)})
                 peak = max(peak, smi_used())
             ts_s = sorted(ts)
@@ -113,7 +123,7 @@ def main():
         res["gpu_mib_peak"] = peak
         
         try:
-            post(f"{base}/v1/releases/nope/parse", {})
+            post(f"{base}/v1/releases/nope/extract", {})
         except urllib.error.HTTPError as e:
             res["unloaded_release_status"] = e.code
     finally:
