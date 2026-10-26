@@ -1,6 +1,6 @@
 # model-runtime 경계
 
-상태: 계약 2.0.0 기준(0.6.2). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
+상태: 계약 2.0.0 기준(0.6.3). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
 
 ## 소유 저장소
 없음(공유 라이브러리 + 추론 서버 이미지).
@@ -22,7 +22,7 @@
 
 ## 백엔드와 프로파일
 - 첫 실제 백엔드는 vLLM이다(선택 의존 `.[vllm]`). `serving_config.constraint.backend`는 `"vllm"`, `backend_version`은 설치된 vLLM 버전, `supported_features`는 `DEFAULT_SUPPORTED_FEATURES`여야 `load`가 받는다.
-- **기반 모델은 프로파일로 고른다(D74).** `gpu-12g`는 Qwen3-4B, `rtx4090-24g`는 Qwen3-8B. 두 프로파일의 **적재 가능 여부와 A·B 어댑터 동시 적재는 미확인**(측정 전, 파일의 `status`). 어댑터 디렉터리의 `adapter_config.json` 기반 모델이 프로파일의 기반 모델과 다르면(또는 `r > max_lora_rank`) 적재를 거부한다(412 `FAILED_PRECONDITION`).
+- **기반 모델은 프로파일로 고른다(D74).** `gpu-12g`는 Qwen3-1.7B(파이프라인 데모용, D81), `rtx4090-24g`는 Qwen3-8B. 학습된 4B/8B 어댑터는 24GB급 이상에서 서빙한다. 두 프로파일의 **적재 가능 여부와 A·B 어댑터 동시 적재는 미확인**(측정 전, 파일의 `status`). 어댑터 디렉터리의 `adapter_config.json` 기반 모델이 프로파일의 기반 모델과 다르면(또는 `r > max_lora_rank`) 적재를 거부한다(412 `FAILED_PRECONDITION`).
 - LoRA-B는 JSON이 아니라 텍스트라 제약 디코딩에 스키마를 넘기지 않는다(`constraint_mode`가 `constrained`여도 B에는 적용하지 않는다).
 
 ## 호출자가 지켜야 할 것

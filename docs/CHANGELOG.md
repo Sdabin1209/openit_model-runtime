@@ -1,5 +1,11 @@
 # 변경 이력
 
+## 0.6.3 (미배포) — 2026-10-27 (D81)
+호환 변경(계약 2.0.0 그대로, 서버 동작·API 변화 없음). 프로파일 내용만 바뀐다.
+- `profiles/gpu-12g.json`의 기반 모델을 Qwen3-4B에서 **Qwen3-1.7B**로 바꿨다. 파이프라인 데모용(`status.for: pipeline-demo`)이며 학습된 4B/8B 어댑터는 24GB급 이상(`rtx4090-24g`)에서 서빙한다. engine은 이전 gpu-12g(Qwen2.5-1.5B, 0.8/8192/8, 적재 성공, 약 10.2GB)에서 출발해 보수적으로 둔 추정(0.8, max_model_len 4096, max_num_seqs 4, max_lora_rank 16). **적재 가능 여부는 미확인**(`status.loadable: unverified`). 어댑터·프로파일 기반 모델이 다르면 412로 거부하는 규칙은 그대로다.
+- `make_neutral_package.py`의 `--model-config` 요구는 그대로. 런북에 Qwen3-1.7B 차원을 HF `config.json`에서 얻는다고 적었다(수치는 넣지 않음).
+- 시험의 프로파일 기대값을 갱신했다.
+
 ## 0.6.2 (미배포) — 2026-10-27 (deploy CR-D22 v2 1항·4항)
 호환 변경(계약 2.0.0 그대로). 설정 없이 쓰던 fake의 출력은 그대로다.
 - fake 백엔드의 LORA-A 출력을 입력에 맞게 낼 수 있다. `MODEL_RUNTIME_FAKE_FLOW_FILE`(문항 ID 목록 JSON, 또는 `{"order": [...]}`)을 주면 입력 `question_id`의 다음 문항으로 가는 `{"action":"NEXT","next_item":<다음 문항|END>,"values":[]}`를 낸다. `MODEL_RUNTIME_FAKE_EXTRACTION`(고정 출력 JSON)은 flow보다 우선한다. 둘 다 없으면 이전과 같은 고정 출력(`next_item: END`)이다. 설정 오류는 시작 거부.

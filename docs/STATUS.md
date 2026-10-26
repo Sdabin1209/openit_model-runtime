@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (16차, 0.6.2)
+갱신: 2026-10-27 (17차, 0.6.3)
+
+- 17차(0.6.3, 브랜치 `gpu12g-qwen3-1.7b`, D81): `gpu-12g` 기반 모델을 Qwen3-1.7B(파이프라인 데모용)로 변경, 문서·시험 갱신. **미확인**: Qwen3-1.7B의 12GB 적재와 A·B 동시 적재(이 PC에 GPU 없음), 1.7B 모델 차원(HF config.json에서 받아야 함, 코드에 넣지 않음). push·태그 없음.
 
 - 16차(0.6.2, 브랜치 `fix-fake-and-package-prompt`, deploy CR-D22 v2 1항·4항): fake의 입력 맞춤 LORA-A 출력(`MODEL_RUNTIME_FAKE_FLOW_FILE`, `MODEL_RUNTIME_FAKE_EXTRACTION`)과 `make_neutral_package.py --system-prompt-a/-b`. 자세한 내용은 CHANGELOG 0.6.2. push·태그 없음.
 

@@ -45,12 +45,13 @@ class Profiles(unittest.TestCase):
         self.assertEqual((set(a), set(a["engine"])), (set(b), set(b["engine"])))
 
     def test_qwen3_profiles_per_model_and_loadability_is_unverified(self):
-        """D74: 기반 모델은 프로파일로 고른다. 12GB급은 Qwen3-4B, 24GB급은 Qwen3-8B. 적재 가능 여부와 A·B 동시 적재는 측정 전이라 미확인이다."""
+        """D74·D81: 기반 모델은 프로파일로 고른다. 12GB급은 Qwen3-1.7B(파이프라인 데모용), 24GB급은 Qwen3-8B. 적재 가능 여부와 A·B 동시 적재는 측정 전이라 미확인이다."""
         a, b = mr.load_profile(ROOT / "profiles" / "gpu-12g.json"), mr.load_profile(ROOT / "profiles" / "rtx4090-24g.json")
-        self.assertEqual((a["base_model"], b["base_model"]), ("Qwen/Qwen3-4B", "Qwen/Qwen3-8B"))
+        self.assertEqual((a["base_model"], b["base_model"]), ("Qwen/Qwen3-1.7B", "Qwen/Qwen3-8B"))
         for p in (a, b):
             self.assertEqual((p["status"]["loadable"], p["status"]["two_adapters_loaded_together"]), ("unverified", "unverified"))
             self.assertEqual(p["engine"]["max_loras"], 2)
+        self.assertEqual(a["status"]["for"], "pipeline-demo")
         # 측정한 프로파일(Qwen2.5-1.5B)은 파이프라인 시험 전용으로 표시된다
         dev = mr.load_profile(ROOT / "profiles" / "gpu-dev-12g.json")
         self.assertEqual((dev["base_model"], dev["status"]["for"]), ("Qwen/Qwen2.5-1.5B-Instruct", "pipeline-check-only"))
@@ -62,15 +63,15 @@ class Profiles(unittest.TestCase):
             llms = []
             prof = mr.load_profile(ROOT / "profiles" / "gpu-12g.json")
             b = mr.VLLMBackend(None, profile=prof, _import=fake_importer(llm_holder=llms))
-            self.assertEqual(llms[0].init_kw["model"], "Qwen/Qwen3-4B")
+            self.assertEqual(llms[0].init_kw["model"], "Qwen/Qwen3-1.7B")
             Path(t, "ok").mkdir(); Path(t, "bad").mkdir(); Path(t, "r32").mkdir()
-            b.bind(adapters(Path(t) / "ok", base="Qwen/Qwen3-4B", rank=16))
+            b.bind(adapters(Path(t) / "ok", base="Qwen/Qwen3-1.7B", rank=16))
             with self.assertRaises(mr.UnsupportedServingConfig) as cm:
-                b.bind(adapters(Path(t) / "bad", base="Qwen/Qwen3-8B", rank=16))   # 8B 어댑터를 4B 프로파일에
+                b.bind(adapters(Path(t) / "bad", base="Qwen/Qwen3-8B", rank=16))   # 8B 어댑터를 1.7B 프로파일에
             from model_runtime import server
             self.assertEqual(server.to_boundary(cm.exception).code, "FAILED_PRECONDITION")
             with self.assertRaises(mr.UnsupportedServingConfig):
-                b.bind(adapters(Path(t) / "r32", base="Qwen/Qwen3-4B", rank=32))
+                b.bind(adapters(Path(t) / "r32", base="Qwen/Qwen3-1.7B", rank=32))
 
 
 class Neutral(unittest.TestCase):
@@ -187,4 +188,4 @@ class NeutralQwen3(unittest.TestCase):
             self.assertEqual(hdr[p + "o_proj.lora_A.weight"]["shape"], [4, 128])
             self.assertEqual(hdr[p + "o_proj.lora_B.weight"]["shape"], [64, 4])
             m = json.loads((Path(t) / "o" / "LORA_A" / "manifest.json").read_text())
-            self.assertEqual(m["base_model"]["id"], "Qwen/Qwen3-4B")
+            self.assertEqual(m["base_model"]["id"], "Qwen/Qwen3-1.7B")
