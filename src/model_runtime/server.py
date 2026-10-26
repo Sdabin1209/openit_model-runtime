@@ -68,7 +68,8 @@ class Service:
                  reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
-                 hf_home: str | None = None):
+                 hf_home: str | None = None, runtime_dirs: list[str] | None = None):
+        self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
         self.release_url, self.release_required, self.probe_ttl_s = release_url, release_required, probe_ttl_s
@@ -84,7 +85,7 @@ class Service:
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
         self.base = None
         self.ready, self.not_ready_reason = False, "백엔드를 올리는 중"
-        self.bundle_error = self._check_bundle_dir() or self._check_hf_cache()
+        self.bundle_error = self._check_bundle_dir() or self._check_hf_cache() or self._check_runtime_dirs()
         if self.bundle_error:
             log.error("%s", self.bundle_error)
             self.not_ready_reason = self.bundle_error
@@ -99,6 +100,17 @@ class Service:
                 pass
         except OSError as e:
             return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
+        return None
+
+    def _check_runtime_dirs(self) -> str | None:
+        """HOME·XDG/vLLM/torch/triton 캐시 디렉터리를 mkdir -p로 보장한다(볼륨 마운트가 이미지의 디렉터리를 가린다). 못 쓰면 사유."""
+        for d in self.runtime_dirs:
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryFile(dir=d):
+                    pass
+            except OSError:
+                return f"runtime dir not writable: {d} (uid {os.getuid()})"
         return None
 
     def _check_hf_cache(self) -> str | None:
@@ -347,7 +359,9 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
             return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], env.get("MODEL_RUNTIME_RELEASE_TOKEN", ""), timeout=120)
     offline = env.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes")
     hf_home = None if (backend_name != "vllm" or offline) else (env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
-    return Service(schema_dir=Path(schema_dir), hf_home=hf_home, release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
+    dirs = [env[k] for k in ("HOME", "XDG_CACHE_HOME", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TORCH_HOME")
+            if env.get(k)]   # 환경 변수가 정한 것만 보장한다(이미지는 ENV로 모두 정해 둔다)
+    return Service(schema_dir=Path(schema_dir), hf_home=hf_home, runtime_dirs=sorted(set(dirs)), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
                    release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
                    test_hooks={"fake_risk_phrase": bool(risk)},
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),

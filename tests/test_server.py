@@ -279,3 +279,33 @@ class HfCache(unittest.TestCase):
             self.assertIsNone(server.build_service(dict(env, MODEL_RUNTIME_BACKEND="vllm", HF_HUB_OFFLINE="1")).hf_home)
             svc = server.build_service(dict(env, MODEL_RUNTIME_BACKEND="vllm"))
             self.assertIn("hf cache not writable", svc.not_ready_reason)
+
+
+class RuntimeDirs(unittest.TestCase):
+    def test_runtime_dirs_created_when_missing_and_reason_when_not_writable(self):
+        with TemporaryDirectory() as t:
+            mk = lambda **kw: server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
+                                                    "MODEL_RUNTIME_BUNDLE_DIR": str(Path(t) / "b"), **kw})
+            env = {"HOME": str(Path(t) / "home"), "XDG_CACHE_HOME": str(Path(t) / "cache"),
+                   "VLLM_CACHE_ROOT": str(Path(t) / "cache" / "vllm"), "TRITON_CACHE_DIR": str(Path(t) / "cache" / "triton")}
+            svc = mk(**env)
+            for _ in range(100):
+                if svc.ready: break
+                time.sleep(0.02)
+            self.assertTrue(svc.ready)
+            for v in env.values():
+                self.assertTrue(Path(v).is_dir())   # 빈 볼륨이 이미지의 디렉터리를 가려도 시작 때 만든다
+            (Path(t) / "f").write_text("x")
+            bad = mk(TRITON_CACHE_DIR=str(Path(t) / "f" / "triton"))
+            self.assertEqual(bad.not_ready_reason, f"runtime dir not writable: {Path(t) / 'f' / 'triton'} (uid {__import__('os').getuid()})")
+            self.assertFalse(bad.readiness()[0])
+
+    def test_dockerfile_layer_order_and_defaults(self):
+        df = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text(encoding="utf-8")
+        pip, apt, env, user = (df.index(x) for x in ("RUN pip install -r /tmp/requirements.lock", "apt-get install -y --no-install-recommends gcc libc6-dev",
+                                                     "ENV CC=gcc", "\nUSER 10001"))
+        self.assertLess(pip, apt); self.assertLess(apt, env); self.assertLess(env, user)   # apt는 무거운 pip 레이어 뒤, USER 앞
+        for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_TELEMETRY=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
+                  "TORCHINDUCTOR_CACHE_DIR=", "VLLM_CACHE_ROOT=", "XDG_CACHE_HOME=", "TORCH_HOME=", "HOME=/var/lib/model-runtime/home"):
+            self.assertIn(k, df)
+        self.assertIn('"$VARIANT" = "gpu"', df)   # CPU 변형에는 컴파일러를 넣지 않는다
