@@ -113,11 +113,17 @@ volumes: {hf-cache: {}, bundles: {}}
 
 주의: 서버의 I4 클라이언트는 환경 변수의 프록시 설정(`HTTP_PROXY`)을 읽지 않는다(boundary-contracts 구현). 프록시 뒤에 있으면 I4를 프록시 없이 직접 닿게 하거나 알려야 한다. 시작할 때 I4에 닿지 못해도 프로세스는 살아 있고 `/healthz`는 200, `/readyz`는 503과 사유이며, 닿는 즉시(확인 캐시 5초) 200이 되고 `PUT` 적재가 된다.
 
+### 학습 데이터와 프롬프트 글자 일치 점검 (D77)
+학습 서버에서 읽기 전용으로 표준출력에 흘려 이 PC에서 점검한다(파일을 저장하지 않는다). 서버에는 아무것도 쓰거나 설치하지 않는다.
+- `ssh openit 'head -n 60 ~/taehyeon/data/dataset_10_14/lora_a_val.jsonl' | .venv/bin/python scripts/check_prompt_matches_dataset.py` (B도 같다. `--shuffle`은 입력 키 순서를 섞어도 같은지 본다). 종료 코드 0이면 모두 일치.
+- 채팅 형식: `python scripts/check_chat_template.py <Qwen3 tokenizer_config.json>`(jinja2 필요). 토크나이저 토큰 ID 대조는 아니다.
+- 프롬프트 템플릿을 고치면 이 점검을 다시 하고 새 버전을 만든다(기존 버전의 출력은 골든 시험이 고정한다).
+
 ### fake 백엔드로 `PUT` 적재가 되려면
 CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용도다. 번들이 다음을 만족해야 한다.
 0. **기대값 조회**: 서버가 `GET /v1/info`의 `serving_config_expectation`(`constraint`, 지원 프롬프트·보호 정책 버전, `output_contract`)으로 매니페스트가 맞춰야 할 값을 낸다(백엔드가 준비된 뒤). deploy는 이 값을 그대로 `serving_config`에 쓰면 된다.
 1. `manifest.adapters.{LORA_A,LORA_B}.serving_config.constraint`가 `{"backend": "fake", "backend_version": "1", "supported_features": [FakeBackend 기본 집합], "relax_policy_version": "relax-1"}`. 집합은 `sorted(FakeBackend().supported_features)` = `$defs, $ref, additionalProperties, anyOf, enum, items, properties, required, type`. 만드는 가장 쉬운 방법은 `model_runtime.fake_serving_configs()`의 결과를 매니페스트에 넣는 것이다.
-2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-3`, `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
+2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-4`(prompt-3은 폐기 예정; `/v1/info`의 `prompt_template_version_default`, `deprecated_prompt_template_versions` 참고), `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
 3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.6.x).
 4. 어댑터: 역할마다 **디렉터리가 존재하고** `adapter_hash`(`directory_hash`)가 맞고, **시스템 프롬프트 파일**(`adapters[role].system_prompt`의 `path`, `sha256`; 어댑터 디렉터리 안, 비어 있지 않은 UTF-8)이 있어야 한다(D75). fake는 내용을 읽지 않으므로 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`)은 요구하지 않는다. vllm 변형은 PEFT 형식과 `r <= max_lora_rank`, 기반 모델 일치가 필요하다(어긋나면 412).
 5. fake의 출력은 고정이다(extract `{"action":"NEXT","next_item":"END","values":[]}`, respond `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.

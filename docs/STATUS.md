@@ -1,6 +1,11 @@
 # STATUS
 
-갱신: 2026-10-27 (14차, 계약 2.0.0 이전)
+갱신: 2026-10-27 (15차, prompt-4)
+
+- 15차(0.6.1, 브랜치 `prompt-4-dataset-serialization`, D77): `prompt-4`(학습 글자와 같은 직렬화)를 추가하고 기본으로 올렸다. `prompt-3`은 폐기 표시만 하고 남겼다. 시험 `.venv/bin/python -m pytest -q` 123 통과 / 0 실패. push·태그 없음.
+  - **확인한 것**: 학습 서버 val(읽기 전용, 표준출력 파이프, 저장 안 함)의 A 400행·B 400행에서 user 글자와 전체 프롬프트가 모두 일치, 키 순서를 섞은 입력(각 60행)도 일치. Qwen3-4B `tokenizer_config.json`의 chat_template을 jinja2로 렌더한 결과와 서빙 조립이 같다.
+  - **미확인**: transformers `apply_chat_template` 자체와 토큰 ID 대조. 학습 때 쓴 채팅 템플릿 설정(서버 코드를 읽지 않음)과 assistant 쪽 `<think>` 처리. GPU 동작 전부. survey-service가 `state` 삽입 순서를 학습 규칙대로 만드는지(호출자 몫).
+  - **미정**: `prompt-3` 제거 시점, 0.6.1 태그(헤드).
 
 - 14차(0.6.0, 브랜치 `migrate-contracts-2.0.0`, 지시: head/docs/migration-2.0.0.md, D74·D75): 계약 v2.0.0(태그로 설치)에 맞춰 I9를 `extract`/`respond`로 바꾸고 서버 경로·헤더·OUTPUT_INVALID, 패키지 시스템 프롬프트(해시 확인), `prompt-3`(Qwen3 ChatML), 보호 정책 `protect-2`, 프로파일(Qwen3-4B/8B), 이미지 라벨을 갱신했다. 시험: `.venv/bin/python -m pytest -q` 109 통과 / 0 실패(이전 기준선 116 통과 / 2 실패는 옛 로컬 계약 0.1.0 설치 때의 값; 시험 구성이 바뀌어 개수는 비교 대상이 아니다). push·태그는 하지 않았다(헤드가 시험과 작성자를 확인한 뒤).
   - **확인한 것**: 단위·서버 시험(가짜 백엔드와 vLLM 모킹), 계약의 `HttpModelRuntime` 클라이언트로 이 서버에 돌린 적합성 시험(참조 I4 서버 + 실제 `HttpReleaseReader` 포함), CPU 이미지 빌드와 스모크(`scripts/smoke.sh`: `/healthz`, `/readyz`, 라벨, non-root).

@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 0.6.1 (미배포) — 2026-10-27 (D77)
+호환 변경(계약 2.0.0 그대로, 0.6.0 릴리스도 적재 가능). 0.6.x MAJOR.MINOR가 같아 `model_runtime_version` 검사를 통과한다.
+- 프롬프트 템플릿 **`prompt-4`** 추가·기본값 승격: user 메시지를 학습 데이터와 글자 단위로 같게 `json.dumps(obj, ensure_ascii=False)`로 쓴다. LORA_A는 최상위 키만 정렬하고 `state` 안은 호출자 순서 보존(survey-service가 학습 규칙대로 만든다), LORA_B는 전 수준 정렬. 채팅 형식은 prompt-3과 같다.
+- `prompt-3`(JCS)은 호환용으로 남기고 폐기 예정으로 표시(`DEPRECATED_TEMPLATE_VERSIONS`). 제거는 하지 않았다: 0.6.0으로 만든 릴리스가 있을 수 있고 제거는 그 적재를 깨기 때문이다. 다음 MINOR에서 제거를 제안한다.
+- `fake_serving_config()`의 기본이 `prompt-4`. `/v1/info`의 `serving_config_expectation`에 `prompt_template_version_default`, `deprecated_prompt_template_versions` 추가(`prompt_template_versions`는 두 버전).
+- 점검 스크립트 `scripts/check_prompt_matches_dataset.py`(stdin jsonl 대조), `scripts/check_chat_template.py`(chat_template 렌더 대조). 시험 123개(+14).
+
 ## 0.6.0 (미배포) — 2026-10-27 (계약 2.0.0, D74·D75)
 **깨지는 변경(MINOR이지만 0.x의 API 변경).** 지시: head/docs/migration-2.0.0.md. 0.5.x로 만든 릴리스와 `serving_config`는 거부된다.
 - I9 라이브러리: `parse`/`generate` -> `extract`/`respond`, `parse_raw`/`generate_raw` -> `extract_raw`/`respond_raw`. `respond`는 `ResponseResult(text, is_fallback)`. extract가 재시도 후에도 `ActionExtraction`을 못 지키면 **`ModelOutputInvalid`**(D75; 대체 출력 없음). 0.2.0에서 삭제했던 이름이지만 의미가 다르다(출력 보호 예외가 아니라 값을 지어내지 않는 실패).

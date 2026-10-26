@@ -6,8 +6,8 @@
 > | --- | --- | --- |
 > | 호출 | `parse`/`generate`, `ParserOutput`/`GeneratorOutput`(JSON) | `extract`(`ActionExtractionInput` -> `ActionExtraction`, JSON), `respond`(`ResponseRequest` -> 문장 그대로의 텍스트) |
 > | 모델 입출력 스키마 | 문진 스키마(`schema_dir`)에서 읽음 | `boundary_contracts` 패키지(`load_schema`, `validator`). `schema_dir`는 `CONTRACT_VERSION`(문진 스키마 정수 버전, D75)만 확인 |
-> | 시스템 프롬프트 | 코드의 템플릿 문장(`prompt-2`) | **모델 패키지의 파일**(어댑터 디렉터리, 해시 `system_prompt.sha256`). 코드는 조립 규칙(`prompt-3`)만 갖는다. `load(..., system_prompts=)`가 읽고 해시를 확인한다 |
-> | 채팅 형식 | 한 덩어리 문자열 | Qwen3 ChatML, `enable_thinking=False`(`<think>\n\n</think>\n\n`를 어시스턴트 시작에 붙임). 입력 JSON은 JCS 직렬화. **토크나이저 결과와의 바이트 일치, 학습 데이터 직렬화와의 일치는 미확인**(prompts.py 머리말) |
+> | 시스템 프롬프트 | 코드의 템플릿 문장(`prompt-2`) | **모델 패키지의 파일**(어댑터 디렉터리, 해시 `system_prompt.sha256`). 코드는 조립 규칙(`prompt-4`; `prompt-3`은 폐기 예정)만 갖는다. `load(..., system_prompts=)`가 읽고 해시를 확인한다 |
+> | 채팅 형식 | 한 덩어리 문자열 | Qwen3 ChatML, `enable_thinking=False`(`<think>\n\n</think>\n\n`를 어시스턴트 시작에 붙임). 입력 직렬화는 `prompt-4`(D77, 학습 데이터와 같은 `json.dumps(ensure_ascii=False)`; A는 최상위만 정렬, B는 전 수준 정렬). 학습 val 대조와 chat_template 렌더 대조는 확인됨, 학습 때 쓴 채팅 템플릿 설정은 미확인(prompts.py 머리말) |
 > | extract 실패 | 보호(P1~P6), 빈 목록 | 보호 없음. `ModelOutputInvalid`(HTTP 503 `OUTPUT_INVALID`). 값을 지어내지 않는다(D75) |
 > | respond 실패 | 대체 문장 + `is_fallback`(JSON) | 재료(`known`, `ask`, `hold`, `next.text`)를 이은 대체 문장, `is_fallback`/`X-Openit-Outcome: fallback`. 정책 `protect-2` |
 > | 제약 디코딩 | A·B 모두 JSON 스키마 | A만(`ActionExtraction`을 `relax-1`로 완화). B는 텍스트라 제약 없음. action별 `allOf/if/then`과 `pattern`·`minItems`는 엔진이 지키는지 미확인이라 보내지 않고 사후 검증이 한다 |
@@ -154,7 +154,7 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 ## 6. 프롬프트 [제안]
 
 - `render_prompt(role, input, *, serving_config) -> str`: 입력을 해당 역할의 입력 계약으로 검증하고, `serving_config`의 `prompt_template_version`에 해당하는 템플릿에 채운다. 지원하지 않는 버전이면 `UnsupportedServingConfig`. 학습 데이터 변환(model-lab)과 서빙이 같은 함수를 부른다.
-- 템플릿은 정규화된 입력(JCS 직렬화 등 결정적 직렬화)을 사용해 같은 입력이 항상 같은 문자열이 되게 한다. 입력 필드 순서·공백에 의존하지 않는다.
+- 템플릿은 결정적 직렬화를 쓴다. `prompt-3`은 JCS(순서·공백 무관)였고, `prompt-4`(D77)는 학습 글자를 따라 호출자 순서에 일부 의존한다(boundary.md). 최상위(A)와 전 수준(B)은 서버가 정렬한다.
 - 파서 프롬프트에는 판단 지시(저장 여부, 정정 여부의 최종 판정 등)를 넣지 않는다. 의도 분류(`Intent`)는 스키마가 모델 출력으로 정한 것이므로 허용되나, 구체적으로 어디까지가 "해석"이고 어디부터가 "판단"인지의 경계는 turn-engine 역할과 겹치므로 프롬프트 작성 때 점검 목록으로 둔다. [미정: 점검 목록은 구현 시 작성]
 - 템플릿 버전은 `serving_config.prompt_template_version`으로 기록된다.
 

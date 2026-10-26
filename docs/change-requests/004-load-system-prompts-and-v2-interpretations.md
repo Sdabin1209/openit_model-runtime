@@ -12,6 +12,11 @@
 - 미확인: ① 이 문자열이 Qwen3 토크나이저의 `apply_chat_template(enable_thinking=False)` 결과와 같은지(토크나이저 파일이 없어 대조하지 못했다). ② 학습 데이터의 user 메시지가 입력 JSON을 같은 방식으로 직렬화했는지(들여쓰기, 키 순서, `ensure_ascii`; 학습 서버 데이터는 이 영역이 읽을 수 없다). 어긋나면 학습-서빙 프롬프트가 달라져 품질이 떨어진다.
 - 요청: 학습 데이터 한 건의 user/system 메시지 원문(개인정보 없는 합성 표본)과 학습 때 쓴 채팅 템플릿 설정을 model-lab 또는 데이터셋 담당에게서 받아 달라. 받으면 `prompt-4`로 맞추고 골든 시험을 그 표본으로 바꾼다.
 
+## 2-회신 (2026-10-27, 0.6.1, D77) [확인]
+- 항목 2의 ②는 해소됐다: 헤드가 학습 서버 val에서 확인한 규칙(`json.dumps(ensure_ascii=False)`, A는 최상위 정렬·`state` 삽입 순서 보존, B는 전 수준 정렬)으로 `prompt-4`를 만들었고, 같은 서버 val의 A 400행·B 400행에서 user 글자와 전체 프롬프트가 일치했다(`scripts/check_prompt_matches_dataset.py`).
+- ①은 부분 해소: Qwen3-4B `tokenizer_config.json`의 chat_template(`enable_thinking=False`)을 jinja2로 렌더한 결과와 조립이 같다(`scripts/check_chat_template.py`). transformers 실행·토큰 ID 대조는 하지 않았다 [미확인]. 학습 때 쓴 채팅 템플릿 설정은 미확인.
+- 호출자 몫: LORA_A `state`의 키 순서(삽입 순서)는 서버가 바꾸지 않는다(boundary.md). `prompt-3`은 폐기 예정으로 남겼다.
+
 ## 3. respond 대체 문장 (제안, 계약 밖)
 - 계약: "입력의 재료(`known`, `ask`, `hold`, `next.text`)를 이어 붙여 읽는 문장 ... 규칙은 model-runtime이 정한다". 지시서: B의 대체 문장 규칙은 이 영역이 정한다.
 - 구현(`protect-2`의 J1~J2): 순서 `known`, `ask`, `hold`, `next.text`, 비어 있지 않은 것만 공백 하나로 잇기, 바로 앞과 같은 조각은 한 번만, 재료가 없으면 "죄송합니다. 다시 한 번 말씀해 주세요."(잠정, 환자에게 가는 문구라 도메인 소유자 확인 필요). `END`인데 `known`이 빈 경우처럼 재료가 없으면 이 문구가 나가 어색하다(제안: END 전용 문구를 도메인 소유자가 정한다).
