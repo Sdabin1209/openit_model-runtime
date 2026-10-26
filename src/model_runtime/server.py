@@ -67,7 +67,9 @@ class Service:
     def __init__(self, *, schema_dir: Path, bundle_dir: Path, base_backend_factory: Callable[[], object],
                  reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
-                 release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0):
+                 release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
+                 hf_home: str | None = None):
+        self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
         self.release_url, self.release_required, self.probe_ttl_s = release_url, release_required, probe_ttl_s
         self._probe = (0.0, None)   # (시각, 사유 또는 None)
@@ -82,7 +84,7 @@ class Service:
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
         self.base = None
         self.ready, self.not_ready_reason = False, "백엔드를 올리는 중"
-        self.bundle_error = self._check_bundle_dir()
+        self.bundle_error = self._check_bundle_dir() or self._check_hf_cache()
         if self.bundle_error:
             log.error("%s", self.bundle_error)
             self.not_ready_reason = self.bundle_error
@@ -97,6 +99,18 @@ class Service:
                 pass
         except OSError as e:
             return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
+        return None
+
+    def _check_hf_cache(self) -> str | None:
+        """모델 캐시(HF_HOME)를 만들고 쓸 수 있는지 확인한다. 이미지가 준비한 경로가 아닌 곳에 볼륨을 마운트하면 root 소유라 실패한다."""
+        if self.hf_home is None:
+            return None
+        try:
+            self.hf_home.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryFile(dir=self.hf_home):
+                pass
+        except OSError:
+            return f"hf cache not writable: {self.hf_home} (uid {os.getuid()})"
         return None
 
     def readiness(self) -> tuple[bool, str | None]:
@@ -331,7 +345,9 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         def reader_factory():
             from boundary_contracts.clients.releases import HttpReleaseReader
             return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], env.get("MODEL_RUNTIME_RELEASE_TOKEN", ""), timeout=120)
-    return Service(schema_dir=Path(schema_dir), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
+    offline = env.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes")
+    hf_home = None if (backend_name != "vllm" or offline) else (env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
+    return Service(schema_dir=Path(schema_dir), hf_home=hf_home, release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
                    release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
                    test_hooks={"fake_risk_phrase": bool(risk)},
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),

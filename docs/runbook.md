@@ -63,6 +63,8 @@ model-runtime:
 
 **프로파일 선택**(같은 이미지, 환경 변수만 다르다): `MODEL_RUNTIME_PROFILE=/app/profiles/<파일>` — `gpu-12g.json`(12GB급 이하, 기반 모델 Qwen2.5-1.5B-Instruct, `gpu_memory_utilization` 0.8, `max_model_len` 8192, `max_num_seqs` 8; 근거는 파일의 `_comment`), `rtx4090-24g.json`(24GB, 잠정), `gpu-dev-12g.json`(실측한 보수적 값). 프로파일을 직접 만들어 마운트해도 된다(형식은 `load_profile`, `tests/test_neutral_package.py`가 형식을 검증). 기반 모델만 바꾸려면 `MODEL_RUNTIME_BASE_MODEL`.
 
+**HF 캐시 마운트 경로 주의**: 볼륨은 이미지가 이미 만들고 uid 10001 소유로 해 둔 `/var/lib/model-runtime/hf`(기본 `HF_HOME`)에 마운트한다. 다른 경로(`HF_HOME=/var/lib/hf-cache` 등)를 쓰려면 Dockerfile에서 그 경로를 `mkdir` 하고 `chown 10001` 해야 한다. 아니면 마운트 지점이 root 소유라 서버가 모델을 받지 못하고, 서버는 시작 때 검사해 `/readyz` 503 reason을 `hf cache not writable: <경로> (uid <n>)`로 낸다(오프라인 `HF_HUB_OFFLINE=1`이나 fake 백엔드에서는 검사하지 않는다).
+
 **크기와 첫 기동**: GPU 이미지는 약 13GB이고 기반 모델 가중치(Qwen2.5-1.5B-Instruct)는 약 3GB(디스크 약 2.9GB)다. 가중치는 이미지에 없고 **첫 기동 때 Hugging Face에서 내려받아** `HF_HOME`(기본 `/var/lib/model-runtime/hf`, 이미지가 uid 10001 소유로 만들어 둠)에 캐시한다. HF 캐시는 **이름 있는 볼륨**으로 두면 재기동·재배포에도 다시 받지 않는다. 필요한 디스크는 이미지 13GB + 모델 3GB + 번들 캐시(어댑터 수십 MB)이고 네트워크는 첫 기동 때만 `huggingface.co`에 나가는 연결이 필요하다.
 
 **오프라인이면**: 인터넷이 되는 곳에서 같은 볼륨(또는 같은 구조의 디렉터리)에 모델을 미리 받아 두고 옮긴다. 예: `docker run --rm -v mr-hf:/var/lib/model-runtime/hf -e HF_HOME=/var/lib/model-runtime/hf <이미지> python -c "from huggingface_hub import snapshot_download as d; d('Qwen/Qwen2.5-1.5B-Instruct')"` 뒤 볼륨을 옮기거나(`docker run --rm -v mr-hf:/v -v $PWD:/o busybox tar -C /v -cf /o/hf.tar .`) 오프라인 서버에서 풀고, 서버에는 `HF_HUB_OFFLINE=1`을 준다(없으면 기동 때 허브 접속을 시도해 실패할 수 있다).
@@ -87,7 +89,7 @@ services:
       MODEL_RUNTIME_SCHEMA_DIR: /schema/schemas               # 이미지에 스키마를 넣어 빌드했다면 생략
       # HF_HUB_OFFLINE: "1"                                   # 캐시를 미리 채운 오프라인 서버
     volumes:
-      - hf-cache:/var/lib/model-runtime/hf
+      - hf-cache:/var/lib/model-runtime/hf   # 이미지가 uid 10001 소유로 준비한 경로. HF_HOME을 덮어쓰지 않는다
       - bundles:/var/lib/model-runtime/bundles
       - ./schema:/schema:ro                                   # 스키마를 이미지에 넣었다면 생략
     deploy:

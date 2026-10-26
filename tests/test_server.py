@@ -251,3 +251,31 @@ class Location(unittest.TestCase):
         src = "\n".join(p.read_text(encoding="utf-8") for p in (Path(server.__file__).parent).glob("*.py"))
         for bad in ("release-gate", "host.docker.internal", "survey-service:", "localhost"):
             self.assertNotIn(bad, src)
+
+
+class HfCache(unittest.TestCase):
+    def test_unwritable_hf_cache_gives_clear_readyz_reason(self):
+        with TemporaryDirectory() as t:
+            blocker = Path(t) / "file"; blocker.write_text("x")
+            hf = str(blocker / "hf")
+            svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(t) / "b", base_backend_factory=mr.FakeBackend,
+                                 reader_factory=lambda: None, backend_name="vllm", hf_home=hf)
+            ok, why = svc.readiness()
+            self.assertFalse(ok)
+            self.assertEqual(why, f"hf cache not writable: {hf} (uid {__import__('os').getuid()})")
+            ok_svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(t) / "b2", base_backend_factory=mr.FakeBackend,
+                                    reader_factory=lambda: None, backend_name="vllm", hf_home=str(Path(t) / "hf-ok"))
+            for _ in range(100):
+                if ok_svc.ready: break
+                time.sleep(0.02)
+            self.assertTrue(ok_svc.readiness()[0])
+
+    def test_build_service_checks_hf_only_for_vllm_online(self):
+        base = {"MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        with TemporaryDirectory() as t:
+            bad = str(Path(t) / "f" / "hf"); (Path(t) / "f").write_text("x")
+            env = dict(base, MODEL_RUNTIME_BUNDLE_DIR=str(Path(t) / "b"), HF_HOME=bad)
+            self.assertIsNone(server.build_service(dict(env, MODEL_RUNTIME_BACKEND="fake")).hf_home)       # fake는 모델을 받지 않는다
+            self.assertIsNone(server.build_service(dict(env, MODEL_RUNTIME_BACKEND="vllm", HF_HUB_OFFLINE="1")).hf_home)
+            svc = server.build_service(dict(env, MODEL_RUNTIME_BACKEND="vllm"))
+            self.assertIn("hf cache not writable", svc.not_ready_reason)
