@@ -1,47 +1,34 @@
 import json
 from pathlib import Path
 
+from boundary_contracts import validator
+
 SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schema" / "schemas"
 
-PARSER_INPUT = {"utterance": "머리가 아파요", "last_directive": None, "awaiting_questions": [],
-                "question_names": [], "answered_slots": [], "guide_list": []}
+# 계약 2.0.0의 예시(boundary-contracts/examples)와 같은 모양의 시험 입력. 모두 test_runtime의 Samples가 패키지 스키마로 검증한다.
+A_INPUT = {"question_id": "Q1.D03", "current_question": "다음은 고혈압입니다. 진단받은 적이 있으신지, 지금 약을 드시는지 알려 주세요.",
+           "user_utterance": "십 년 전에 고혈압 진단을 받았어요.",
+           "state": {"Q1.D02.diagnosed": {"value": False, "status": "ANSWERED"}}}
+B_INPUT = {"action": "REASK", "reason": "MISSING", "topic": "고혈압 진단을 받았는지와 지금 약을 먹는지",
+           "user_utterance": "십 년 전에 고혈압 진단을 받았어요.", "known": "진단 받음", "ask": "지금 고혈압 약을 먹는지",
+           "next": {"type": "SAME", "question_id": "Q1.D03", "text": "다음은 고혈압입니다. 진단받은 적이 있으신지, 지금 약을 드시는지 알려 주세요."}}
+B_START = {"action": "START", "topic": "뇌졸중(중풍) 진단을 받았는지와 지금 약을 먹는지",
+           "next": {"type": "NEXT", "question_id": "Q1.D01", "text": "혹시 뇌졸중으로 진단받으셨거나 현재 약물 치료 중이신가요?"}}
+B_END = {"action": "NEXT", "topic": "최근 1주일 동안 근력 운동을 한 날 수", "user_utterance": "근력 운동하는 날은 이틀이야",
+         "known": "최근 일주일 2일", "next": {"type": "END"}}
+
+GOOD_EXTRACTION = {"action": "REASK", "next_item": "Q1.D03", "reason": "MISSING", "targets": ["Q1.D03.on_medication"],
+                   "values": [{"key": "Q1.D03.diagnosed", "value": True, "precision": "exact", "status": "ANSWERED", "save": True},
+                              {"key": "Q1.D03.on_medication", "value": None, "precision": "unspecified", "status": "MISSING", "save": False}]}
+GOOD_A = json.dumps(GOOD_EXTRACTION, ensure_ascii=False)
+# 스키마 위반 두 가지: ANSWERED인데 save가 false(allOf/if/then 규칙, 제약 디코딩이 놓칠 수 있다), reason이 NEXT에 붙음
+BAD_A = json.dumps({**GOOD_EXTRACTION, "values": [{**GOOD_EXTRACTION["values"][0], "save": False}]}, ensure_ascii=False)
+GOOD_B = "십 년 전에 고혈압 진단을 받으셨군요. 지금 약은 드시고 계세요?"
 
 
-def directive(action="ASK_NEXT", **kw):
-    d = {"action": action, "targets": [], "target_pending_id": None, "awaiting": None, "say_values": [],
-         "reask_reasons": [], "notices": [],
-         "sentence_materials": {"question_sentences": [], "refusal_explanations": [], "reask_sentences": [],
-                                "choices": [], "guide_sentences": [], "fixed_sentences": []}}
-    sm = kw.pop("sm", {})
-    d.update(kw)
-    d["sentence_materials"].update(sm)
-    return d
-
-
-def gen_input(action="ASK_NEXT", utterance="네", **kw):
-    return {"directive": directive(action, **kw), "utterance": utterance}
-
-
-GENERATOR_INPUT = gen_input()
-
-ITEM = {"item_no": 0, "target": None, "value": None, "source_text": "x", "intent": "UNRECOGNIZED",
-        "progress_op": None, "guide_id": None}
-SLOT = {"question_id": "Q1", "repeat_key": "", "slot_id": "s"}
-WHOLE = {"question_id": "Q1", "whole_question": True}
-
-
-def item(**kw):
-    return dict(ITEM, **kw)
-
-
-def out(*items):
-    return json.dumps({"items": list(items)}, ensure_ascii=False)
-
-
-GOOD_PARSE = out(ITEM)
-# ANSWERED_INTENT인데 target·value가 null: 원래 스키마의 allOf/if/then 규칙 위반이자 보호 규칙 P5 해당
-BAD_PARSE = out(item(intent="ANSWERED_INTENT"))
-GOOD_GEN = json.dumps({"response_text": "알겠습니다."}, ensure_ascii=False)
+def assert_valid(name, value):
+    errs = list(validator(name).iter_errors(value))
+    assert not errs, (name, [e.message for e in errs][:3])
 
 
 def cfgs_and_hashes(backend, a=None, b=None):

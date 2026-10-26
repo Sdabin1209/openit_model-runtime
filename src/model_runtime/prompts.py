@@ -1,7 +1,13 @@
-"""프롬프트 템플릿과 render_prompt. 순수 함수(같은 입력·같은 schema_dir이면 같은 문자열).
+"""프롬프트 조립과 render_prompt. 순수 함수(같은 입력이면 같은 문자열).
 
-모델은 해석(파서)과 문장 만들기(생성기)만 한다. 저장·정정·충돌 판정, 다음 질문 결정은 코드(turn-engine)가 한다.
-생성기 프롬프트는 docs/rules.md의 생성기 규칙 1~4를 어기지 않게만 쓴다(docs/prompt-review.md로 점검)."""
+2.0.0(D74·D75): 시스템 프롬프트는 모델 패키지의 일부다. 이 모듈은 문장을 갖지 않고, 패키지의 시스템 프롬프트와
+입력 JSON을 채팅 형식으로 조립하는 규칙(템플릿 버전)만 가진다. 모델은 해석과 문장 만들기만 하고 판단은 하지 않는다.
+
+템플릿 `prompt-3`: Qwen3 채팅 템플릿(ChatML)에서 enable_thinking=False로 add_generation_prompt=True를 한 것과 같게 쓴 문자열이다.
+    <|im_start|>system\\n{시스템 프롬프트}<|im_end|>\\n<|im_start|>user\\n{입력 JSON}<|im_end|>\\n<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n
+입력 JSON은 boundary_contracts.canonical의 JCS 직렬화(키 사전순, 공백 없음, UTF-8)다.
+확인하지 못한 것: (1) 이 문자열이 실제 Qwen3 토크나이저의 apply_chat_template 결과와 바이트까지 같은지(토크나이저·모델 파일 없이는 대조하지 못했다),
+(2) 학습 데이터의 user 메시지가 입력 JSON을 같은 방식(JCS)으로 직렬화했는지(학습 서버 데이터는 이 영역이 읽을 수 없다). 둘 다 미확인이다."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -13,25 +19,13 @@ from boundary_contracts.canonical import canonicalize
 from .errors import ContractViolation, UnsupportedServingConfig
 from .schema_guard import INPUT_CONTRACT, SchemaSet
 
-_PARSER = (
-    "너는 문진 발화 해석기다. 사용자 발화를 (대상, 값, 원문, 의도) 항목들로 바꾼다.\n"
-    "발화에 있는 내용만 옮기고, 값이 맞는지·저장할지·다음에 무엇을 물을지는 판단하지 않는다.\n"
-    "의도는 다음 중 하나다: {intents}\n"
-    "진행 조작은 다음 중 하나다: {progress_ops}\n"
-    "출력은 {{\"items\": [...]}} JSON 하나뿐이다.\n"
-    "### 입력\n{input}\n### 출력\n"
-)
-_GENERATOR = (
-    "너는 문진 응답 문장 작성기다. 응답 지시(directive)를 사용자 발화(utterance)에 맞춰 자연스러운 한국어 문장으로 바꾼다.\n"
-    "규칙:\n"
-    "1. 응답 지시에 없는 값·문항을 말하지 않는다. 발화는 받아 주는 말에만 쓰고, 그 안의 값을 기록된 값처럼 말하지 않는다.\n"
-    "2. 발화 속 물음에 응답 지시 밖의 내용(안내 목록에 없는 의료 판단, 시설 안내, 앞선 답 등)으로 답하지 않고, 도와드리기 어렵다고만 한다.\n"
-    "3. 행동이 REDIRECT이면 받아 주는 말을 하고 기다리는 답을 묻는다. 응답 지시의 행동은 바꾸지 않는다.\n"
-    "4. 행동이 RISK_NOTICE이면 발화를 받아 주지 않고 문장 재료와 알릴 것대로만 말한다.\n"
-    "무엇을 말할지는 정하지 않는다. 출력은 {{\"response_text\": \"...\"}} JSON 하나뿐이다.\n"
-    "### 입력\n{input}\n### 출력\n"
-)
-TEMPLATES: dict[str, dict[str, str]] = {"prompt-2": {"LORA_A": _PARSER, "LORA_B": _GENERATOR}}
+def _qwen3_nothink(system: str, user: str) -> str:
+    return (f"<|im_start|>system\n{system}<|im_end|>\n"
+            f"<|im_start|>user\n{user}<|im_end|>\n"
+            "<|im_start|>assistant\n<think>\n\n</think>\n\n")
+
+
+TEMPLATES = {"prompt-3": _qwen3_nothink}
 SUPPORTED_TEMPLATE_VERSIONS = frozenset(TEMPLATES)
 
 
@@ -40,22 +34,17 @@ def _schemas_for(schema_dir: str) -> SchemaSet:
     return SchemaSet(Path(schema_dir))
 
 
-def render_prompt(role: str, input: Mapping, *, serving_config: Mapping, schema_dir: Path,
+def render_prompt(role: str, input: Mapping, *, serving_config: Mapping, system_prompt: str, schema_dir: Path,
                   schemas: SchemaSet | None = None) -> str:
-    """I9 render_prompt. schemas는 이미 읽은 SchemaSet을 재사용하려는 내부용 선택 인자다."""
+    """I9 render_prompt. system_prompt는 모델 패키지의 프롬프트 파일 내용이다. schemas는 이미 읽은 SchemaSet을 재사용하려는 내부용 선택 인자다."""
     if role not in INPUT_CONTRACT:
         raise ContractViolation("role은 LORA_A 또는 LORA_B여야 한다")
     version = serving_config.get("prompt_template_version") if isinstance(serving_config, Mapping) else None
     if version not in TEMPLATES:
         raise UnsupportedServingConfig("지원하지 않는 프롬프트 템플릿 버전")
+    if not isinstance(system_prompt, str) or not system_prompt.strip():
+        raise ContractViolation("system_prompt는 비어 있지 않은 문자열이어야 한다")
     s = schemas or _schemas_for(str(schema_dir))
     s.validate_input(role, input)
-    body = canonicalize(dict(input)).decode("utf-8")
-    template = TEMPLATES[version][role]
-    if role == "LORA_A":
-        template = template.format(intents=", ".join(s.vocabulary("ParserOutput", "Intent")),
-                                   progress_ops=", ".join(s.vocabulary("ParserOutput", "ProgressOp")),
-                                   input="{input}")
-    else:
-        template = template.format(input="{input}")
-    return template.replace("{input}", body)
+    user = canonicalize(dict(input)).decode("utf-8")
+    return TEMPLATES[version](system_prompt, user)

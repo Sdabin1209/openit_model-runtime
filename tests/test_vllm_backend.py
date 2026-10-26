@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import GENERATOR_INPUT, GOOD_GEN, GOOD_PARSE, PARSER_INPUT, SCHEMA_DIR
+from boundary_contracts.canonical import file_hash
+from helpers import A_INPUT, B_INPUT, GOOD_A, GOOD_B, SCHEMA_DIR
 
 import model_runtime as mr
 
@@ -35,7 +36,7 @@ class FakeLLM:
 
     def generate(self, prompts, sp, lora_request=None, use_tqdm=True):
         self.calls.append((prompts, sp, lora_request))
-        text = self.texts.pop(0) if self.texts else GOOD_PARSE
+        text = self.texts.pop(0) if self.texts else GOOD_A
         return [types.SimpleNamespace(outputs=[types.SimpleNamespace(text=text, finish_reason="stop")])]
 
 
@@ -69,8 +70,13 @@ def adapters(tmp, base="Qwen/Qwen2.5-1.5B-Instruct", rank=8):
         d = Path(tmp) / role
         d.mkdir()
         (d / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": base, "r": rank}))
+        (d / "system_prompt.txt").write_text(f"{role} 시스템 프롬프트", encoding="utf-8")   # 패키지의 프롬프트 파일(D75)
         out[role] = d
     return out
+
+
+def refs(ad):
+    return {r: {"path": "system_prompt.txt", "sha256": file_hash(Path(d) / "system_prompt.txt")} for r, d in ad.items()}
 
 
 def request(role="LORA_A", schema=None, seed=1000, attempt=0, **dec):
@@ -96,7 +102,7 @@ class Assembly(unittest.TestCase):
             c["constraint"]["backend"] = "vllm"
         hs = {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
         with self.assertRaises(mr.BackendNotAvailable):
-            mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs)
+            mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad))
 
     def test_two_adapters_one_base_model_and_profile(self):
         prof = mr.load_profile(ROOT / "profiles" / "gpu-dev-12g.json")
@@ -191,24 +197,33 @@ class Session(unittest.TestCase):
 
     def test_seed_is_base_plus_attempt_and_relaxed_schema_sent(self):
         cfgs, hs = self.cfgs(a={"decoding": {"constraint_mode": "constrained", "temperature": 0.5, "seed": 7, "max_tokens": 64}})
-        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=self.b)
-        self.llms[0].texts = ["not json", "{}", GOOD_PARSE]
-        s.parse(PARSER_INPUT)
+        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
+        self.llms[0].texts = ["not json", "{}", GOOD_A]
+        s.extract(A_INPUT)
         seeds = [c[1].kw["seed"] for c in self.llms[0].calls]
         self.assertEqual(seeds, [7, 8, 9])
         self.assertEqual({c[1].kw["temperature"] for c in self.llms[0].calls}, {0.5})
         sent = json.loads(self.llms[0].calls[0][1].kw["structured_outputs"].json)
-        text = json.dumps(sent)
-        for kw in ("oneOf", '"if"', '"then"', '"not"', "allOf"):
-            self.assertNotIn(kw, text)   # 지원 집합 밖 키워드는 완화로 빠진다
+        def keys(n):
+            if isinstance(n, dict):
+                for k, v in n.items():
+                    yield k
+                    yield from keys(v)
+            elif isinstance(n, list):
+                for v in n:
+                    yield from keys(v)
+        used = set(keys(sent))
+        for kw in ("oneOf", "if", "then", "not", "allOf", "pattern", "minItems", "maxItems", "$comment"):
+            self.assertNotIn(kw, used)   # 지원 집합 밖 키워드는 완화로 빠진다(설명 문장 안의 글자는 해당 없음)
         self.assertEqual(s.last_call_info.attempts, 3)
-        self.assertIn("oneOf->enum", s.last_call_info.relaxed)
+        self.assertIn("allOf", s.last_call_info.relaxed)
+        self.assertIn("pattern", s.last_call_info.relaxed)   # 키 문법(pattern)은 엔진 지원이 미확인이라 보내지 않는다
 
     def test_roles_use_own_decoding_and_adapter(self):
         cfgs, hs = self.cfgs(b={"decoding": {"constraint_mode": "constrained", "temperature": 0.3, "seed": 50, "max_tokens": 32}})
-        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=self.b)
-        self.llms[0].texts = [GOOD_PARSE, GOOD_GEN]
-        s.parse(PARSER_INPUT); s.generate(GENERATOR_INPUT)
+        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
+        self.llms[0].texts = [GOOD_A, GOOD_B]
+        s.extract(A_INPUT); s.respond(B_INPUT)
         (_, spa, la), (_, spb, lb) = self.llms[0].calls
         self.assertEqual((la.name, spa.kw["seed"], spa.kw["temperature"]), ("LORA_A", 1000, 0))
         self.assertEqual((lb.name, spb.kw["seed"], spb.kw["temperature"], spb.kw["max_tokens"]), ("LORA_B", 50, 0.3, 32))
@@ -218,22 +233,34 @@ class Session(unittest.TestCase):
         cfgs["LORA_A"]["constraint"]["backend_version"] = "1.0.0"
         hs = {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
         with self.assertRaises(mr.UnsupportedServingConfig):
-            mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=self.b)
+            mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
 
     def test_constraint_mode_none_sends_no_schema(self):
         d = {"constraint_mode": "none", "temperature": 0, "seed": 1, "max_tokens": 64}
         cfgs, hs = self.cfgs(a={"decoding": d})
-        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=self.b)
-        s.parse(PARSER_INPUT)
+        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
+        s.extract(A_INPUT)
         kw = self.llms[0].calls[0][1].kw
         self.assertNotIn("structured_outputs", kw)
 
-    def test_fallback_after_garbage_keeps_protection_path(self):
+    def test_garbage_makes_extract_fail_without_inventing_a_value(self):
         cfgs, hs = self.cfgs()
-        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=self.b)
+        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
         self.llms[0].texts = ["x", "y", "z"]
-        self.assertEqual(s.parse(PARSER_INPUT), {"items": []})
-        self.assertEqual(s.last_call_info.outcome, "fallback")
+        with self.assertRaises(mr.ModelOutputInvalid) as cm:
+            s.extract(A_INPUT)
+        self.assertEqual((cm.exception.attempts, s.last_call_info.outcome), (3, "invalid"))
+
+    def test_respond_sends_no_schema_and_a_package_prompt_with_the_b_adapter(self):
+        cfgs, hs = self.cfgs()
+        s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
+        self.llms[0].texts = [GOOD_B]
+        self.assertEqual(s.respond(B_INPUT).text, GOOD_B)
+        (prompts, sp, lora), = self.llms[0].calls
+        self.assertNotIn("structured_outputs", sp.kw)
+        self.assertEqual(lora.name, "LORA_B")
+        self.assertIn("LORA_B 시스템 프롬프트", prompts[0])
+        self.assertNotIn("LORA_A 시스템 프롬프트", prompts[0])
 
 
 if __name__ == "__main__":

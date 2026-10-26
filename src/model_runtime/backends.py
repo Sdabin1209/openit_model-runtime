@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -11,7 +10,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 class GenerationRequest:
     role: str
     prompt: str
-    constraint_schema: dict | None   # constraint_mode가 "none"이면 None
+    constraint_schema: dict | None   # constraint_mode가 "none"이거나 텍스트를 내는 역할(LORA_B)이면 None
     decoding: Mapping[str, Any]      # serving_config.decoding
     seed: int                        # 기본 시드 + 시도 번호
     attempt: int                     # 0부터
@@ -33,12 +32,11 @@ class FakeBackend:
     name = "fake"
     version = "1"
 
-    def __init__(self, responder: Callable[[GenerationRequest], str] | None = None, *, risk_phrase: str | None = None,
+    def __init__(self, responder: Callable[[GenerationRequest], str] | None = None,
                  supported_features: Sequence[str] = ("type", "properties", "required", "enum", "items",
                                                       "anyOf", "$defs", "$ref", "additionalProperties")):
         self.supported_features = frozenset(supported_features)
-        self.risk_phrase = risk_phrase or None   # 시험용 스위치. 기본 꺼짐. 켜면 파서가 이 문구가 든 발화에 RISK_SIGNAL을 낸다
-        self._responder = responder or (lambda r: _default_responder(r, self.risk_phrase))
+        self._responder = responder or _default_responder
         self.requests: list[GenerationRequest] = []
 
     @classmethod
@@ -58,16 +56,12 @@ class FakeBackend:
         return self._responder(request)
 
 
-_UTTERANCE = re.compile(r'"utterance":("(?:[^"\\]|\\.)*")')
+# 가짜 백엔드의 고정 출력. LoRA-A는 ActionExtraction을 지키는 최소 출력(다음 문항으로 간다), LoRA-B는 문장 그대로의 텍스트다.
+FAKE_EXTRACTION = {"action": "NEXT", "next_item": "END", "values": []}
+FAKE_RESPONSE_TEXT = "(가짜 응답)"
 
 
-def _default_responder(req: GenerationRequest, risk_phrase: str | None = None) -> str:
+def _default_responder(req: GenerationRequest) -> str:
     if req.role == "LORA_A":
-        if risk_phrase:
-            m = _UTTERANCE.search(req.prompt)
-            utterance = json.loads(m.group(1)) if m else ""
-            if risk_phrase in utterance:
-                return json.dumps({"items": [{"item_no": 0, "target": None, "value": None, "source_text": utterance,
-                                              "intent": "RISK_SIGNAL", "progress_op": None, "guide_id": None}]}, ensure_ascii=False)
-        return json.dumps({"items": []})
-    return json.dumps({"response_text": "(가짜 응답)"}, ensure_ascii=False)
+        return json.dumps(FAKE_EXTRACTION, ensure_ascii=False)
+    return FAKE_RESPONSE_TEXT

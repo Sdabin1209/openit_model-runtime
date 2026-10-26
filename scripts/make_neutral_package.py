@@ -3,13 +3,15 @@
 
 어댑터: PEFT 형식(adapter_config.json + adapter_model.safetensors). lora_B를 0으로 두므로 출력은 기반 모델과 같다.
 lora_A는 시드에서 결정적으로 만든다. 의존은 표준 라이브러리뿐이다(safetensors 파일을 직접 쓴다; torch·vLLM 불필요).
-패키지: ModelPackageManifest(boundary-contracts)와 어댑터 디렉터리. 같은 인자면 같은 바이트·같은 해시.
+패키지: ModelPackageManifest(boundary-contracts 2.0.0)와 어댑터 디렉터리. 시스템 프롬프트 파일(system_prompt.txt)은 어댑터 디렉터리 안에 두고
+manifest.system_prompt {path, sha256}가 가리킨다(D75). 이 파일의 문장은 학습과 짝인 프롬프트가 아니라 시험용 자리표시자다. 같은 인자면 같은 바이트·같은 해시.
 호출은 PYTHONPATH에 src가 있거나 model-runtime이 설치된 환경에서(boundary_contracts의 해시 구현을 쓴다).
 
 사용: make_neutral_package.py OUT_DIR [--profile profiles/gpu-12g.json] [--vllm-version 0.31.0] [--rank 8]
   [--revision main] [--targets q_proj,v_proj] [--seed 0] [--model-config HF config.json] [--max-tokens 512]
 결과: OUT_DIR/LORA_A/{adapter/,manifest.json}, OUT_DIR/LORA_B/{adapter/,manifest.json}, OUT_DIR/SUMMARY.json
-기반 모델의 크기(은닉 차원 등)는 알려진 모델은 내장값, 그 밖은 --model-config(HF config.json)로 받는다."""
+기반 모델의 크기(은닉 차원 등)는 알려진 모델은 내장값, 그 밖은 --model-config(HF config.json)로 받는다.
+Qwen3처럼 head_dim이 은닉 차원/헤드 수와 다른 모델은 config.json의 head_dim을 쓴다. Qwen3 값은 내장하지 않는다(확인하지 못한 수치를 넣지 않기 위해 --model-config가 필요하다)."""
 from __future__ import annotations
 
 import argparse
@@ -25,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from boundary_contracts import PIPELINE_SCHEMA_VERSION  # noqa: E402
-from boundary_contracts.canonical import content_hash, directory_hash, sha256_hash  # noqa: E402
+from boundary_contracts.canonical import content_hash, directory_hash, file_hash, sha256_hash  # noqa: E402
 
 import model_runtime as mr  # noqa: E402
 
@@ -35,6 +37,10 @@ KNOWN_MODELS = {   # 은닉 차원, 층 수, 어텐션 헤드, KV 헤드 (Huggin
 }
 ROLE_IDS = {"LORA_A": "lora-a-neutral", "LORA_B": "lora-b-neutral"}
 VERSION = "0.0.1-neutral"
+NEUTRAL_SYSTEM_PROMPTS = {   # 시험용 자리표시자. 학습한 시스템 프롬프트가 아니다(실제 패키지는 model-lab이 학습과 짝인 파일을 넣는다)
+    "LORA_A": "(중립 시험 패키지의 자리표시 시스템 프롬프트: LoRA-A. 학습과 짝인 프롬프트가 아니다)\n",
+    "LORA_B": "(중립 시험 패키지의 자리표시 시스템 프롬프트: LoRA-B. 학습과 짝인 프롬프트가 아니다)\n",
+}
 NOTE = ("학습하지 않은 시험용 대체 어댑터다. lora_B가 0이라 출력은 기반 모델과 같다. 성능 판단 근거가 아니며 "
         "릴리스 후보로 쓰지 않는다.")
 
@@ -46,7 +52,9 @@ def model_dims(base_model: str, config_path: str | None) -> dict:
         c = KNOWN_MODELS[base_model]
     else:
         raise SystemExit(f"{base_model}의 모델 차원을 모른다: --model-config로 Hugging Face config.json을 준다")
-    return {k: int(c[k]) for k in ("hidden_size", "num_hidden_layers", "num_attention_heads", "num_key_value_heads")}
+    d = {k: int(c[k]) for k in ("hidden_size", "num_hidden_layers", "num_attention_heads", "num_key_value_heads")}
+    d["head_dim"] = int(c.get("head_dim") or d["hidden_size"] // d["num_attention_heads"])
+    return d
 
 
 def _f16(values) -> bytes:
@@ -71,15 +79,17 @@ def write_safetensors(path: Path, tensors: dict[str, tuple[tuple[int, int], byte
 
 def make_adapter(out: Path, base_model: str, dims: dict, rank: int, targets: list[str], seed: int) -> None:
     h = dims["hidden_size"]
-    kv = dims["num_key_value_heads"] * (h // dims["num_attention_heads"])
-    out_dim = {"q_proj": h, "k_proj": kv, "v_proj": kv, "o_proj": h}
+    q = dims["num_attention_heads"] * dims["head_dim"]
+    kv = dims["num_key_value_heads"] * dims["head_dim"]
+    out_dim = {"q_proj": q, "k_proj": kv, "v_proj": kv, "o_proj": h}
+    in_dim = {"q_proj": h, "k_proj": h, "v_proj": h, "o_proj": q}
     rng = random.Random(seed)
     bound = 1.0 / math.sqrt(h)
     tensors = {}
     for i in range(dims["num_hidden_layers"]):
         for m in targets:
             pre = f"base_model.model.model.layers.{i}.self_attn.{m}"
-            tensors[f"{pre}.lora_A.weight"] = ((rank, h), _f16(rng.uniform(-bound, bound) for _ in range(rank * h)))
+            tensors[f"{pre}.lora_A.weight"] = ((rank, in_dim[m]), _f16(rng.uniform(-bound, bound) for _ in range(rank * in_dim[m])))
             tensors[f"{pre}.lora_B.weight"] = ((out_dim[m], rank), _f16([0.0] * (out_dim[m] * rank)))
     out.mkdir(parents=True, exist_ok=True)
     write_safetensors(out / "adapter_model.safetensors", tensors)
@@ -104,15 +114,18 @@ def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revisi
     for role, pid in ROLE_IDS.items():
         d = out / role
         make_adapter(d / "adapter", base_model, dims, rank, targets, seed + (0 if role == "LORA_A" else 1))
+        (d / "adapter" / "system_prompt.txt").write_text(NEUTRAL_SYSTEM_PROMPTS[role], encoding="utf-8")   # 해시 계산 전에 쓴다
         cfg = mr.fake_serving_config(backend)
-        cfg["decoding"] = {"constraint_mode": "constrained", "temperature": 0, "retry_temperature": 0.7, "seed": 1000,
-                           "max_tokens": max_tokens}
+        # LORA_B 출력은 JSON이 아니라 문장이라 제약 디코딩을 쓰지 않는다
+        cfg["decoding"] = {"constraint_mode": "constrained" if role == "LORA_A" else "none", "temperature": 0, "retry_temperature": 0.7,
+                           "seed": 1000, "max_tokens": max_tokens}
         m = {
             "pipeline_schema_version": PIPELINE_SCHEMA_VERSION, "package_id": pid, "version": VERSION, "role": role,
             "created_at": CREATED_AT, "runtime_contract_version": mr.SUPPORTED_RUNTIME_CONTRACT_VERSION,
             "base_model": {"id": base_model, "revision": revision},
             "adapter_hash": directory_hash(d / "adapter"),
             "serving_config": cfg, "serving_config_hash": sha256_hash(cfg),
+            "system_prompt": {"path": "system_prompt.txt", "sha256": file_hash(d / "adapter" / "system_prompt.txt")},
             "lineage": {"dataset": {"id": "neutral-no-dataset", "version": "0", "content_hash": sha256_hash({"neutral": True})},
                         "training_run_id": "neutral-no-training", "turn_engine_version": "none",
                         "model_runtime_version": mr.RUNTIME_VERSION},
@@ -130,7 +143,7 @@ def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revisi
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("out")
-    ap.add_argument("--profile", default=str(ROOT / "profiles" / "gpu-12g.json"))
+    ap.add_argument("--profile", default=str(ROOT / "profiles" / "gpu-12g.json"), help="기본 gpu-12g는 Qwen3-4B라 --model-config가 필요하다")
     ap.add_argument("--vllm-version", default="0.31.0", help="serving_config.constraint.backend_version(서빙 이미지의 vLLM과 같아야 한다)")
     ap.add_argument("--rank", type=int, default=8)
     ap.add_argument("--revision", default="main")

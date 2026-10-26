@@ -1,8 +1,10 @@
 """model-runtime 추론 서버 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62). 표준 라이브러리 HTTP.
 
-경로: PUT /v1/releases/{id}(적재 신호, 멱등) · GET /v1/releases/{id}(상태) · POST /v1/releases/{id}/parse|generate ·
+경로: PUT /v1/releases/{id}(적재 신호, 멱등) · GET /v1/releases/{id}(상태) · POST /v1/releases/{id}/extract(LoRA-A, JSON)|respond(LoRA-B, text/plain) ·
 GET /v1/info · GET /healthz · GET /readyz. 서버가 I4(HttpReleaseReader)에서 번들을 스스로 읽어 적재한다.
-적재 실패는 이미 적재된 릴리스를 건드리지 않는다. 보호 결과는 응답 헤더 X-Openit-Outcome|Attempts|Protections.
+적재 실패는 이미 적재된 릴리스를 건드리지 않는다. 결과는 응답 헤더 X-Openit-Outcome(extract는 ok, respond는 ok|fallback)|Attempts|Protections.
+extract가 재시도 후에도 ActionExtraction을 지키지 못하면 값을 지어내지 않고 503 UNAVAILABLE(details.reason=OUTPUT_INVALID, D75)을 낸다.
+시스템 프롬프트는 적재한 릴리스 패키지(어댑터 디렉터리의 파일)의 것만 쓴다(D75).
 엔진 호출은 직렬화하고, 대기가 길 것 같으면 큐에 쌓지 않고 503으로 거절한다. 발화·출력 원문은 로그에 남기지 않는다.
 
 환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
@@ -10,7 +12,7 @@ MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버; 주소에 닿�
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
-MODEL_RUNTIME_FAKE_RISK_PHRASE(fake 전용 시험 스위치, 기본 꺼짐; vllm에서 설정하면 시작 거부), MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
+MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
 from __future__ import annotations
 
 import json
@@ -31,7 +33,8 @@ from typing import Callable, Mapping
 from boundary_contracts.errors import BoundaryError
 
 from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
-               FakeBackend, ModelRuntimeError, ServingConfigMismatch, UnsupportedServingConfig, load, serving_config_hash)
+               FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
+               UnsupportedServingConfig, load, serving_config_hash)
 from .errors import BackendNotAvailable
 from .prompts import SUPPORTED_TEMPLATE_VERSIONS
 from .protection import PROTECTION_POLICIES
@@ -52,6 +55,8 @@ def to_boundary(e: Exception) -> BoundaryError:
         return e
     if isinstance(e, (ServingConfigMismatch, UnsupportedServingConfig, ContractViolation)) and not isinstance(e, BackendNotAvailable):
         return BoundaryError("FAILED_PRECONDITION", f"{type(e).__name__}: {str(e)[:200]}")
+    if isinstance(e, SystemPromptMismatch):
+        return BoundaryError("INTEGRITY_ERROR", f"{e.role}의 시스템 프롬프트 파일이 없거나 해시가 다르다")
     if isinstance(e, ContractVersionMismatch):
         return BoundaryError("UNSUPPORTED_VERSION", "문진 스키마 버전을 지원하지 않는다")
     return BoundaryError("UNAVAILABLE", f"{type(e).__name__}")
@@ -59,7 +64,7 @@ def to_boundary(e: Exception) -> BoundaryError:
 
 class Release:
     def __init__(self):
-        self.state, self.error, self.session, self.hashes = "LOADING", None, None, None
+        self.state, self.error, self.session, self.hashes, self.prompt_hashes = "LOADING", None, None, None, None
         self.done = threading.Event()
 
 
@@ -192,10 +197,13 @@ class Service:
                 raise BoundaryError("UNSUPPORTED_VERSION", "model_runtime_version의 MAJOR.MINOR가 이 서버와 다르다")
             cfgs = {k: m["adapters"][k]["serving_config"] for k in ("LORA_A", "LORA_B")}
             hs = {k: m["adapters"][k]["serving_config_hash"] for k in cfgs}
+            prompts = {k: m["adapters"][k]["system_prompt"] for k in cfgs}   # 패키지의 시스템 프롬프트(파일은 어댑터 디렉터리 안, D75)
             backend = self.base.bind(bundle.adapters) if hasattr(self.base, "bind") else self.base   # 어댑터 사전 검사 포함
-            session = load(bundle.adapters, cfgs, schema_dir=self.schema_dir, expected_serving_config_hashes=hs, backend=backend)
+            session = load(bundle.adapters, cfgs, schema_dir=self.schema_dir, expected_serving_config_hashes=hs,
+                           system_prompts=prompts, backend=backend)
             with self.rlock:
                 r.session, r.hashes, r.state = session, dict(session.serving_config_hashes), "LOADED"
+                r.prompt_hashes = dict(session.system_prompt_hashes)
                 loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
                 for k in loaded[:-self.max_releases] if len(loaded) > self.max_releases else []:
                     del self.releases[k]
@@ -219,6 +227,7 @@ class Service:
         with self.rlock:
             loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
             hashes = self.releases[loaded[-1]].hashes if loaded else {}
+            prompt_hashes = self.releases[loaded[-1]].prompt_hashes if loaded else {}
         base = self.base
         expect = None
         if base is not None:   # 매니페스트의 serving_config가 맞춰야 하는 값(deploy·model-lab이 참고한다)
@@ -231,11 +240,12 @@ class Service:
         return {"service": "model-runtime", "runtime_version": RUNTIME_VERSION,
                 "supported_contract_versions": [SUPPORTED_RUNTIME_CONTRACT_VERSION], "backend": self.backend_name,
                 "loaded": loaded, "serving_config_hash": hashes,   # 해시는 가장 최근에 적재한 릴리스의 것
+                "system_prompt_sha256": prompt_hashes,   # 가장 최근에 적재한 릴리스의 패키지 프롬프트 해시(D75)
                 "serving_config_expectation": expect, "test_hooks": self.test_hooks}
 
     # --- 추론 ---
     def infer(self, rid: str, op: str, body):
-        """(상태, 본문, 헤더). 대기가 길 것 같으면 503."""
+        """op: extract | respond. (상태, 본문, 헤더). extract의 본문은 dict, respond의 본문은 문장(str). 대기가 길 것 같으면 503."""
         with self.rlock:
             r = self.releases.get(rid)
             if r is None or r.state != "LOADED":
@@ -253,10 +263,15 @@ class Service:
                 self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
             finally:
                 self.engine_lock.release()
-            return 200, out, {"X-Openit-Outcome": info.outcome, "X-Openit-Attempts": str(info.attempts),
-                              "X-Openit-Protections": ",".join(f"{k}:{v}" for k, v in info.protections)}
+            headers = {"X-Openit-Outcome": info.outcome, "X-Openit-Attempts": str(info.attempts)}
+            if info.protections:
+                headers["X-Openit-Protections"] = ",".join(f"{k}:{v}" for k, v in info.protections)
+            return 200, (out.text if op == "respond" else out), headers
         except ContractViolation as e:
             return 400, BoundaryError("INVALID_RECORD", str(e)).to_record(), {}
+        except ModelOutputInvalid as e:   # D75: 값을 지어내지 않는다. 호출자(survey-service)가 한 번 다시 보낸다
+            return 503, BoundaryError("UNAVAILABLE", "모델 출력이 ActionExtraction 형식을 지키지 못했다",
+                                      {"reason": "OUTPUT_INVALID", "attempts": e.attempts}).to_record(), {}
         except Exception as e:   # noqa: BLE001 (엔진 사망 등)
             log.error("추론 실패 %s", type(e).__name__)
             return 503, BoundaryError("UNAVAILABLE", "추론 실패").to_record(), {}
@@ -273,9 +288,13 @@ def make_handler(svc: Service):
             log.info("%s %s", self.command, re.sub(r"/releases/[^/]+", "/releases/{id}", self.path.split("?")[0]))
 
         def _send(self, status: int, body, headers: Mapping[str, str] | None = None):
-            data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            """body가 str이면 text/plain(respond의 문장 그대로), 아니면 JSON."""
+            if isinstance(body, str):
+                data, ctype = body.encode("utf-8"), "text/plain; charset=utf-8"
+            else:
+                data, ctype = json.dumps(body, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
             self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             for k, v in (headers or {}).items():
                 self.send_header(k, v)
@@ -302,7 +321,7 @@ def make_handler(svc: Service):
                 return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다")
             if method == "GET" and p == "/v1/info":
                 return self._send(200, svc.info())
-            m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(parse|generate))?", p)
+            m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(extract|respond))?", p)
             if not m:
                 return self._err("NOT_FOUND", "경로가 없다")
             rid, op = m.groups()
@@ -337,11 +356,10 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     if not schema_dir:
         raise SystemExit("MODEL_RUNTIME_SCHEMA_DIR가 필요하다(이미지에 스키마가 들어 있지 않다)")
     tokens = dict(kv.split("=", 1) for kv in env.get("MODEL_RUNTIME_TOKENS", "").split(",") if "=" in kv)
-    risk = env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE") or None
-    if risk and backend_name != "fake":
-        raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 fake 백엔드에서만 쓴다(운영 모드에서는 거부)")
+    if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
+        raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
-        factory = lambda: FakeBackend(risk_phrase=risk)
+        factory = lambda: FakeBackend()
     elif backend_name == "vllm":
         def factory():
             from .vllm_backend import VLLMBackend, load_profile
@@ -363,7 +381,6 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
             if env.get(k)]   # 환경 변수가 정한 것만 보장한다(이미지는 ENV로 모두 정해 둔다)
     return Service(schema_dir=Path(schema_dir), hf_home=hf_home, runtime_dirs=sorted(set(dirs)), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
                    release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
-                   test_hooks={"fake_risk_phrase": bool(risk)},
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),

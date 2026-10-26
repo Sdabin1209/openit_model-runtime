@@ -1,22 +1,25 @@
-"""문진 스키마 로딩, 입출력 검증, 제약용 스키마 완화."""
+"""입출력 검증, 문진 스키마 정수 버전 확인, 제약용 스키마 완화.
+
+2.0.0(D74): 모델 입출력 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`)는
+boundary-contracts 패키지에서 가져온다(`load_schema`, `validator`, 복사본 없음). 문진 스키마 배포 디렉터리(`schema_dir`)는
+`runtime_contract_version`(문진 스키마 정수 버전, D75)을 확인하는 데만 쓴다."""
 from __future__ import annotations
 
 import copy
-import json
 from pathlib import Path
 from typing import Any, Iterable
 
 import jsonschema
+from boundary_contracts import load_schema, validator
 
 from .errors import ContractVersionMismatch, ContractViolation
 
 SUPPORTED_RUNTIME_CONTRACT_VERSION = 1
 RELAX_POLICY_VERSION = "relax-1"
 
-INPUT_CONTRACT = {"LORA_A": "UtteranceParserInput", "LORA_B": "ResponseGeneratorInput"}
-OUTPUT_CONTRACT = {"LORA_A": "ParserOutput", "LORA_B": "GeneratorOutput"}
-# 모델이 내는 것. 생성기는 response_text만 내고 is_fallback은 코드가 채운다(D36).
-MODEL_ONLY_REMOVE = {"LORA_B": ("is_fallback",)}
+INPUT_CONTRACT = {"LORA_A": "ActionExtractionInput", "LORA_B": "ResponseRequest"}
+OUTPUT_CONTRACT = {"LORA_A": "ActionExtraction", "LORA_B": "ResponseText"}
+JSON_OUTPUT_ROLES = ("LORA_A",)   # JSON을 내는 역할. LORA_B는 문장 그대로의 텍스트다(제약 디코딩 없음)
 
 
 def violations_of(errors: Iterable[jsonschema.ValidationError]) -> list[tuple[str, str]]:
@@ -27,10 +30,19 @@ def violations_of(errors: Iterable[jsonschema.ValidationError]) -> list[tuple[st
     return sorted(set(out))
 
 
+def _strip_comments(node: Any) -> Any:
+    """제약 디코딩 엔진에 넘기는 스키마에서 설명용 `$comment`를 뺀다(검증에는 영향이 없다)."""
+    if isinstance(node, dict):
+        return {k: _strip_comments(v) for k, v in node.items() if k != "$comment"}
+    if isinstance(node, list):
+        return [_strip_comments(v) for v in node]
+    return node
+
+
 class SchemaSet:
     def __init__(self, schema_dir: Path | str):
-        """schema_dir: 문진 스키마의 배포 스키마 디렉터리(`<...>/schema/schemas`, <계약명>.json이 있는 곳).
-        CONTRACT_VERSION은 그 상위에서 읽는다. 환경 변수와 전역 설정은 읽지 않는다."""
+        """schema_dir: 문진 스키마의 배포 스키마 디렉터리(`<...>/schema/schemas`). CONTRACT_VERSION은 그 상위에서 읽는다.
+        환경 변수와 전역 설정은 읽지 않는다. 모델 입출력 스키마는 이 디렉터리가 아니라 boundary_contracts에서 읽는다."""
         d = Path(schema_dir)
         try:
             self.contract_version = int((d.parent / "CONTRACT_VERSION").read_text().strip())
@@ -40,35 +52,12 @@ class SchemaSet:
             raise ContractVersionMismatch(
                 f"문진 스키마 버전 {self.contract_version}은 지원하지 않는다 (지원: {SUPPORTED_RUNTIME_CONTRACT_VERSION})"
             )
-        self._schemas: dict[str, dict] = {}
-        self._validators: dict[str, jsonschema.Draft202012Validator] = {}
-        for name in [*INPUT_CONTRACT.values(), *OUTPUT_CONTRACT.values()]:
-            schema = json.loads((d / f"{name}.json").read_text(encoding="utf-8"))
-            # 상대 $id가 있으면 '#/$defs/..' 참조가 원격 주소로 풀리려 한다. 메모리 사본에서만 뺀다.
-            schema.pop("$id", None)
-            jsonschema.Draft202012Validator.check_schema(schema)
-            self._schemas[name] = schema
-            self._validators[name] = jsonschema.Draft202012Validator(schema)
-        self._model_schemas: dict[str, dict] = {}
-        self._model_validators: dict[str, jsonschema.Draft202012Validator] = {}
-        for role, name in OUTPUT_CONTRACT.items():
-            ms = _drop_fields(self._schemas[name], name, MODEL_ONLY_REMOVE.get(role, ()))
-            self._model_schemas[role] = ms
-            self._model_validators[role] = jsonschema.Draft202012Validator(ms)
+        self._validators = {name: validator(name) for name in [*INPUT_CONTRACT.values(), *OUTPUT_CONTRACT.values()]}
+        self._model_schemas = {role: _strip_comments(load_schema(OUTPUT_CONTRACT[role])) for role in JSON_OUTPUT_ROLES}
 
-    def schema(self, name: str) -> dict:
-        return self._schemas[name]
-
-    def model_output_schema(self, role: str) -> dict:
-        """모델이 내야 하는 모양의 스키마(제약 디코딩과 사후 검증에 쓴다)."""
-        return self._model_schemas[role]
-
-    def vocabulary(self, name: str, def_name: str) -> list[str]:
-        """$defs의 열거형(oneOf const 또는 enum) 값 목록. 스키마 순서."""
-        node = self._schemas[name]["$defs"][def_name]
-        if "enum" in node:
-            return list(node["enum"])
-        return [b["const"] for b in node["oneOf"]]
+    def model_output_schema(self, role: str) -> dict | None:
+        """제약 디코딩에 쓸 출력 스키마(완화 전). 텍스트를 내는 역할(LORA_B)은 None."""
+        return copy.deepcopy(self._model_schemas[role]) if role in self._model_schemas else None
 
     def validate_input(self, role: str, value: Any) -> None:
         name = INPUT_CONTRACT[role]
@@ -77,23 +66,8 @@ class SchemaSet:
             raise ContractViolation(f"{name} 입력 계약 위반", violations_of(errs))
 
     def output_violations(self, role: str, value: Any) -> list[tuple[str, str]]:
-        """원래(완화하지 않은) 출력 스키마로 검증한다. 위반이 없으면 빈 목록."""
+        """출력 계약(ActionExtraction 또는 ResponseText)으로 엄격하게 검증한다. 위반이 없으면 빈 목록."""
         return violations_of(self._validators[OUTPUT_CONTRACT[role]].iter_errors(value))
-
-    def model_output_violations(self, role: str, value: Any) -> list[tuple[str, str]]:
-        """모델이 내는 모양(생성기는 response_text만)으로 검증한다."""
-        return violations_of(self._model_validators[role].iter_errors(value))
-
-
-def _drop_fields(schema: dict, def_name: str, fields: tuple) -> dict:
-    out = copy.deepcopy(schema)
-    if fields:
-        node = out["$defs"][def_name]
-        for f in fields:
-            node.get("properties", {}).pop(f, None)
-            if "required" in node:
-                node["required"] = [r for r in node["required"] if r != f]
-    return out
 
 
 # --- 완화 -----------------------------------------------------------------

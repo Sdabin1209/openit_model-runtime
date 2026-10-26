@@ -1,5 +1,9 @@
 {
-  "_comment": "gpu-dev(RTX 4070 SUPER 12GB) 개발용. 파이프라인 검증용이며 성능 판단 근거가 아니다. 값은 GPU 시험 전 잠정이다.",
+  "_comment": "gpu-dev(RTX 4070 SUPER 12GB) 개발용. 파이프라인 검증용이며 성능 판단 근거가 아니다. 값은 GPU 시험 전 잠정이다. 2.0.0(D74) 이후 학습 어댑터는 Qwen3 기반이라 이 프로파일(Qwen2.5-1.5B)은 중립 어댑터·파이프라인 시험 전용이다. 실측값(가중치 3.05GiB, 최대 사용 7.6GB)은 이 기반 모델에 대한 것이다.",
+  "status": {
+    "loadable": "measured (Qwen2.5-1.5B-Instruct, 무작위·중립 어댑터, 2026-10-15)",
+    "for": "pipeline-check-only"
+  },
   "base_model": "Qwen/Qwen2.5-1.5B-Instruct",
   "engine": {
     "dtype": "bfloat16",
