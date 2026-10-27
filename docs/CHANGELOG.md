@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.7.3 이후 (태그 없음) — 2026-10-28 실제 데이터 대조(OPEN_GAPS U03)
+코드 변경 없음. `scripts/check_reference_data.py`와 선택 시험 `tests/test_reference_data.py`(`MODEL_RUNTIME_REFERENCE_DATA_DIR`가 없으면 건너뜀, 데이터는 리포에 없다)를 더했다. 최종 학습 데이터 C1 전체(A 32,170행, B 32,289행)에서: prompt-4 렌더링이 system+user를 글자 단위로 재현하는 행 100%(A 32,170/32,170, B 32,289/32,289), 시스템 프롬프트는 역할마다 1종, assistant 정답이 사후 검증기를 통과하는 행 100%(A는 제약 디코딩용 relax-3 스키마와 키 순서도 100%), 입력 상한 2500자를 넘는 행 0(최대 A 643자, B 417자). 상한 조정은 필요 없다(0.7.4 후보 없음).
+
 ## 0.7.3 (미배포) — 2026-10-28 (장애 대응 FAULT_MATRIX A4·B1·B3, 감사 MR-1/2/3/4/9/10/14/15/16)
 **깨지는 변경이 있다(운영 기본값을 닫았다).** HTTP 경로·계약 스키마·`serving_config`와 해시는 그대로다(해시 불변 시험 통과).
 - **호환 주의(deploy 영향)**: (1) 토큰이 없으면 시작을 거부한다(`MODEL_RUNTIME_TOKENS(_FILE)`; 개발용 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`). 빈 역할·빈 토큰·중복도 거부. (2) `MODEL_RUNTIME_BACKEND=fake`는 `MODEL_RUNTIME_ALLOW_FAKE=1`이 없으면 거부(deploy의 fake 변형 compose에 둘 다 필요). (3) 기본 바인드가 `127.0.0.1`(이미지는 `MODEL_RUNTIME_HOST=0.0.0.0`을 줘서 컨테이너는 그대로). (4) 비인증 `/readyz` 503은 사유를 숨긴다(상태 코드는 그대로이므로 점검 스크립트가 코드만 보면 영향 없고, 사유를 읽던 쪽은 토큰을 붙인다). (5) 입력이 2500자(`MODEL_RUNTIME_MAX_INPUT_CHARS`)를 넘으면 400.
