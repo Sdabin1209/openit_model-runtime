@@ -48,7 +48,7 @@ flowchart LR
 ```bash
 # 1) 설치 (docs/runbook.md "개발 시험")
 python3 -m venv .venv
-.venv/bin/pip install pytest jsonschema -e ../boundary-contracts -e .
+.venv/bin/pip install pytest jsonschema "git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v2.0.2" -e .
 # 2) 시험
 .venv/bin/python -m pytest -q
 # 3) 이미지 빌드와 스모크 (CPU/fake, 빈 포트를 Docker가 배정)

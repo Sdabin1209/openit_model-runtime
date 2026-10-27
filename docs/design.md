@@ -187,7 +187,7 @@ output_contract: int                   # 문진 스키마 정수 버전(CONTRACT
 
 ## 10. 구현에서 정한 것 (2026-10-15 기준) [확인: 테스트로 확인한 것은 `tests/test_runtime.py`]
 
-- 구현은 `src/model_runtime/`. 의존은 `jsonschema`와 `boundary-contracts`. 개발은 `.venv`(pytest, jsonschema 4.26, `pip install -e ../boundary-contracts -e .`)에서 한다. 시험: `.venv/bin/python -m pytest`.
+- 구현은 `src/model_runtime/`. 의존은 `jsonschema`와 `boundary-contracts`. 개발은 `.venv`(pytest, jsonschema 4.26, `pip install "git+ssh://...openit_boundary-contracts.git@v2.0.2" -e .`, 설치 줄 전체는 README)에서 한다. 시험: `.venv/bin/python -m pytest`.
 - `load`의 선택 인자 `backend`(시험·조립용, I9에 반영됨). `backend`가 없으면 `BackendNotAvailable`(`UnsupportedServingConfig`의 하위)을 던진다. vLLM 백엔드는 아직 없다.
 - 스키마를 메모리로 읽을 때 `$id`를 뺀다. 문진 스키마의 상대 `$id`(`standalone/...`) 때문에 `#/$defs/..` 참조가 원격 주소로 풀리려 해서다. 파일은 고치지 않는다.
 - **스키마 위치 [확인: I9 개정]**: 라이브러리에 묶지 않는다. 호출자가 `schema_dir`를 필수 키워드 인자로 넘긴다. 항상 `<계약명>.json`이 있는 `.../schema/schemas` 디렉터리이고 `CONTRACT_VERSION`은 그 상위에서 읽는다(서비스든 다른 영역이든 같다). `configure` 전역 설정은 없다. 버전이 다르거나 읽을 수 없으면 `ContractVersionMismatch`. 환경 변수는 읽지 않는다.

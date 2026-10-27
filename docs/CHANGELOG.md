@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 문서 정정 (0.7.2 이후, 코드 변경 없음)
+- 설치 줄이 `-e ../boundary-contracts`(형제 폴더 editable)여서 gpu-dev에서 `test_reference_checkout_is_the_installed_tag`가 실패했다(설치된 패키지가 형제 작업 트리 그 자체). 시험은 옳고(설치본이 태그와 같은지 보는 것이 목적) 설치 줄이 공통 규칙(태그 설치)과 어긋났다. README, runbook, design의 설치 줄을 태그 설치로 고쳤다.
+
 ## 0.7.2 (미배포) — 2026-10-27 (OPEN_GAPS U16, 정정 흐름)
 호환 변경. HTTP API, 계약, `serving_config`와 해시 불변. 기존 흐름 파일(목록 형식, `order`/`slots`/`skips`)의 동작은 그대로다.
 - 확인: boundary-contracts v2.0.2 `ActionExtraction`의 action 열거에 `CORRECT`가 있다(NEXT와 같이 reason·targets·note 금지). 0.7.1의 fake는 `CORRECT`를 낼 수 없었다(항상 NEXT). 계약·스키마 변경은 필요 없다.
