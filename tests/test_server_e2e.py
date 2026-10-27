@@ -1,7 +1,8 @@
 """실제 HttpReleaseReader로 boundary-contracts의 참조 I4 서버에서 번들을 받아 적재하고, 계약의 클라이언트(HttpModelRuntime)로
-이 서버를 부르는 한 바퀴(적합성 시험). boundary-contracts는 형제 폴더를 읽기 전용으로 참조한다(태그 v2.0.1과 같은 내용이어야 한다)."""
+이 서버를 부르는 한 바퀴(적합성 시험). boundary-contracts는 형제 폴더를 읽기 전용으로 참조한다(태그 v2.0.2과 같은 내용이어야 한다)."""
 import copy
 import json
+import re
 import sys
 import threading
 import unittest
@@ -66,9 +67,9 @@ class E2E(unittest.TestCase):
     def test_reference_checkout_is_the_installed_tag(self):
         """적합성 시험이 읽는 형제 폴더와 설치된 패키지가 같은 계약 버전이다."""
         import boundary_contracts
-        self.assertEqual(metadata.version("boundary-contracts"), "2.0.1")
+        sibling = re.search(r'^version = "([^"]+)"', (BC / "pyproject.toml").read_text(), re.M).group(1)   # 버전을 여기에 또 적지 않는다
+        self.assertEqual(metadata.version("boundary-contracts"), sibling)
         self.assertNotEqual(Path(boundary_contracts.__file__).resolve().parents[1], BC)   # 설치된 패키지를 쓰고 있다
-        self.assertIn('version = "2.0.1"', (BC / "pyproject.toml").read_text())
         installed = Path(boundary_contracts.schema_dir())
         for f in sorted((BC / "schemas").glob("*.json")):   # 참조 서버 쪽 스키마와 설치된 스키마가 같은 내용이다
             self.assertEqual(f.read_bytes(), (installed / f.name).read_bytes(), f.name)

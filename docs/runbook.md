@@ -3,7 +3,9 @@
 라이브러리이므로 서비스처럼 직접 운영하지 않는다. 아래는 이 라이브러리를 쓰는 서비스·평가에서 증상이 나올 때의 확인 순서다.
 
 ## 개발 시험
-`.venv`를 만들고 `pip install pytest jsonschema -e ../boundary-contracts -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요.
+`.venv`를 만들고 `pip install pytest jsonschema -e ../boundary-contracts -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요. 형제 `../boundary-contracts`는 태그 v2.0.2여야 한다(`read_secret`이 v2.0.2부터 있다).
+
+**turn-engine(선택, 시험 전용)**: `pyproject.toml`은 turn-engine 버전을 핀하지 않는다(버전 표를 여러 곳에 두지 않기 위해, U15). `tests/test_fake_flow.py`의 turn-engine 검증 2건은 `pytest.importorskip("turn_engine")`라 설치되어 있지 않으면 건너뛴다. 돌리려면 어떤 turn-engine인지 정해서 직접 설치한다. 기준은 deploy의 버전 표(`versions.env` 성격)가 정한 태그이고, 이 리포는 정하지 않는다. 예: `.venv/bin/pip install --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@<태그>"` (또는 형제 체크아웃이 있으면 `.venv/bin/pip install --no-deps -e ../turn-engine`). 건너뛴 시험 수는 `pytest -rs`의 SKIPPED 줄과 마지막 줄의 `skipped`로 본다.
 
 ## GPU 시험 (gpu-dev, D47)
 `scripts/gpu_check.sh [preflight|sync|setup|run|fetch|all]`. 호스트에 `python3-pip`·`python3-venv`가 있어야 한다(없으면 종료 코드 3, 설치하지 않는다). SSH가 두 번 실패하면 종료 코드 4(호스트 불가)이고 멈춘다. `sync`는 코드와 읽기 전용 입력의 사본(boundary-contracts, 문진 스키마)을 `~/openit-gpu/model-runtime/`로 보낸다. `setup`은 호스트 `.venv`에 `.[vllm]`을 설치하고(수 GB, GPU 안 씀) `runs/env-versions.txt`를 남긴다. `run`은 `flock -w 1800 ~/openit-gpu/.gpu.lock` 아래에서 `gpu_probe.py`를 서버 두 번(결정성)과 LoRA 끈 기준선 한 번 돌리고 `setsid nohup`으로 분리해 폴링한다. `fetch`는 `runs/<RUN_ID>/`(gitignore)로 가져와 `gpu_report.py`로 요약한다. 12GB 값은 `profiles/gpu-dev-12g.json`에 있다. 알려진 함정: nvcc가 없으면 `VLLM_USE_FLASHINFER_SAMPLER=0`(프로파일 `env`), 순위 초과 어댑터는 엔진을 죽인다. 결과 해석은 design.md §11-R.
@@ -11,7 +13,7 @@
 ## 서버와 컨테이너 (D62, 0.5.0) — deploy가 compose에 넣을 정보
 
 ### 이미지 두 변형
-같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.1이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
+같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.2이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |
@@ -31,8 +33,8 @@
 | `MODEL_RUNTIME_BASE_MODEL` | 아니오 | 프로파일의 `base_model` | 기반 모델 덮어쓰기(어댑터의 `base_model_name_or_path`와 같아야 함) |
 | `HF_HOME`, `HF_HUB_OFFLINE` | 아니오 | `/var/lib/model-runtime/hf`, 꺼짐 | Hugging Face 표준 변수(vLLM이 읽는다): 모델 캐시 위치, 오프라인 모드 |
 | `MODEL_RUNTIME_READY_PROBE_TTL_S` | 아니오 | `5` | `/readyz`의 I4 도달성 확인 캐시 시간 |
-| `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, 이미지·리포지토리에 넣지 않음) |
-| `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게 |
+| `MODEL_RUNTIME_RELEASE_TOKEN_FILE` / `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, D84). **파일 경로(`_FILE`)가 우선**이고 환경 변수는 개발·시험용이다(`boundary_contracts.read_secret`). 값은 로그·응답·오류에 나오지 않는다. compose `secrets:`의 `/run/secrets/...`를 가리킨다 |
+| `MODEL_RUNTIME_TOKENS_FILE` / `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게. 비밀이므로 `_FILE`(D84)로 준다. 시작 로그에 값이 아니라 출처(`file`/`env`/`unset`)만 한 줄 남는다. `/readyz`·`/v1/info`에는 출처도 내지 않는다(HTTP 모양을 바꾸지 않기 위해) |
 | `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(Qwen3-8B, 적재 가능 여부 미확인)이 있다 |
 | `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/var/lib/model-runtime/bundles` | 받은 번들을 푸는 곳. 이미지가 uid 10001 소유로 만들어 두므로 **새 이름 있는 볼륨을 처음 마운트해도 쓸 수 있다**(확인함). 바인드 마운트는 호스트에서 소유자를 10001로 맞춘다. 쓸 수 없으면 서버는 `/readyz` 503과 이유(`reason`)를 내고 `PUT`도 503 |
 | `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | (없어짐) | **2.0.0에서 없어졌다.** v2 출력에는 위험 신호 표현이 없다(survey-service와 헤드의 미정 항목). 설정이 남아 있으면 서버가 시작을 거부한다 |
@@ -53,7 +55,9 @@ model-runtime:
     MODEL_RUNTIME_SCHEMA_DIR: /schema/schemas
     MODEL_RUNTIME_RELEASE_URL: http://release-gate:8080   # 예: 같은 compose 네트워크의 서비스 이름. 다른 호스트면 아래 '단독 실행' 절
     MODEL_RUNTIME_PROFILE: /app/profiles/rtx4090-24g.json
-  # MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN은 비밀 값으로 주입
+    MODEL_RUNTIME_TOKENS_FILE: /run/secrets/model_runtime_tokens   # 비밀은 파일로(D84)
+    MODEL_RUNTIME_RELEASE_TOKEN_FILE: /run/secrets/model_runtime_release_token
+  secrets: [model_runtime_tokens, model_runtime_release_token]
   volumes: ["<문진 스키마>:/schema:ro", "bundles:/tmp/model-runtime-bundles"]
   deploy: {resources: {reservations: {devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]}}}
 ```
@@ -125,11 +129,19 @@ volumes: {hf-cache: {}, bundles: {}}
 CPU 변형은 모델 없이 호출 경로·서비스 연동을 시험하는 용도다. 번들이 다음을 만족해야 한다.
 0. **기대값 조회**: 서버가 `GET /v1/info`의 `serving_config_expectation`(`constraint`, 지원 프롬프트·보호 정책 버전, `output_contract`)으로 매니페스트가 맞춰야 할 값을 낸다(백엔드가 준비된 뒤). deploy는 이 값을 그대로 `serving_config`에 쓰면 된다.
 1. `manifest.adapters.{LORA_A,LORA_B}.serving_config.constraint`가 `{"backend": "fake", "backend_version": "1", "supported_features": [FakeBackend 기본 집합], "relax_policy_version": "relax-3"}`. 집합은 `sorted(FakeBackend().supported_features)` = `$defs, $ref, additionalProperties, anyOf, enum, items, properties, required, type`. 만드는 가장 쉬운 방법은 `model_runtime.fake_serving_configs()`의 결과를 매니페스트에 넣는 것이다.
-2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-4`(prompt-3은 폐기 예정; `/v1/info`의 `prompt_template_version_default`, `deprecated_prompt_template_versions` 참고), `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
-3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.6.x).
+2. 나머지 `serving_config` 키는 평소와 같다(`prompt_template_version: prompt-4`(유일한 값; prompt-3은 0.7.0에서 제거되어 거부된다. `/v1/info`의 `prompt_template_versions` 참고), `output_contract: 1`, `protection_policy_version: protect-2`, `decoding`(LORA_B는 `constraint_mode: "none"` 권장), `max_attempts`)이고 `serving_config_hash`는 `canonical.sha256_hash(serving_config)`.
+3. `runtime_contract_version`은 1, `model_runtime_version`의 MAJOR.MINOR가 서버의 `RUNTIME_VERSION`과 같아야 한다(0.7.x).
 4. 어댑터: 역할마다 **디렉터리가 존재하고** `adapter_hash`(`directory_hash`)가 맞고, **시스템 프롬프트 파일**(`adapters[role].system_prompt`의 `path`, `sha256`; 어댑터 디렉터리 안, 비어 있지 않은 UTF-8)이 있어야 한다(D75). fake는 내용을 읽지 않으므로 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`)은 요구하지 않는다. vllm 변형은 PEFT 형식과 `r <= max_lora_rank`, 기반 모델 일치가 필요하다(어긋나면 412).
 5. fake의 출력은 입력과 무관하게 결정적이다(extract: 설정이 없으면 `{"action":"NEXT","next_item":"END","values":[]}` — 첫 문항에서도 END라 survey-service의 `validate_extraction`이 반려한다. 문항 순서를 `MODEL_RUNTIME_FAKE_FLOW_FILE`로 주면 입력 문항의 다음 문항을 낸다. respond `(가짜 응답)`)이므로 응답 내용으로 품질을 보지 않는다.
 참고 구현: `tests/test_server_e2e.py`(참조 I4 서버 + 실제 `HttpReleaseReader`).
+
+### LoRA 교체 (학습된 어댑터를 얹는 절차, H2)
+어댑터가 바뀌어도 이 서비스의 코드·이미지는 바뀌지 않는다. 바뀌는 것은 **릴리스**(번들)다. 단계마다 담당 영역이 다르다. 이 리포가 직접 확인한 것은 1단계의 형식과 4~5단계의 서빙 쪽이고, 2~3단계의 명령은 model-lab·release-gate가 정한다(이 리포는 그 명령을 알지 못하므로 적지 않는다. **미확인**).
+1. **어댑터 디렉터리 준비**(model-lab, 학습 결과): 역할마다 PEFT 형식(`adapter_config.json`의 `r`, `base_model_name_or_path`, `adapter_model.safetensors`)과 학습과 짝인 `system_prompt.txt`. `r`은 프로파일의 `max_lora_rank` 이하, `base_model_name_or_path`는 **서빙 프로파일의 `base_model`과 같아야** 한다. 다르면 적재가 412로 거부된다(`tests/test_vllm_backend.py::test_base_model_mismatch_rejected_before_engine`가 엔진을 올리기 전 거부를 보장한다). 프로파일: Qwen3-8B 어댑터는 `rtx4090-24g.json`(`MODEL_RUNTIME_PROFILE=/app/profiles/rtx4090-24g.json`), `gpu-12g`(Qwen3-1.7B)에는 올리지 않는다.
+2. **패키지**(model-lab): 어댑터 디렉터리와 `ModelPackageManifest`(`serving_config` + `serving_config_hash`, 시스템 프롬프트 `path`/`sha256`)를 만든다. `serving_config`의 값은 실행 중인 서버에서 `curl -s http://<호스트>:<포트>/v1/info`의 `serving_config_expectation`을 읽어 그대로 맞춘다(constraint, `prompt_template_version`은 `prompt-4`, `protection_policy_version`은 `protect-2`, `output_contract`). 해시는 `canonical.sha256_hash(serving_config)`. 형식을 미리 보려면 학습 없는 대체 패키지: `.venv/bin/python scripts/make_neutral_package.py OUT_DIR --profile profiles/rtx4090-24g.json --model-config <Qwen3-8B config.json> --vllm-version <서빙 이미지의 vLLM>` (`--system-prompt-a/-b`로 프롬프트 파일을 준다).
+3. **릴리스**(release-gate): 패키지를 I4에 제출해 평가(PASS)와 승인을 받고 `release_id`를 얻는다. PASS가 아닌 릴리스의 번들은 412다(HTTP.md).
+4. **서빙 컨테이너**: 기반 모델 가중치가 `HF_HOME` 볼륨에 있어야 한다(오프라인이면 미리 채운다). 비밀은 파일로 준다. 예: `docker run -d --gpus all -e MODEL_RUNTIME_RELEASE_URL=<I4 주소> -e MODEL_RUNTIME_RELEASE_TOKEN_FILE=/run/secrets/rt -e MODEL_RUNTIME_TOKENS_FILE=/run/secrets/tokens -e MODEL_RUNTIME_PROFILE=/app/profiles/rtx4090-24g.json -v mr-hf:/var/lib/model-runtime/hf -v <스키마>:/schema:ro -e MODEL_RUNTIME_SCHEMA_DIR=/schema/schemas -v <비밀 디렉터리>:/run/secrets:ro model-runtime:gpu`
+5. **교체(적재)**: 새 `release_id`로 `curl -s -X PUT -H "Authorization: Bearer $(cat <토큰 파일>)" http://<호스트>:<포트>/v1/releases/<release_id>`(멱등, 200 LOADED 또는 202 LOADING). `curl -s .../v1/releases/<release_id>`가 `LOADED`가 될 때까지 본다. 어댑터는 릴리스마다 따로 적재되므로(`MODEL_RUNTIME_MAX_RELEASES`, 기본 4) 이전 릴리스는 그대로 두고 새 릴리스로 서비스가 가리키는 `release_id`만 바꾸면 되돌릴 수 있다. 실패 코드: 412(설정 해시·순위·기반 모델 불일치·PASS 아님), 422(버전·무결성), 503(I4 불가·엔진). 한 턴이 통과하는지는 `POST /v1/releases/<id>/extract`로 확인한다(GPU 실측은 이 리포에서 하지 않았다, **미확인**).
 
 ### 확인과 스모크
 - `scripts/smoke.sh`(CPU/fake, 빈 포트 자동): `/healthz`, `/readyz`, `/v1/info`, 미적재 404, I4 없을 때 `PUT` 503, 라벨, non-root. 실제 모델 한 바퀴: `RUN_ID=<id> scripts/gpu_check.sh serve`(gpu-dev, flock).

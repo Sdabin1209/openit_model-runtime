@@ -1,5 +1,14 @@
 # 변경 이력
 
+## 0.7.0 (미배포) — 2026-10-27 (D84, 릴리스 열차)
+묶음 릴리스(연쇄 정렬을 줄이기 위해 한 번에 낸다). **깨지는 변경이 있다.**
+- **깨지는 변경**: `prompt-3` 제거(G10). `/v1/info`의 `serving_config_expectation.prompt_template_versions`가 `["prompt-3","prompt-4"]`에서 `["prompt-4"]`로 줄고(호환 변경으로 보이지만 `prompt-3`을 쓰는 `serving_config`는 이제 `UnsupportedServingConfig`로 거부되므로 **깨지는 변경**으로 적는다), `deprecated_prompt_template_versions`는 빈 목록이다(필드는 유지). 0.6.x로 만든 릴리스 중 `prompt_template_version: prompt-3`인 것은 적재되지 않는다. 매니페스트·해시를 `prompt-4`로 다시 만들어 제출해야 한다. 서버에서 학습한 어댑터(dataset_10_14)는 원래 `prompt-4`다. `model_runtime_version`의 MAJOR.MINOR가 0.7이어야 하므로 0.6.x 매니페스트는 어차피 다시 만들어야 한다.
+- **비밀 파일화(D84)**: `MODEL_RUNTIME_TOKENS`, `MODEL_RUNTIME_RELEASE_TOKEN`을 `boundary_contracts.read_secret`으로 읽는다. `<이름>_FILE`(파일 경로)이 우선이고 없으면 환경 변수(개발·시험용 호환, 기존 설정은 그대로 동작). 파일을 읽지 못하면 시작을 거부하며 메시지에는 이름과 경로만 있다. 시작 로그 한 줄에 값이 아니라 출처(file/env/unset)만 남긴다. HTTP 모양(`/readyz`, `/v1/info`)은 바꾸지 않았다(출처 필드를 넣지 않음). 시험: `tests/test_secrets_hidden.py`(값이 로그·`/readyz`·`/v1/info`·401 응답·예외 메시지에 없음).
+- boundary-contracts 태그 v2.0.1 -> v2.0.2(Dockerfile, smoke.sh, gpu_check.sh, pyproject, 문서).
+- `tests/golden/`(요구 작성자의 정적 예시 216개, G09)를 제거했다. 어떤 시험·스크립트도 읽지 않는 것을 grep으로 확인했다(`tests/prompt_golden/`은 다른 것이며 남는다). `prompt-3` 골든 파일 2개도 제거.
+- `pyproject.toml`의 dev extra에서 turn-engine 하드 핀을 없앴다(U15). 근본 원인: turn-engine 버전이 여기·deploy·STATUS 등 여러 곳에 중복되어 한쪽만 올리면 어긋났다. turn-engine이 필요한 시험은 `pytest.importorskip`으로 없으면 건너뛴다. 어떤 turn-engine을 쓸지는 `docs/runbook.md`의 설치 방법.
+- runbook에 'LoRA 교체' 절차를 추가했다. 어댑터와 프로파일의 기반 모델이 다르면 엔진 전에 거부되는 동작은 기존 시험이 보장한다(`test_base_model_mismatch_rejected_before_engine`).
+
 ## 0.6.5 (미배포) — 2026-10-27 (D83)
 완화 정책이 바뀌어 `serving_config`의 `constraint`와 해시가 바뀐다(계약 2.0.0 그대로, HTTP API 그대로). 계약 스키마 원본은 바꾸지 않는다.
 - **relax-3**: `relax()`가 `allOf`의 `if/then(/else)`를 같은 뜻의 `anyOf` 변형으로 펼쳐 제약 디코딩에 준다(코드가 원본에서 기계적으로 만든다. 사본 스키마 없음). `ActionExtraction`은 최상위 8개 규칙이 action 변형 8개(NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT+note, REDIRECT-note)로, values 항목 2개 규칙이 status 변형 3개(ANSWERED·CORRECTION / MISSING·UNCLEAR·UNKNOWN·REJECTED / CONFLICT)로 펼쳐진다. action별 reason 허용값, NEXT·CORRECT의 reason·targets·note 금지, REASK 등의 reason·targets 필수, status별 save·precision·value 규칙이 문법에 들어간다.

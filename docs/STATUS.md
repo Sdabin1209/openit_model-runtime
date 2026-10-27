@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (19차, 0.6.5)
+갱신: 2026-10-27 (20차, 0.7.0)
+
+- 20차(0.7.0, 브랜치 `train-0.7`, 릴리스 열차, D84): 비밀 파일화(`MODEL_RUNTIME_TOKENS_FILE`, `MODEL_RUNTIME_RELEASE_TOKEN_FILE`, boundary-contracts v2.0.2의 `read_secret`), `prompt-3`과 `tests/golden/` 제거(깨지는 변경), turn-engine 하드 핀 제거(없으면 시험 건너뜀), runbook 'LoRA 교체'. 시험·스모크 결과는 아래 커밋 보고에 따른다. push·태그 없음. **미확인**: 실제 어댑터를 GPU에서 얹는 절차(2~3단계는 model-lab·release-gate 명령, GPU 실측 없음).
 
 - 19차(0.6.5, 브랜치 `anyof-constraint`, D83): 완화 `relax-3`. `allOf`의 `if/then(/else)`를 같은 뜻의 `anyOf` 변형으로 펼쳐 제약에 넣는다(최상위 action 변형 8, values 항목 status 변형 3). `maxItems`를 지원 집합에 추가. 상한 64, 못 펼치는 규칙은 제거+`CallInfo.relaxed`에 기록. relax-2 `serving_config`는 거부하므로 매니페스트·해시를 다시 만들어야 한다. **확인(CPU)**: 원본/변환 스키마 판정 등가(전수 조합·변이), xgrammar 0.2.7 컴파일 경고 없음, 수락 75/거부 1895 불일치 0(`scripts/xgrammar_check.py`, torch·transformers가 필요해 별도 venv). **미확인**: 실제 vLLM/Qwen3 동작·컴파일 시간, 모델 통과율. **키 순서 해결**: xgrammar가 `properties` 순서를 강제하는 문제는 계약 v2.0.1(사전순)로 고쳐졌고 이 리포는 v2.0.1로 올렸다. 사전순 5/5 수락, 거꾸로 5/5 거부(`tests/test_key_order.py`, `scripts/xgrammar_check.py`). relax는 순서를 건드리지 않는다(정본은 계약). push·태그 없음.
 

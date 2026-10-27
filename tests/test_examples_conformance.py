@@ -19,7 +19,7 @@ class Golden(unittest.TestCase):
         self.assertEqual(json.loads((GOLD / "serving_config.fake.json").read_text(encoding="utf-8")), cfg)
 
     def test_prompt_golden(self):
-        """prompt-4(기본)의 출력이 바뀌면 이 테스트가 깨진다. 템플릿을 고치려면 새 버전을 만든다. prompt-3(폐기 예정)은 test_prompt4.py가 고정한다.
+        """prompt-4(기본)의 출력이 바뀌면 이 테스트가 깨진다. 템플릿을 고치려면 새 버전을 만든다.
         이 파일은 이 리포지토리가 만든 문자열의 고정일 뿐이며 Qwen3 토크나이저의 결과와 같은지는 확인하지 못했다(prompts.py 머리말)."""
         kw = dict(serving_config=json.loads((GOLD / "serving_config.fake.json").read_text(encoding="utf-8")),
                   system_prompt=SYSTEM, schema_dir=SCHEMA_DIR)

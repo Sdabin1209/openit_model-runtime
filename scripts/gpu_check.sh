@@ -39,7 +39,7 @@ sync_code() {   # 루트 통째 rsync 금지: 폴더별로 보낸다. 비밀 값
   "${RSYNC[@]}" "$HERE/pyproject.toml" "$HERE/requirements-gpu.lock" "$HOST:openit-gpu/model-runtime/" || exit 1
   # 읽기 전용 입력의 사본(비밀 아님): 해시 구현과 문진 스키마. 호스트는 GitHub에 접속하지 않는다.
   # 계약은 태그 기준이다. 형제 폴더가 그 태그가 아니면 보내지 않는다(예외 없음).
-  BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.1}"
+  BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.2}"
   [ "$(git -C "$WS/boundary-contracts" describe --tags --exact-match 2>/dev/null || true)" = "$BOUNDARY_TAG" ] || { echo "boundary-contracts가 태그 $BOUNDARY_TAG가 아니다. 보내지 않는다" >&2; exit 1; }
   "${RSYNC[@]}" --exclude .git --exclude __pycache__ --exclude '*.egg-info' "$WS/boundary-contracts/" "$HOST:openit-gpu/model-runtime/vendor/boundary-contracts/" || exit 1
   "${RSYNC[@]}" --exclude build --exclude '*.egg-info' --exclude __pycache__ "$WS/survey-service/schema/" "$HOST:openit-gpu/model-runtime/vendor/schema/" || exit 1

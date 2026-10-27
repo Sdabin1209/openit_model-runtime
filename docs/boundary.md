@@ -1,6 +1,6 @@
 # model-runtime 경계
 
-상태: 계약 2.0.0 기준(0.6.5). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
+상태: 계약 2.0.0 기준(0.7.0). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
 
 ## 소유 저장소
 없음(공유 라이브러리 + 추론 서버 이미지).
@@ -17,7 +17,7 @@
 
 ## 소비
 - **키 순서**: 제약 디코딩(xgrammar)은 스키마의 `properties` 순서대로 키를 낸다. 순서의 정본은 계약(v2.0.1부터 사전순)이며 `relax`는 순서를 바꾸지 않는다.
-- `boundary-contracts` **태그 v2.0.1**: 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
+- `boundary-contracts` **태그 v2.0.2**(`read_secret`: 토큰은 `<이름>_FILE`로 받는다, D84): 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
 - 문진 스키마 정수 버전 1(`SUPPORTED_RUNTIME_CONTRACT_VERSION`, `CONTRACT_VERSION`). 다른 값이면 `ContractVersionMismatch`/422 `UNSUPPORTED_VERSION`.
 - 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버와 같아야 한다(0.6.x). 0.5.x로 만든 릴리스는 거부된다.
 
@@ -29,7 +29,7 @@
 ## 호출자가 지켜야 할 것
 - 역할마다 `ModelPackageManifest.serving_config`와 `serving_config_hash`를 `serving_configs[role]`, `expected_serving_config_hashes[role]`로, `system_prompt`를 `system_prompts[role]`로 넘긴다. 역할 집합은 {LORA_A, LORA_B}로 같아야 한다.
 - 역할별 설정이 달라도 `constraint`(백엔드 이름·버전·지원 기능)는 두 역할이 같아야 한다.
-- `prompt_template_version`은 `prompt-4`(권장·기본, D77), `protection_policy_version`은 `protect-2`(v1의 `prompt-2`/`protect-1`은 거부). `prompt-3`(JCS 직렬화)은 호환용으로만 받으며 **폐기 예정**이다. 서버에서 학습한 어댑터(dataset_10_14)에는 `prompt-4`를 쓴다.
+- `prompt_template_version`은 `prompt-4`(권장·기본, D77), `protection_policy_version`은 `protect-2`(v1의 `prompt-2`/`protect-1`은 거부). `prompt-3`(JCS 직렬화)은 0.7.0에서 **제거**했다(G10). 이 값의 `serving_config`는 `UnsupportedServingConfig`로 거부된다. 서버에서 학습한 어댑터(dataset_10_14)에는 `prompt-4`를 쓴다.
 - **입력 객체의 키 순서는 호출자의 책임이다(prompt-4).** 서비스는 `json.dumps(obj, ensure_ascii=False)`(기본 구분자)로 직렬화하며 학습 글자와 한 글자도 달라서는 안 된다. 호출자가 준 순서를 보존하되 다음만 이 서버가 정렬한다: LORA_A는 **최상위 키**(current_question, question_id, state, user_utterance 순), LORA_B는 **모든 수준**의 키. 따라서 survey-service는 LORA_A의 `state` 안(키와 그 아래)을 **학습 때의 삽입 순서**로 만들어 넘겨야 한다(서버가 바꾸지 않는다). 근거: 최상위 순서는 의미가 없고 호출자마다 달라지기 쉬워 서버가 강제하고, `state` 순서는 스키마로 복원할 수 없어 호출자만 안다. B는 학습 데이터가 전 수준 정렬이고 객체 키 순서에 의미가 없다.
 - **extract의 503 OUTPUT_INVALID는 호출자가 한 번 다시 보내고, 그래도 안 되면 턴을 실패 신호로 처리한다(INTERFACES I9 '서비스가 지키는 것').**
 - 학습 데이터 변환은 `render_prompt(..., system_prompt=<패키지의 프롬프트>, serving_config=...)`를 쓴다.

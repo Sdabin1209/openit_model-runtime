@@ -3,7 +3,7 @@
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.1}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
+BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.2}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true' EXIT
 [ "$(git -C "$HERE/../boundary-contracts" describe --tags --exact-match 2>/dev/null || true)" = "$BOUNDARY_TAG" ] || { echo "boundary-contracts 형제 폴더가 태그 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
@@ -37,5 +37,5 @@ code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz"
 echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 ] || { echo "root로 실행됨" >&2; exit 1; }
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
-echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.6.5"' || { echo "라벨의 model-runtime 버전이 0.6.5가 아니다" >&2; exit 1; }
+echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.7.0"' || { echo "라벨의 model-runtime 버전이 0.7.0가 아니다" >&2; exit 1; }
 echo "스모크 통과"

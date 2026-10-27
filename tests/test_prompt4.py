@@ -33,19 +33,19 @@ def user_part(text):
 
 
 class Prompt4(unittest.TestCase):
-    def test_default_is_prompt4_and_prompt3_deprecated(self):
+    def test_default_is_prompt4_and_only_supported(self):
         self.assertEqual(prompts.DEFAULT_TEMPLATE_VERSION, "prompt-4")
         self.assertEqual(mr.fake_serving_config()["prompt_template_version"], "prompt-4")
-        self.assertEqual(prompts.DEPRECATED_TEMPLATE_VERSIONS, frozenset({"prompt-3"}))
-        self.assertEqual(prompts.SUPPORTED_TEMPLATE_VERSIONS, frozenset({"prompt-3", "prompt-4"}))
+        self.assertEqual(prompts.DEPRECATED_TEMPLATE_VERSIONS, frozenset())
+        self.assertEqual(prompts.SUPPORTED_TEMPLATE_VERSIONS, frozenset({"prompt-4"}))
 
     def test_golden(self):
         self.assertEqual(render("LORA_A", A_INPUT), (GOLD / "lora_a.prompt-4.txt").read_text(encoding="utf-8"))
         self.assertEqual(render("LORA_B", B_INPUT), (GOLD / "lora_b.prompt-4.txt").read_text(encoding="utf-8"))
 
-    def test_prompt3_unchanged(self):
-        self.assertEqual(render("LORA_A", A_INPUT, "prompt-3"), (GOLD / "lora_a.prompt-3.txt").read_text(encoding="utf-8"))
-        self.assertEqual(render("LORA_B", B_INPUT, "prompt-3"), (GOLD / "lora_b.prompt-3.txt").read_text(encoding="utf-8"))
+    def test_prompt3_removed(self):   # 0.7.0(G10): prompt-3은 거부된다
+        with self.assertRaises(mr.UnsupportedServingConfig):
+            render("LORA_A", A_INPUT, "prompt-3")
 
     def test_a_top_level_sorted_state_order_preserved(self):
         obj = {"user_utterance": "u", "state": {"Q9.x": {"value": 1, "status": "ANSWERED"}, "Q1.a": {"value": 2, "status": "ANSWERED"}},
@@ -126,9 +126,9 @@ class Expectation(unittest.TestCase):
         t = TemporaryDirectory(); self.addCleanup(t.cleanup)
         srv, url, _, _ = start(t.name); self.addCleanup(srv.shutdown)
         e = call(url, "/v1/info")[1]["serving_config_expectation"]
-        self.assertEqual(e["prompt_template_versions"], ["prompt-3", "prompt-4"])
+        self.assertEqual(e["prompt_template_versions"], ["prompt-4"])
         self.assertEqual(e["prompt_template_version_default"], "prompt-4")
-        self.assertEqual(e["deprecated_prompt_template_versions"], ["prompt-3"])
+        self.assertEqual(e["deprecated_prompt_template_versions"], [])
 
 
 if __name__ == "__main__":
