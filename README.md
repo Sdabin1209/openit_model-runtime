@@ -58,13 +58,14 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(154개 수집), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
+이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 아래 23차 결과), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
 ## 현재 상태
 
-문서 기준 버전은 0.7.2(docs/STATUS.md 22차). 확인된 것:
+문서 기준 버전은 0.7.3(docs/STATUS.md 23차). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 이 세션의 수집 개수 154는 통과 수가 아니다.
+- 23차(0.7.3) 새 가상환경(위 설치 줄 그대로, turn-engine·xgrammar 없음)에서 전체 pytest 187 통과, 5 건너뜀(turn-engine 4, xgrammar 1). turn-engine이 설치된 개발 venv에서는 191 통과, 1 건너뜀. `scripts/smoke.sh` 통과, 이미지 라벨 `io.openit.model-runtime`은 0.7.3(docs/STATUS.md 23차).
+- 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
 
@@ -80,6 +81,25 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | U01 | 12GB에서 A·B 동시 부하와 장시간 안정성, 프로파일 값 반영 | GPU 실측 |
 | U03 | 서빙 프롬프트와 학습 글자 일치: 토큰 ID 대조, 채팅 템플릿 설정, `<think>` 처리 | 다른 영역(학습 서버 코드)·GPU |
 | U04 | 제약 디코딩의 컴파일 비용, `minItems`/`maxItems` 강제 여부 | GPU 실측 |
+
+## 설계 결정 기록 (ADR, D89)
+
+구조 선택의 이유는 `docs/adr/`에 한 파일에 결정 하나로 둔다. 근거를 모르는 것은 '근거 기록 없음'으로, 측정하지 않은 값은 '측정 안 함'으로 적었다.
+
+| ADR | 결정 |
+|---|---|
+| [0001](docs/adr/0001-vllm-engine.md) | 추론 엔진으로 vLLM |
+| [0002](docs/adr/0002-constrained-decoding.md) | 제약 디코딩(xgrammar)과 완화 스키마(`allOf`를 `anyOf`로), 한계 U14 |
+| [0003](docs/adr/0003-one-base-two-adapters.md) | 한 기반 모델에 LoRA-A·B 동시 적재, 릴리스 교체 |
+| [0004](docs/adr/0004-release-bundle-and-hashes.md) | 릴리스 번들 형식과 해시 검증 |
+| [0005](docs/adr/0005-serialize-engine-calls.md) | 엔진 호출 직렬화(락)와 큐 대신 503 |
+| [0006](docs/adr/0006-request-deadline.md) | 요청 총 상한 3.5초, 대기 3.0초(측정 안 함) |
+| [0007](docs/adr/0007-retry-attempts.md) | 출력 재시도 3회 |
+| [0008](docs/adr/0008-profiles.md) | 프로파일 gpu-12g(1.7B) / rtx4090-24g(8B) |
+| [0009](docs/adr/0009-fake-backend-in-image.md) | fake 백엔드를 이미지에 두고 운영에서 차단 |
+| [0010](docs/adr/0010-stdlib-http-server.md) | 표준 라이브러리 HTTP 서버 |
+| [0011](docs/adr/0011-prompt-fixed-to-training-data.md) | 프롬프트 형식을 학습 데이터에 고정, 특수 토큰 처리 |
+| [0012](docs/adr/0012-security-and-input-defaults.md) | 보안 기본값과 입력·연결 한도 |
 
 ## 더 자세한 문서
 

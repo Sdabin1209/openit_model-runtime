@@ -1,12 +1,14 @@
 # 변경 이력
 
-## 0.7.3 후보 (태그·버전 올림 없음, 제안) — 장애 대응(FAULT_MATRIX A4·B1·B3)
-호환 변경(새 설정은 모두 기본값이 있고 HTTP 계약 모양은 그대로, 새 `details.reason: ENGINE_TIMEOUT`은 `details`가 자유 객체라 계약 변경 없음).
-- 요청 상한 `MODEL_RUNTIME_REQUEST_DEADLINE_S`(기본 3.5s): 멈춘 엔진 호출을 무한히 기다리던 문제를 고쳤다. 상한을 넘으면 503 `ENGINE_TIMEOUT`, 엔진이 돌아오면 자동 복구. 멈춰 있는 동안 `/readyz` 503.
-- 엔진 호출 예외 후 `/readyz` 503(다음 성공까지). 이전에는 엔진이 죽어도 `/readyz`가 200이었다.
-- 백엔드 기동 실패(모델 내려받기 등)를 `MODEL_RUNTIME_BACKEND_RETRY_S`(기본 30s)마다 재시도. 이전에는 한 번 실패하면 재시작 전까지 영구 not ready.
-- `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S`(기본 120s, 이전 하드코딩 값과 같음).
-- 시험: `tests/test_server.py` `FaultCells` 8건(멈춤+복구, 느림, 재시도 총합 상한, 엔진 사망, 깨진·빈 출력 6종, 기동 실패 재시도/무재시도, 번들 읽기 중 릴리스 서버 멈춤). 불변식과 칸별 동작은 docs/boundary.md.
+## 0.7.3 (미배포) — 2026-10-28 (장애 대응 FAULT_MATRIX A4·B1·B3, 감사 MR-1/2/3/4/9/10/14/15/16)
+**깨지는 변경이 있다(운영 기본값을 닫았다).** HTTP 경로·계약 스키마·`serving_config`와 해시는 그대로다(해시 불변 시험 통과).
+- **호환 주의(deploy 영향)**: (1) 토큰이 없으면 시작을 거부한다(`MODEL_RUNTIME_TOKENS(_FILE)`; 개발용 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`). 빈 역할·빈 토큰·중복도 거부. (2) `MODEL_RUNTIME_BACKEND=fake`는 `MODEL_RUNTIME_ALLOW_FAKE=1`이 없으면 거부(deploy의 fake 변형 compose에 둘 다 필요). (3) 기본 바인드가 `127.0.0.1`(이미지는 `MODEL_RUNTIME_HOST=0.0.0.0`을 줘서 컨테이너는 그대로). (4) 비인증 `/readyz` 503은 사유를 숨긴다(상태 코드는 그대로이므로 점검 스크립트가 코드만 보면 영향 없고, 사유를 읽던 쪽은 토큰을 붙인다). (5) 입력이 2500자(`MODEL_RUNTIME_MAX_INPUT_CHARS`)를 넘으면 400.
+- 요청 총 상한 `MODEL_RUNTIME_REQUEST_DEADLINE_S`(기본 3.5s, **실측 안 한 초기값**): 멈춘 엔진 호출을 무한히 기다리던 문제. 넘으면 503 `ENGINE_TIMEOUT`, 엔진이 돌아오면 자동 복구, 멈춰 있는 동안 `/readyz` 503.
+- 엔진 호출 예외 후 `/readyz` 503(다음 성공까지), 단 엔진이 입력을 거부(`ValueError`)한 것은 400이고 `/readyz`에 영향 없음(MR-3). 백엔드 기동 실패는 `MODEL_RUNTIME_BACKEND_RETRY_S`(30s)마다 재시도. `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S`(120s, 기존 하드코딩 값).
+- 인증(MR-1): 역할 `loader`는 PUT만, `MODEL_RUNTIME_PUT_ROLES`로 PUT 역할 제한, 상수 시간 토큰 비교. 연결(MR-4): 소켓 timeout 15s, 동시 연결 32, 동시 적재 2, 실패 항목 16개 보존, 비정상 `Content-Length`·`Transfer-Encoding`·깊은 JSON은 400, 처리 못 한 예외는 내부 정보 없는 503, SIGTERM은 우아한 종료(진행 요청 최대 5s 대기).
+- 입력의 채팅 특수 토큰 모양을 깨뜨린다(MR-2, ADR 0011). 번들 정리(MR-9): 내려간 릴리스·실패 적재의 폴더와 시작 시 `.bundle-*` 삭제. 사후 검증기는 `pattern`의 `$`를 `\Z`로 읽는다(MR-14: `Q4.answer\n` 통과 수정; 제약 디코딩용 스키마는 그대로). 문서 불일치 정정(MR-15), 시험의 고정 sleep을 조건 대기로(MR-16).
+- ADR: `docs/adr/0001~0012`(D89). 시험: `tests/test_hardening.py` 19건, `FaultCells` 8건.
+- 안 한 것: MR-5(공급망 digest·해시 잠금·스캔: CI와 협의 필요), MR-6(실제 모델 지연 실측: GPU 필요), MR-7(엔진 영구 멈춤 재시작: 정책상 `/healthz`는 200이고 밖이 `/readyz`를 본다), MR-11(구조화 로그·메트릭, 보통 이하라 시간 내 못 함), MR-13(respond 대체 문장: 영역 밖 정책 판단).
 
 ## 문서 정정 (0.7.2 이후, 코드 변경 없음)
 - 설치 줄이 `-e ../boundary-contracts`(형제 폴더 editable)여서 gpu-dev에서 `test_reference_checkout_is_the_installed_tag`가 실패했다(설치된 패키지가 형제 작업 트리 그 자체). 시험은 옳고(설치본이 태그와 같은지 보는 것이 목적) 설치 줄이 공통 규칙(태그 설치)과 어긋났다. README, runbook, design의 설치 줄을 태그 설치로 고쳤다.

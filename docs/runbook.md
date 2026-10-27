@@ -17,7 +17,7 @@
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |
-| CPU/fake (기본) | `docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .` | `MODEL_RUNTIME_BACKEND=fake`. GPU·모델 없이 호출 경로·서비스 연동 시험 | 작음 |
+| CPU/fake (기본) | `docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .` | `MODEL_RUNTIME_BACKEND=fake` + `MODEL_RUNTIME_ALLOW_FAKE=1`(개발·시험 전용). GPU·모델 없이 호출 경로·서비스 연동 시험 | 작음 |
 | GPU | `docker build --build-arg VARIANT=gpu --build-context boundary=../boundary-contracts -t model-runtime:gpu .` | `MODEL_RUNTIME_BACKEND=vllm`(기본). vLLM 0.31.0, 서빙 목표 RTX 4090 24GB | 약 13GB |
 
 스키마를 이미지에 넣는 선택 옵션: `--build-context schema=<.../survey-service/schema>`를 더하면 `/opt/survey-schema`에 들어가고, `MODEL_RUNTIME_SCHEMA_DIR`가 없을 때 `/opt/survey-schema/schemas`를 쓴다(읽기 전용 마운트 불필요). 안 주면 빈 스테이지라 이미지에 스키마가 없고 마운트가 필요하다. 어느 쪽이든 정수 버전은 라벨 `io.openit.contracts.survey-schema`(`--build-arg SURVEY_SCHEMA_VERSION=<n>`)로 밝히고, 스키마 버전이 바뀌면 이미지를 다시 만든다(D21).
@@ -34,13 +34,19 @@
 | `HF_HOME`, `HF_HUB_OFFLINE` | 아니오 | `/var/lib/model-runtime/hf`, 꺼짐 | Hugging Face 표준 변수(vLLM이 읽는다): 모델 캐시 위치, 오프라인 모드 |
 | `MODEL_RUNTIME_READY_PROBE_TTL_S` | 아니오 | `5` | `/readyz`의 I4 도달성 확인 캐시 시간 |
 | `MODEL_RUNTIME_RELEASE_TOKEN_FILE` / `MODEL_RUNTIME_RELEASE_TOKEN` | I4가 인증을 요구하면 | 빈 값 | I4 읽기 토큰(비밀 값, D84). **파일 경로(`_FILE`)가 우선**이고 환경 변수는 개발·시험용이다(`boundary_contracts.read_secret`). 값은 로그·응답·오류에 나오지 않는다. compose `secrets:`의 `/run/secrets/...`를 가리킨다 |
-| `MODEL_RUNTIME_TOKENS_FILE` / `MODEL_RUNTIME_TOKENS` | 권장 | 빈 값(인증 없음) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게. 비밀이므로 `_FILE`(D84)로 준다. 시작 로그에 값이 아니라 출처(`file`/`env`/`unset`)만 한 줄 남는다. `/readyz`·`/v1/info`에는 출처도 내지 않는다(HTTP 모양을 바꾸지 않기 위해) |
+| `MODEL_RUNTIME_TOKENS_FILE` / `MODEL_RUNTIME_TOKENS` | **필수** | 없음(토큰이 없으면 시작 거부, 개발용으로만 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`) | `역할=토큰,역할=토큰`. 설정하면 `/v1/*`에 `Authorization: Bearer`가 필요하다(`/healthz`·`/readyz` 제외). survey-service의 `SURVEY_INFERENCE_TOKEN_ENV`가 가리키는 값과 같게. 비밀이므로 `_FILE`(D84)로 준다. 시작 로그에 값이 아니라 출처(`file`/`env`/`unset`)만 한 줄 남는다. `/readyz`·`/v1/info`에는 출처도 내지 않는다(HTTP 모양을 바꾸지 않기 위해) |
 | `MODEL_RUNTIME_PROFILE` | vllm이면 **예** | | 프로파일 JSON 경로(`profiles/*.json`: `base_model`, `engine` 인자, `env`). 이미지에 `/app/profiles/rtx4090-24g.json`(Qwen3-8B, 적재 가능 여부 미확인)이 있다 |
 | `MODEL_RUNTIME_BUNDLE_DIR` | 아니오 | `/var/lib/model-runtime/bundles` | 받은 번들을 푸는 곳. 이미지가 uid 10001 소유로 만들어 두므로 **새 이름 있는 볼륨을 처음 마운트해도 쓸 수 있다**(확인함). 바인드 마운트는 호스트에서 소유자를 10001로 맞춘다. 쓸 수 없으면 서버는 `/readyz` 503과 이유(`reason`)를 내고 `PUT`도 503 |
 | `MODEL_RUNTIME_FAKE_RISK_PHRASE` | 아니오 | (없어짐) | **2.0.0에서 없어졌다.** v2 출력에는 위험 신호 표현이 없다(survey-service와 헤드의 미정 항목). 설정이 남아 있으면 서버가 시작을 거부한다 |
 | `MODEL_RUNTIME_FAKE_FLOW_FILE` | 아니오 (fake 전용) | 없음 | 문항 ID 목록 JSON(`["Q1.D01", ...]` 또는 `{"order": [...]}`, survey-service의 문항 순서와 같게). 객체 형식이면 선택 항목 `slots`(`{"Q4": [{"key": "Q4.answer", "type": "boolean"}]}`, type은 boolean 또는 integer, 첫 칸만 쓴다)와 `skips`(survey-service QuestionFlow와 같은 `[{"slot","op":"==","value","skip_item"}]`)를 줄 수 있고, 그러면 칸이 정의된 문항에서 환자 발화로 ANSWERED 값을 낸다(0.7.1: boolean은 발화에 '아니'가 있으면 false 아니면 true, integer는 첫 숫자열, 없고 '아니'·'없'이면 0, 그 밖은 빈 values). 값에 skips를 적용한 next_item을 낸다. 선택 항목 `corrections`(0.7.2)로 정정 응답도 낸다: `{"order":[...,"Q4","Q4_1","Q5",...],"corrections":[{"contains":"아까 말","key":"Q4.answer","value":false,"at":"Q5"}]}` 이면 Q5를 묻는 중 발화에 "아까 말"이 있을 때 `{"action":"CORRECT","next_item":"Q5","values":[{"key":"Q4.answer","precision":"exact","save":true,"status":"CORRECTION","value":false}]}`를 낸다(`at`을 생략하면 어느 문항에서나, next_item은 정정한 문항 다음에 skips를 적용한 문항, `slots`보다 먼저 적용). 있으면 LORA-A가 입력 `question_id`의 다음 문항으로 가는 `NEXT`(values 비어 있음, 마지막이면 `END`)를 낸다. 파일이 없거나 형식이 틀리면 서버가 시작을 거부한다 |
 | `MODEL_RUNTIME_FAKE_EXTRACTION` | 아니오 (fake 전용) | 없음 | LORA-A가 항상 내는 고정 출력(JSON 문자열). `FLOW_FILE`보다 우선. 스키마·의미 검증은 하지 않으므로 쓰는 쪽 책임 |
 | **주의** | | | **아래 `REQUEST_DEADLINE_S`(3.5)·`QUEUE_WAIT_S`(3.0)·`BACKEND_RETRY_S`는 실제 모델 지연으로 측정한 적이 없는 초기값이다. 가짜 백엔드·1.7B 측정(중앙값 약 1.7초)에서 나왔고, 8B(24GB GPU)에서는 호출 하나가 3.5초를 넘어 `ENGINE_TIMEOUT`이 날 수 있다. H1(24GB 실측)에서 다시 정해야 한다.** 절차는 docs/boundary.md "실측 절차" |
+| `MODEL_RUNTIME_ALLOW_NO_AUTH` | 아니오 | 없음 | `1`이면 토큰 없이 시작(개발용). 운영에서 쓰지 않는다 (ADR 0012) |
+| `MODEL_RUNTIME_ALLOW_FAKE` | fake일 때 필수 | 없음 | `MODEL_RUNTIME_BACKEND=fake`는 이 값이 `1`이 아니면 시작 거부 (ADR 0009) |
+| `MODEL_RUNTIME_PUT_ROLES` | 아니오 | 없음(인증된 모든 역할) | 적재 PUT을 허용할 역할 목록(쉼표). 토큰 역할 `loader`는 PUT만 가능하고 extract/respond는 못 한다 |
+| `MODEL_RUNTIME_MAX_INPUT_CHARS` | 아니오 | `2500` | 입력(JSON 직렬화)의 문자 수 상한, 초과 400. 추정값(토큰 수 측정 안 함), ADR 0012 |
+| `MODEL_RUNTIME_MAX_CONNECTIONS` / `MAX_LOADING` / `CONN_TIMEOUT_S` / `SHUTDOWN_GRACE_S` | 아니오 | `32` / `2` / `15` / `5` | 동시 연결, 동시 적재, 연결 소켓 timeout(초), 종료 시 진행 요청 대기(초). 초기값 (ADR 0012) |
+| `MODEL_RUNTIME_HOST` | 아니오 | `127.0.0.1` | 이미지는 `0.0.0.0`으로 연다(Dockerfile). compose는 포트를 `127.0.0.1:8080:8080`처럼 게시한다 |
 | `MODEL_RUNTIME_REQUEST_DEADLINE_S` | 아니오 | `3.5` | extract/respond 한 요청의 총 상한(대기+추론+재시도). 넘기면 503 `ENGINE_TIMEOUT`. survey의 읽기 timeout(4s)보다 짧게 둔다(docs/boundary.md 불변식) |
 | `MODEL_RUNTIME_BACKEND_RETRY_S` | 아니오 | `30` | 백엔드 기동(모델 내려받기 등) 실패 후 재시도 간격. 0이면 재시도 없음 |
 | `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S` | 아니오 | `120` | I4 번들 읽기 소켓 timeout |
@@ -91,13 +97,13 @@ services:
   model-runtime:
     image: model-runtime:gpu            # 레지스트리 주소·digest는 환경에 맞게
     restart: unless-stopped
-    ports: ["8080:8080"]                # 호출하는 쪽이 닿을 수 있는 주소로 게시
+    ports: ["127.0.0.1:8080:8080"]      # 필요한 주소로만 게시한다(전체 게시 금지, 인증은 토큰 필수)
     environment:
       MODEL_RUNTIME_BACKEND: vllm
       MODEL_RUNTIME_PROFILE: /app/profiles/gpu-12g.json      # 24GB급이면 rtx4090-24g.json
       MODEL_RUNTIME_RELEASE_URL: https://release-gate.example.org:8443   # 다른 호스트의 release-gate(I4) 주소
       MODEL_RUNTIME_RELEASE_TOKEN: ${RELEASE_READ_TOKEN}     # I4 읽기 토큰(비밀 값, .env는 리포지토리에 두지 않는다)
-      MODEL_RUNTIME_TOKENS: survey=${INFERENCE_CALLER_TOKEN} # 호출자(survey-service) 토큰
+      MODEL_RUNTIME_TOKENS_FILE: /run/secrets/model_runtime_tokens # 비밀은 파일로(D84). 개발용 환경 변수 MODEL_RUNTIME_TOKENS는 호환일 뿐
       MODEL_RUNTIME_SCHEMA_DIR: /schema/schemas               # 이미지에 스키마를 넣어 빌드했다면 생략
       # HF_HUB_OFFLINE: "1"                                   # 캐시를 미리 채운 오프라인 서버
     volumes:

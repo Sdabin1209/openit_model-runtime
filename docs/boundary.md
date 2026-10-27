@@ -1,6 +1,6 @@
 # model-runtime 경계
 
-상태: 계약 2.0.0 기준(0.7.2). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
+상태: boundary-contracts v2.0.2 기준(0.7.3). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
 
 ## 소유 저장소
 없음(공유 라이브러리 + 추론 서버 이미지).
@@ -19,7 +19,7 @@
 - **키 순서**: 제약 디코딩(xgrammar)은 스키마의 `properties` 순서대로 키를 낸다. 순서의 정본은 계약(v2.0.1부터 사전순)이며 `relax`는 순서를 바꾸지 않는다.
 - `boundary-contracts` **태그 v2.0.2**(`read_secret`: 토큰은 `<이름>_FILE`로 받는다, D84): 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
 - 문진 스키마 정수 버전 1(`SUPPORTED_RUNTIME_CONTRACT_VERSION`, `CONTRACT_VERSION`). 다른 값이면 `ContractVersionMismatch`/422 `UNSUPPORTED_VERSION`.
-- 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버의 `RUNTIME_VERSION`과 같아야 한다(`server.py`가 앞 두 조각을 비교, 현재 0.7.2이므로 0.7.x). 0.6.x 이하로 만든 릴리스는 `UNSUPPORTED_VERSION`으로 거부된다.
+- 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버의 `RUNTIME_VERSION`과 같아야 한다(`server.py`가 앞 두 조각을 비교, 현재 0.7.3이므로 0.7.x). 0.6.x 이하로 만든 릴리스는 `UNSUPPORTED_VERSION`으로 거부된다.
 
 ## 백엔드와 프로파일
 - 첫 실제 백엔드는 vLLM이다(선택 의존 `.[vllm]`). `serving_config.constraint.backend`는 `"vllm"`, `backend_version`은 설치된 vLLM 버전, `supported_features`는 `DEFAULT_SUPPORTED_FEATURES`여야 `load`가 받는다.
@@ -50,6 +50,14 @@
 | 모델 출력이 비었거나 문법 위반 | 재시도 후에도 어기면 extract는 503 `OUTPUT_INVALID`(값을 지어내지 않음), respond는 200 + `X-Openit-Outcome: fallback`. `/readyz`는 그대로 200 |
 | 번들 읽기 중 릴리스 서버 멈춤/손상(해시 불일치) | 적재는 그 릴리스에만 실패/지연(PUT은 202 또는 오류 코드). 서빙 중인 릴리스는 유지. 소켓 timeout `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S`(기본 120s) |
 | 모델 내려받기/백엔드 기동 실패(GPU 모드) | `/readyz` 503(사유는 예외 이름), `MODEL_RUNTIME_BACKEND_RETRY_S`(기본 30s)마다 다시 시도해 성공하면 자동 복구. 실제 vLLM의 부분 기동 실패 후 재시도에서 GPU 메모리가 정리되는지는 확인하지 못했다(미확인) |
+
+## 인증·입력 한도 (0.7.3, 감사 MR-1/2/3/4/10, 근거는 docs/adr/0012)
+- **인증은 기본 닫힘.** `MODEL_RUNTIME_TOKENS(_FILE)`가 없으면 시작을 거부한다(개발용 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`만 예외). 빈 역할·빈 토큰·중복 토큰도 거부. `/v1/*`는 Bearer 토큰, 토큰은 상수 시간 비교. 역할 `loader`는 적재 PUT만, 그 밖의 역할은 PUT(`MODEL_RUNTIME_PUT_ROLES`로 제한 가능)·GET·extract·respond. survey-service가 404에서 PUT으로 다시 적재하므로(spec 5절) 기본은 인증된 모든 역할이 PUT 가능하다.
+- **`/readyz`와 `/healthz`의 구분.** `/healthz`는 프로세스가 살아 있으면 의존과 무관하게 200(FAULT_POLICY 5). `/readyz`는 백엔드·엔진 정지·엔진 예외·release 서버 도달성을 반영해 503이고, **사유는 인증된 호출에만** 준다(비인증은 `{"status":"not ready"}`만, 내부 주소·예외 이름 비노출). 엔진이 영영 멈추면 `/healthz`가 200이라 재시작이 일어나지 않으므로 밖이 `/readyz` 503 지속을 본다.
+- **입력 길이.** JSON 직렬화한 입력이 2500자(`MODEL_RUNTIME_MAX_INPUT_CHARS`)를 넘으면 400. 엔진이 입력을 거부(`ValueError`)해도 400이며 `/readyz`는 그대로다. 엔진 사망(그 밖의 예외)은 503과 `/readyz` 503. 호출자는 상한을 넘는 발화를 보내지 않는다(survey-service 쪽 처리는 해당 영역 몫). 계약 스키마에 `maxLength`가 없는 점은 변경 요청 대상이다(`docs/change-requests/`).
+- **특수 토큰.** 입력 문자열 값 속의 채팅 특수 토큰 모양(`<|...|>`, `<think>` 등)은 `<` 뒤에 공백을 넣어 깨뜨린 뒤 모델에 준다. 학습 변환·`render_prompt`는 바꾸지 않는다(ADR 0011).
+- **연결 한도.** 소켓 timeout 15s, 동시 연결 32(넘으면 503), 동시 적재 2, 비정상 `Content-Length`·`Transfer-Encoding`·깊은 JSON은 400. SIGTERM은 새 연결을 그만 받고 진행 중 요청을 최대 5s 기다린 뒤 엔진을 내린다.
+- **fake 백엔드**는 `MODEL_RUNTIME_ALLOW_FAKE=1`이 없으면 시작 거부(ADR 0009). 번들 디렉터리는 내려간 릴리스·실패한 적재의 폴더와 시작 시 남은 `.bundle-*` 임시 폴더를 지운다.
 
 ## 장애 영향
 - extract: 모델 출력이 깨지면 재시도 후 `ModelOutputInvalid`(503 OUTPUT_INVALID). 서비스가 턴을 실패 처리하고 세션 상태를 바꾸지 않는다. 보호가 아니라 실패다.

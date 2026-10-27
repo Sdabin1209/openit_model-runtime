@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (22차, 0.7.2)
+갱신: 2026-10-28 (23차, 0.7.3)
+
+- 23차(0.7.3, 감사 MR-1/2/3/4/9/10/14/15/16 + FAULT_MATRIX A4·B1·B3 + ADR D89): CHANGELOG 0.7.3. 새 venv 187 통과 5 건너뜀, smoke 통과. **미확인**: 실제 모델 지연(요청 상한 3.5s 초기값), 토크나이저의 특수 토큰 해석, 24GB 적재, deploy가 새 기본값(토큰·ALLOW_FAKE)으로 도는지.
 
 - 22차(0.7.2, OPEN_GAPS U16 정정 흐름): fake LORA-A가 흐름 파일 `corrections`로 CORRECT(CORRECTION 값)를 낸다(CHANGELOG 0.7.2). 시험 164 통과 1 건너뜀(xgrammar 없음), smoke.sh 통과. **미확인**: deploy E2E에서 정정 경로가 도는지(deploy 흐름 파일에 `corrections` 필요).
 

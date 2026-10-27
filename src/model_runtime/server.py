@@ -15,7 +15,9 @@ HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오�
 비밀(MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN)은 D84에 따라 <이름>_FILE(파일 경로)을 우선 읽고 없을 때만 환경 변수를 쓴다(boundary_contracts.read_secret),
 MODEL_RUNTIME_REQUEST_DEADLINE_S(extract/respond 한 요청의 총 상한: 대기+추론, 기본 3.5; 넘기면 503 ENGINE_TIMEOUT, 근거는 docs/boundary.md 불변식), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
-MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
+MODEL_RUNTIME_HOST/PORT(기본 127.0.0.1:8080, 이미지는 0.0.0.0), MODEL_RUNTIME_ALLOW_NO_AUTH=1(개발용: 토큰 없이 시작), MODEL_RUNTIME_ALLOW_FAKE=1(fake 백엔드 허용),
+MODEL_RUNTIME_PUT_ROLES(적재 PUT을 허용할 역할 목록, 없으면 인증된 모든 역할), MODEL_RUNTIME_MAX_INPUT_CHARS(기본 2500), MODEL_RUNTIME_MAX_CONNECTIONS(32), MODEL_RUNTIME_MAX_LOADING(2),
+MODEL_RUNTIME_CONN_TIMEOUT_S(15), MODEL_RUNTIME_SHUTDOWN_GRACE_S(5). 각 기본값의 근거: docs/adr/."""
 from __future__ import annotations
 
 import hmac
@@ -50,12 +52,12 @@ from .errors import violation_names
 from .schema_guard import RELAX_POLICY_VERSION
 
 log = logging.getLogger("model_runtime.server")
-MAX_BODY = 4 * 1024 * 1024
-MAX_INPUT_CHARS = 2500          # 입력(JSON 직렬화, 비ASCII 그대로)의 문자 수 상한 기본값. 근거는 docs/boundary.md "입력 길이 상한"
-CONN_TIMEOUT_S = 15.0           # 연결 하나의 소켓 timeout(느린 클라이언트·유휴 keep-alive가 스레드를 쥐지 못하게)
-MAX_CONNECTIONS = 32            # 동시 연결 상한(엔진은 한 번에 하나라 이보다 많이 받아도 대기만 길어진다)
-MAX_LOADING = 2                 # 동시에 진행하는 번들 적재 수 상한
-MAX_FAILED_KEPT = 16            # 실패한 릴리스 항목 보존 수(오래된 것부터 버린다)
+MAX_BODY = 4 * 1024 * 1024      # 본문 상한. 입력 상한(MAX_INPUT_CHARS)이 더 작아 이 값은 파싱 전 거친 방어선이다 (ADR 0012, 4MiB 근거 기록 없음)
+MAX_INPUT_CHARS = 2500          # 입력(JSON 직렬화)의 문자 수 상한. 왜: max_model_len 4096 토큰 - 출력 512 - 시스템 프롬프트 약 1000(가정)을 1자=1토큰으로 보수 환산한 추정, 토큰 수 측정 안 함 (ADR 0012)
+CONN_TIMEOUT_S = 15.0           # 왜: 느린 클라이언트·유휴 keep-alive가 스레드를 쥐지 못하게. 값 15는 측정·표준 근거 없는 초기값 (ADR 0012)
+MAX_CONNECTIONS = 32            # 왜: 엔진 호출이 직렬이라(ADR 0005) 많이 받아도 대기만 길어진다. 값 32는 초기값, 부하 측정 안 함 (ADR 0012)
+MAX_LOADING = 2                 # 왜: 적재는 디스크·GPU 메모리를 쓰는 무거운 작업. 값 2는 초기값 (ADR 0012)
+MAX_FAILED_KEPT = 16            # 왜: 실패 항목이 메모리에 무한히 쌓이지 않게(감사 MR-4). 값 16은 초기값 (ADR 0012)
 INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
 _SPECIAL_OPEN = re.compile(r"<(?=[|/A-Za-z_])")   # 채팅 특수 토큰(<|im_end|>, <think>, </think>, <tool_call> 등)의 여는 꺾쇠
 DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
@@ -144,7 +146,7 @@ class Service:
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
-                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,
+                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 기본 3.5s: survey 읽기 timeout 4s보다 짧게(ADR 0006, 실측 안 함). 30s: 초기값, 근거 기록 없음
                  max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
