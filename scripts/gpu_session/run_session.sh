@@ -142,6 +142,7 @@ PB=("$PY" "$HERE/prepare_bundle.py" --adapter-a "$AD_A" --adapter-b "$AD_B" --c1
 log "번들 준비 (vllm=${VLLM_VER:-없음})"
 "${PB[@]}" > "$RUN/logs/prepare_bundle.log" 2>&1 || { cat "$RUN/logs/prepare_bundle.log"; die "번들 준비 실패" 5; }
 cat "$RUN/logs/prepare_bundle.log"
+cp "$RUN/release/PREPARE_REPORT.json" "$RUN/logs/PREPARE_REPORT.json"   # release/는 끝에 지워지므로 보고서는 logs에 남긴다
 
 # 4) 릴리스 서버(I4 모양, 루프백)와 추론 서버. 토큰은 파일로 만든다(권한 600)
 umask 077

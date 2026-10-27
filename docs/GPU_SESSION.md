@@ -33,7 +33,7 @@
    ```
    기본: A·B 각 200행, 동시 1과 4, 요청 상한 해제(순수 지연), 준비 대기 상한 15분. 처음에는 `--n-a 20 --n-b 20 --concurrency 1`로 짧게 돌려 시작이 되는지부터 보는 것을 권한다(시작 실패가 날 수 있다). 조건을 바꾼 재실행은 같은 명령에 `--util 0.40` 등.
 6. **[서버] 두 번째 실행(선택)**: `--production-limits`(요청 상한 3.5초/대기 3.0초 기본값 그대로)로 `ENGINE_TIMEOUT`이 얼마나 나는지 본다.
-7. **[서버 -> PC] 결과 가져오기**: `~/dabin/mr-session/run-*/`의 `measure.txt`, `measure.json`, `profile.json`, `logs/gpu_mem.log`, `logs/server.log`, `logs/prepare_bundle.log`, `PREPARE_REPORT.json`(`release/` 안, 정리 때 지워지므로 `--keep-bundle`이 필요하면 준다). 결과 파일에는 발화·모델 출력 원문이 없다(scenario_id, 길이, 판정만).
+7. **[서버 -> PC] 결과 가져오기**: `~/dabin/mr-session/run-*/`의 `measure.txt`, `measure.json`, `profile.json`, `logs/gpu_mem.log`, `logs/server.log`, `logs/prepare_bundle.log`, `logs/PREPARE_REPORT.json`(어댑터 파일 해시, 시스템 프롬프트 종류 수). 결과 파일에는 발화·모델 출력 원문이 없다(scenario_id, 길이, 판정만).
 8. **끝나면**: GPU 메모리가 시작 전 값으로 돌아왔는지(`gpu_mem.log` 맨 앞 '시작 전'과 끝 '종료 후')와 `ps -u $USER`에 우리 프로세스가 남지 않았는지 확인한다. 캐시(`~/dabin/mr-session/cache`)는 재실행 속도를 위해 남기며 `--clean-cache`로 지운다.
 
 ## preflight 규칙과 이유
