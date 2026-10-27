@@ -40,6 +40,7 @@ from .backends import load_fake_flow, make_default_responder
 from .errors import BackendNotAvailable
 from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
 from .protection import PROTECTION_POLICIES
+from .errors import violation_names
 from .schema_guard import RELAX_POLICY_VERSION
 
 log = logging.getLogger("model_runtime.server")
@@ -274,8 +275,10 @@ class Service:
         except ContractViolation as e:
             return 400, BoundaryError("INVALID_RECORD", str(e)).to_record(), {}
         except ModelOutputInvalid as e:   # D75: 값을 지어내지 않는다. 호출자(survey-service)가 한 번 다시 보낸다
+            log.warning("OUTPUT_INVALID attempts=%s violations=%s", e.attempts, ",".join(violation_names(e.errors)))
             return 503, BoundaryError("UNAVAILABLE", "모델 출력이 ActionExtraction 형식을 지키지 못했다",
-                                      {"reason": "OUTPUT_INVALID", "attempts": e.attempts}).to_record(), {}
+                                      {"reason": "OUTPUT_INVALID", "attempts": e.attempts,
+                                       "violations": violation_names(e.errors)}).to_record(), {}
         except Exception as e:   # noqa: BLE001 (엔진 사망 등)
             log.error("추론 실패 %s", type(e).__name__)
             return 503, BoundaryError("UNAVAILABLE", "추론 실패").to_record(), {}

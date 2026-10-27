@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (17차, 0.6.3)
+갱신: 2026-10-27 (18차, 0.6.4)
+
+- 18차(0.6.4, 브랜치 `relax2-pattern`, D82): 완화 `relax-2`(`pattern`·`minItems`를 엔진에 보냄, `allOf`는 계속 제거), OUTPUT_INVALID의 `details.violations`(경로:키워드)와 로그. relax-1 `serving_config`는 거부하므로 매니페스트·해시를 다시 만들어야 한다. **미확인**: 실제 vLLM/Qwen3에서 extract 통과(GPU 없음, gpu-dev는 헤드가 확인), `minItems` 강제 여부. push·태그 없음.
 
 - 17차(0.6.3, 브랜치 `gpu12g-qwen3-1.7b`, D81): `gpu-12g` 기반 모델을 Qwen3-1.7B(파이프라인 데모용)로 변경, 문서·시험 갱신. **미확인**: Qwen3-1.7B의 12GB 적재와 A·B 동시 적재(이 PC에 GPU 없음), 1.7B 모델 차원(HF config.json에서 받아야 함, 코드에 넣지 않음). push·태그 없음.
 

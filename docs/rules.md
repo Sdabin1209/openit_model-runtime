@@ -33,4 +33,4 @@
 - G2, G3은 v1에서도 기계로 확인하지 않았다(프롬프트 지시). 지금은 프롬프트를 이 영역이 갖지 않으므로(시스템 프롬프트는 모델 패키지, D75) 해당 없음.
 
 ## 제약 디코딩과 `ActionExtraction`
-vLLM(xgrammar)은 `allOf`·`if/then/else`·`not`을 조용히 무시하는 것이 v1 시험(design §11-R)에서 확인되었고, 이 때문에 `relax-1`이 이를 뺀다. `ActionExtraction`은 action별 규칙을 `allOf/if/then`으로 쓰므로 **제약 디코딩만으로는 `reason`/`targets`/`note`의 action별 허용값과 `save`·`value`의 status별 규칙이 지켜지지 않는다.** 사후 검증(항상 거침)이 이를 잡고 재시도한다. `key`/`next_item`의 `pattern`, `targets`의 `minItems`도 엔진 지원을 확인하지 않았으므로 완화로 빠진다(**Qwen3·실제 xgrammar에서의 동작은 미확인**). 재시도가 자주 일어나는지는 GPU 시험에서 `X-Openit-Attempts`로 본다.
+vLLM(xgrammar)은 `allOf`·`if/then/else`·`not`을 조용히 무시하는 것이 v1 시험(design §11-R)에서 확인되었고, 이 때문에 완화(`relax-1`, `relax-2` 모두)가 이를 뺀다. `ActionExtraction`은 action별 규칙을 `allOf/if/then`으로 쓰므로 **제약 디코딩만으로는 `reason`/`targets`/`note`의 action별 허용값과 `save`·`value`의 status별 규칙이 지켜지지 않는다.** 사후 검증(항상 거침)이 이를 잡고 재시도한다. `key`/`next_item`의 `pattern`과 `targets`의 `minItems`는 0.6.4(`relax-2`, D82)부터 엔진에 그대로 보낸다(xgrammar 0.2.7의 `pattern` 강제는 컨테이너 안 직접 시험으로 헤드가 확인, 이 리포는 재현하지 못했다). `relax-1`은 이를 빼서 extract가 모두 OUTPUT_INVALID가 났다. 재시도가 자주 일어나는지는 GPU 시험에서 `X-Openit-Attempts`로 본다.

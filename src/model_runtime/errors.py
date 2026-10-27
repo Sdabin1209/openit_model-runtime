@@ -52,3 +52,13 @@ class ModelOutputInvalid(ModelRuntimeError):
     def __init__(self, attempts: int, errors: tuple = ()):
         self.attempts, self.errors = attempts, tuple(errors)
         super().__init__(f"모델 출력이 ActionExtraction 형식을 지키지 못했다 (시도 {attempts}회)")
+
+
+MAX_VIOLATION_NAMES = 20
+
+
+def violation_names(errors) -> list[str]:
+    """ModelOutputInvalid.errors("schema:<경로>:<키워드>" 또는 "json")를 응답·로그용 "<경로>:<키워드>" 목록으로 바꾼다(D82).
+    경로와 키워드 이름만 낸다. 값·발화·모델 원문은 들어 있지 않다. 최대 20개, 정렬, 중복 없음."""
+    out = {e[len("schema:"):] if e.startswith("schema:") else e for e in errors}
+    return sorted(out)[:MAX_VIOLATION_NAMES]

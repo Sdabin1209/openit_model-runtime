@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 0.6.4 (미배포) — 2026-10-27 (D82)
+완화 정책이 바뀌어 `serving_config`의 `constraint`와 해시가 바뀐다(계약 2.0.0 그대로, HTTP API 모양 그대로).
+- **relax-2**: `DEFAULT_SUPPORTED_FEATURES`에 `pattern`, `minItems`를 더했다. `RELAX_POLICY_VERSION`은 `relax-2`. gpu-dev 실측에서 vLLM 0.31.0/xgrammar 0.2.7이 `pattern`을 실제로 강제하는데(컨테이너 안 직접 시험, 헤드 확인) relax-1이 `pattern`·`minItems`를 빼서 ActionExtraction의 `key`·`targets`·`next_item` 문법이 제약되지 않아 LoRA-A extract가 100% OUTPUT_INVALID였다. `allOf`는 xgrammar가 부분 지원이라 계속 뺀다. `minItems`는 이 리포에서 따로 강제 여부를 확인하지 못했다.
+- **호환(결정)**: `relax-1`을 가진 `serving_config`는 받지 않는다(`UnsupportedServingConfig`). 지원 키워드 집합이 달라 어차피 어긋나므로 두 정책을 함께 받지 않는다. **매니페스트의 `serving_config.constraint`(`relax_policy_version: "relax-2"`, `supported_features`에 `pattern`·`minItems` 포함)와 `serving_config_hash`를 새로 만들어 릴리스에 다시 제출해야 한다.** 가짜 백엔드의 `fake_serving_config()` 해시도 바뀌었다(`FakeBackend` 지원 집합은 그대로, 정책 문자열만 relax-2).
+- OUTPUT_INVALID(503)의 `details`에 `violations`를 더했다: 마지막 시도에서 어긴 규칙의 `"<경로>:<키워드>"` 목록(예 `/values/0/key:pattern`, JSON이 아니면 `json`). 정렬·중복 없음·최대 20개. 같은 목록을 로그(WARNING)에 낸다. 발화·모델 원문·값은 내지 않는다. `BoundaryError.details`가 자유 객체(`type: object`)라 계약 스키마 변경은 필요 없고 `details.reason`·`attempts`는 그대로다. HTTP.md에는 `violations`가 문서화되어 있지 않으므로 헤드가 반영할지 정한다(선택 필드, 호출자는 무시해도 된다).
+- 시험: relax·지원 집합 기대값, 골든 해시, OUTPUT_INVALID details/로그 시험(원문 비노출 포함).
+- 미확인: Qwen3와 실제 어댑터에서 relax-2로 extract가 통과하는지, `allOf` 의미 규칙(NEXT의 reason 금지, REASK의 reason enum)을 모델이 지키는지(추정으로 못 지킬 수 있다, D82).
+
 ## 0.6.3 (미배포) — 2026-10-27 (D81)
 호환 변경(계약 2.0.0 그대로, 서버 동작·API 변화 없음). 프로파일 내용만 바뀐다.
 - `profiles/gpu-12g.json`의 기반 모델을 Qwen3-4B에서 **Qwen3-1.7B**로 바꿨다. 파이프라인 데모용(`status.for: pipeline-demo`)이며 학습된 4B/8B 어댑터는 24GB급 이상(`rtx4090-24g`)에서 서빙한다. engine은 이전 gpu-12g(Qwen2.5-1.5B, 0.8/8192/8, 적재 성공, 약 10.2GB)에서 출발해 보수적으로 둔 추정(0.8, max_model_len 4096, max_num_seqs 4, max_lora_rank 16). **적재 가능 여부는 미확인**(`status.loadable: unverified`). 어댑터·프로파일 기반 모델이 다르면 412로 거부하는 규칙은 그대로다.

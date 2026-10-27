@@ -151,12 +151,29 @@ class Server(unittest.TestCase):
         s, out, _ = call(url, "/v1/releases/r1/extract", B_INPUT)
         self.assertEqual(s, 400)
 
+    def test_output_invalid_details_list_failed_rule_paths_without_values(self):
+        """D82: details.violations는 '<경로>:<키워드>'만 담는다. 모델 원문·값은 응답과 로그에 없다."""
+        _, url, svc, _ = self.srv()
+        call(url, "/v1/releases/r1", method="PUT")
+        secret = "비밀발화XYZ"
+        bad = json.dumps({"values": [{"key": secret, "value": secret}], "action": "NEXT", "next_item": secret})
+        svc.releases["r1"].session._backend = mr.FakeBackend.scripted({"LORA_A": [bad], "LORA_B": ["괜찮은 문장입니다."]})
+        with self.assertLogs(level="WARNING") as lg:
+            s, out, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
+        self.assertEqual(s, 503)
+        v = out["details"]["violations"]
+        self.assertIn("/values/0/key:pattern", v)
+        self.assertIn("/next_item:pattern", v)
+        self.assertNotIn(secret, json.dumps(out, ensure_ascii=False))
+        self.assertNotIn(secret, "\n".join(lg.output))
+        self.assertTrue(any("/values/0/key:pattern" in line for line in lg.output))
+
     def test_extract_that_never_gets_valid_gives_503_output_invalid_without_inventing(self):
         _, url, svc, _ = self.srv()
         call(url, "/v1/releases/r1", method="PUT")
         svc.releases["r1"].session._backend = mr.FakeBackend.scripted({"LORA_A": ["아님"], "LORA_B": ["괜찮은 문장입니다."]})
         s, out, h = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertEqual((s, out["code"], out["retryable"], out["details"]), (503, "UNAVAILABLE", True, {"reason": "OUTPUT_INVALID", "attempts": 3}))
+        self.assertEqual((s, out["code"], out["retryable"], out["details"]), (503, "UNAVAILABLE", True, {"reason": "OUTPUT_INVALID", "attempts": 3, "violations": ["json"]}))
         self.assertNotIn("X-Openit-Outcome", h)
         self.assertEqual(call(url, "/v1/releases/r1/respond", B_INPUT)[0], 200)   # 다른 호출은 그대로
 

@@ -140,7 +140,7 @@ class E2E(unittest.TestCase):
             with self.assertRaises(BoundaryError) as cm:
                 c.extract("rel-0001", A_INPUT)
             e = cm.exception
-            self.assertEqual((e.code, e.retryable, e.details), ("UNAVAILABLE", True, {"reason": "OUTPUT_INVALID", "attempts": 3}))
+            self.assertEqual((e.code, e.retryable, e.details), ("UNAVAILABLE", True, {"reason": "OUTPUT_INVALID", "attempts": 3, "violations": ["json"]}))
             self.assertTrue(is_output_invalid(e))
             sess._backend = mr.FakeBackend()                                         # 다음 호출은 정상(상태가 남지 않는다)
             self.assertEqual(c.extract("rel-0001", A_INPUT).outcome, "ok")

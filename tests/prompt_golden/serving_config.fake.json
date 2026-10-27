@@ -2,7 +2,7 @@
  "constraint": {
   "backend": "fake",
   "backend_version": "1",
-  "relax_policy_version": "relax-1",
+  "relax_policy_version": "relax-2",
   "supported_features": [
    "$defs",
    "$ref",

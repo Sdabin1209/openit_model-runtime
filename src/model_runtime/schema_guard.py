@@ -15,7 +15,7 @@ from boundary_contracts import load_schema, validator
 from .errors import ContractVersionMismatch, ContractViolation
 
 SUPPORTED_RUNTIME_CONTRACT_VERSION = 1
-RELAX_POLICY_VERSION = "relax-1"
+RELAX_POLICY_VERSION = "relax-2"
 
 INPUT_CONTRACT = {"LORA_A": "ActionExtractionInput", "LORA_B": "ResponseRequest"}
 OUTPUT_CONTRACT = {"LORA_A": "ActionExtraction", "LORA_B": "ResponseText"}
