@@ -6,7 +6,7 @@ model-runtime 서버는 PUT /v1/releases/{id} 때 MODEL_RUNTIME_RELEASE_URL의 I
 설치 패키지에 들어 있지 않아 서버에 따로 올려야 하므로 쓰지 않는다.
 
 사용: release_server.py ROOT_DIR [--port N] [--port-file F]   (--port 0이면 빈 포트, 고른 포트를 --port-file에 쓴다)
-엔드포인트: GET /v1/releases/{id} (manifest.json), GET /v1/releases/{id}/bundle (tar: manifest.json, question_bank.json, adapters/<역할>/…)"""
+엔드포인트: GET /healthz, GET /v1/releases/{id} (manifest.json), GET /v1/releases/{id}/bundle (tar: manifest.json, question_bank.json, adapters/<역할>/…)"""
 from __future__ import annotations
 
 import argparse
@@ -30,6 +30,9 @@ def make_handler(root: Path):
             self.wfile.write(b)
 
         def do_GET(self):
+            if self.path.split("?")[0] == "/healthz":   # 추론 서버의 /readyz가 도달성을 이 경로로 본다
+                self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers()
+                return self.wfile.write(b"ok")
             m = re.fullmatch(r"/v1/releases/([A-Za-z0-9._-]+)(|/bundle)", self.path.split("?")[0])
             d = root / m.group(1) if m else None
             if not m or ".." in m.group(1) or not (d and (d / "manifest.json").is_file()):
