@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 0.7.1 (미배포) — 2026-10-27 (OPEN_GAPS U16)
+호환 변경. HTTP API, 계약, `serving_config`와 그 해시는 바뀌지 않았다(가짜 응답 규칙은 serving_config에 들어가지 않는다. 골든 갱신 없음, `test_serving_config_hash_unchanged`로 확인).
+- fake 백엔드가 값을 낸다: `MODEL_RUNTIME_FAKE_FLOW_FILE`을 객체 형식 `{"order","slots","skips"}`로 주면 LORA-A가 입력 문항에 칸 정의(`slots`, type boolean|integer, 첫 칸만)가 있고 발화에서 값을 정할 수 있을 때 NEXT에 ANSWERED 값 하나(`save: true`, `precision: exact`)를 내고, `skips`를 적용한 next_item을 낸다. 규칙: boolean은 발화에 '아니'가 있으면 false, 아니면 true. integer는 발화의 첫 아라비아 숫자열, 숫자가 없고 '아니'나 '없'이 있으면 0, 그 밖은 값 없음. 공백뿐인 발화, 칸 정의가 없는 문항, 값을 정하지 못한 경우는 기존처럼 빈 `values`의 NEXT. 목록 형식 파일은 동작이 그대로다. **E2E에서 이 경로를 쓰려면 deploy의 `test/fake-model/question_flow.json`에 `slots`(와 `skips`)를 넣어야 한다**(칸 키·타입은 이 리포가 모르므로 지어내지 않았다).
+- 시험: `tests/test_fake_flow.py` 규칙표(발화 -> 기대 출력 14건, 키 순서 포함), turn-engine `validate_extraction` 통과(DATASET_V2 순서·건너뛰기에서 문항 x 발화 전수, turn-engine이 없으면 건너뜀), 파일 형식 오류.
+- `profiles/gpu-12g.json`의 `status.loadable`을 `measured`로(2026-10-27 gpu-dev 1회 측정, OPEN_GAPS U01: 약 10.1GB, KV 5.42GiB). `engine`, `base_model`, `serving_config` 해시에 영향 없음(status는 해시 입력이 아님). `two_adapters_loaded_together`는 간접 확인뿐이라 `unverified`로 둔다.
+- `scripts/make_neutral_package.py` 도움말의 낡은 모델 표기(Qwen3-4B -> Qwen3-1.7B)를 고쳤다.
+
 ## 0.7.0 (미배포) — 2026-10-27 (D84, 릴리스 열차)
 묶음 릴리스(연쇄 정렬을 줄이기 위해 한 번에 낸다). **깨지는 변경이 있다.**
 - **깨지는 변경**: `prompt-3` 제거(G10). `/v1/info`의 `serving_config_expectation.prompt_template_versions`가 `["prompt-3","prompt-4"]`에서 `["prompt-4"]`로 줄고(호환 변경으로 보이지만 `prompt-3`을 쓰는 `serving_config`는 이제 `UnsupportedServingConfig`로 거부되므로 **깨지는 변경**으로 적는다), `deprecated_prompt_template_versions`는 빈 목록이다(필드는 유지). 0.6.x로 만든 릴리스 중 `prompt_template_version: prompt-3`인 것은 적재되지 않는다. 매니페스트·해시를 `prompt-4`로 다시 만들어 제출해야 한다. 서버에서 학습한 어댑터(dataset_10_14)는 원래 `prompt-4`다. `model_runtime_version`의 MAJOR.MINOR가 0.7이어야 하므로 0.6.x 매니페스트는 어차피 다시 만들어야 한다.

@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (20차, 0.7.0)
+갱신: 2026-10-27 (21차, 0.7.1)
+
+- 21차(0.7.1, 브랜치 `train-0.7.1`, OPEN_GAPS U16): fake LORA-A가 문항 흐름 파일의 `slots`·`skips`로 발화에서 ANSWERED 값을 낸다(규칙은 CHANGELOG 0.7.1). `serving_config` 해시 불변. `gpu-12g` 프로파일 status를 측정으로(U01). **미확인**: deploy E2E에서 이 경로가 도는지(deploy 파일에 `slots`가 있어야 함, E2E는 이 세션에서 돌리지 않음), `Q4.answer` 등 실제 칸 키가 survey-service 스키마와 같은지(시험은 turn-engine DATASET_V2 순서·건너뛰기와 시험용 칸 정의로만 확인).
 
 - 20차(0.7.0, 브랜치 `train-0.7`, 릴리스 열차, D84): 비밀 파일화(`MODEL_RUNTIME_TOKENS_FILE`, `MODEL_RUNTIME_RELEASE_TOKEN_FILE`, boundary-contracts v2.0.2의 `read_secret`), `prompt-3`과 `tests/golden/` 제거(깨지는 변경), turn-engine 하드 핀 제거(없으면 시험 건너뜀), runbook 'LoRA 교체'. 시험·스모크 결과는 아래 커밋 보고에 따른다. push·태그 없음. **미확인**: 실제 어댑터를 GPU에서 얹는 절차(2~3단계는 model-lab·release-gate 명령, GPU 실측 없음).
 

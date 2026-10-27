@@ -92,5 +92,106 @@ class FakeFlow(unittest.TestCase):
                     server.build_service({**base, **bad})
 
 
+SLOTS = {"Q1.D03": [{"key": "Q1.D03.diagnosed", "type": "boolean"}, {"key": "Q1.D03.on_medication", "type": "boolean"}],
+         "Q4": [{"key": "Q4.answer", "type": "boolean"}], "Q8_1": [{"key": "Q8_1.days", "type": "integer"}]}
+SKIPS = [{"slot": "Q4.answer", "op": "==", "value": False, "skip_item": "Q4_1"},
+         {"slot": "Q8_1.days", "op": "==", "value": 0, "skip_item": "Q8_2"}]
+
+
+def v2_session():
+    order = ["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04", "Q4", "Q4_1", "Q5", "Q8_1", "Q8_2", "Q9_1"]
+    b = mr.FakeBackend(mr.make_default_responder(order, None, SLOTS, SKIPS))
+    cfgs, hashes = cfgs_and_hashes(b)
+    return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+
+
+def _val(key, value):
+    return {"key": key, "precision": "exact", "save": True, "status": "ANSWERED", "value": value}
+
+
+# (문항, 발화, 기대 출력). 규칙: boolean 칸은 비어 있지 않은 발화가 '아니'를 포함하면 False, 아니면 True. integer 칸은 첫 숫자열,
+# 숫자가 없고 '아니'/'없'이 있으면 0, 그 밖은 빈 values. 칸 정의가 없는 문항, 공백뿐인 발화는 기존대로 빈 values(빈 문자열 발화는 입력 계약이 거부한다).
+RULES = [
+    ("Q1.D03", "네 있어요", {"action": "NEXT", "next_item": "Q1.D04", "values": [_val("Q1.D03.diagnosed", True)]}),
+    ("Q1.D03", "아니요", {"action": "NEXT", "next_item": "Q1.D04", "values": [_val("Q1.D03.diagnosed", False)]}),
+    ("Q1.D03", "아니 없어요 괜찮아요", {"action": "NEXT", "next_item": "Q1.D04", "values": [_val("Q1.D03.diagnosed", False)]}),
+    ("Q1.D03", "십 년 전에 진단받았어요", {"action": "NEXT", "next_item": "Q1.D04", "values": [_val("Q1.D03.diagnosed", True)]}),
+    ("Q1.D03", "   ", {"action": "NEXT", "next_item": "Q1.D04", "values": []}),
+    ("Q1.D01", "네", {"action": "NEXT", "next_item": "Q1.D02", "values": []}),          # 칸 정의 없음
+    ("Q4", "네 피웠어요", {"action": "NEXT", "next_item": "Q4_1", "values": [_val("Q4.answer", True)]}),
+    ("Q4", "아니요 안 피웠어요", {"action": "NEXT", "next_item": "Q5", "values": [_val("Q4.answer", False)]}),   # Q4_1 건너뜀
+    ("Q8_1", "이틀 했어요 2일", {"action": "NEXT", "next_item": "Q8_2", "values": [_val("Q8_1.days", 2)]}),
+    ("Q8_1", "3번이요", {"action": "NEXT", "next_item": "Q8_2", "values": [_val("Q8_1.days", 3)]}),
+    ("Q8_1", "아니요 안 해요", {"action": "NEXT", "next_item": "Q9_1", "values": [_val("Q8_1.days", 0)]}),       # Q8_2 건너뜀
+    ("Q8_1", "없어요", {"action": "NEXT", "next_item": "Q9_1", "values": [_val("Q8_1.days", 0)]}),
+    ("Q8_1", "글쎄요 잘 모르겠어요", {"action": "NEXT", "next_item": "Q8_2", "values": []}),                          # 정하지 못함
+]
+
+
+class FakeValues(unittest.TestCase):
+    def test_rule_table(self):
+        s = v2_session()
+        for qid, utt, want in RULES:
+            out = s.extract({**a_input(qid), "user_utterance": utt})
+            assert_valid("ActionExtraction", out)
+            self.assertEqual(out, want, (qid, utt))
+            self.assertEqual(list(out), sorted(out), "키 순서 사전순")
+            for v in out["values"]:
+                self.assertEqual(list(v), sorted(v))
+
+    def test_no_slots_keeps_empty_values_for_any_utterance(self):
+        s = session(ORDER)
+        self.assertEqual(s.extract({**a_input("Q1.D01"), "user_utterance": "네"})["values"], [])
+
+    def test_passes_turn_engine_validate_extraction(self):
+        pytest.importorskip("turn_engine")
+        from turn_engine.flow import DATASET_V2_FLOW
+        from turn_engine.validation import validate_extraction
+        order = list(DATASET_V2_FLOW.order)
+        slots = {"Q1.D03": SLOTS["Q1.D03"], "Q4": SLOTS["Q4"], "Q5": [{"key": "Q5.answer", "type": "boolean"}],
+                 "Q7": [{"key": "Q7.does_not_drink", "type": "boolean"}], "Q8_1": SLOTS["Q8_1"], "Q9_1": [{"key": "Q9_1.days", "type": "integer"}]}
+        skips = [{"slot": r.slot, "op": "==", "value": r.value, "skip_item": r.skip_item} for r in DATASET_V2_FLOW.skips]
+        b = mr.FakeBackend(mr.make_default_responder(order, None, slots, skips))
+        cfgs, hashes = cfgs_and_hashes(b)
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+        n_saved = 0
+        for qid in order:
+            for utt in ("네", "아니요", "3일", "없어요", "   ", "글쎄요"):
+                inp = {**a_input(qid), "user_utterance": utt}
+                out = s.extract(inp)
+                self.assertEqual(validate_extraction(inp, out, DATASET_V2_FLOW), [], (qid, utt))
+                n_saved += bool(out["values"])
+        self.assertGreater(n_saved, 10)   # 저장 경로를 실제로 지났다
+
+    def test_flow_spec_file_and_errors(self):
+        with TemporaryDirectory() as t:
+            ok = Path(t) / "ok.json"
+            ok.write_text(json.dumps({"order": ORDER, "slots": SLOTS, "skips": SKIPS}), encoding="utf-8")
+            self.assertEqual(mr.load_fake_flow(str(ok)), ORDER)
+            self.assertEqual(mr.load_fake_flow_spec(str(ok)), (SLOTS, SKIPS))
+            lst = Path(t) / "l.json"
+            lst.write_text(json.dumps(ORDER), encoding="utf-8")
+            self.assertEqual(mr.load_fake_flow_spec(str(lst)), ({}, []))
+            for i, bad in enumerate(({"slots": []}, {"slots": {"Q1": []}}, {"slots": {"Q1": [{"key": "Q1.a", "type": "string"}]}},
+                                     {"skips": [{"slot": "a", "value": 1}]}, {"skips": [{"slot": "a", "op": "!=", "value": 1, "skip_item": "Q1"}]})):
+                p = Path(t) / f"bad{i}.json"
+                p.write_text(json.dumps({"order": ORDER, **bad}), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    mr.load_fake_flow_spec(str(p))
+
+    def test_server_env_with_slots(self):
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        with TemporaryDirectory() as t:
+            p = Path(t) / "flow.json"
+            p.write_text(json.dumps({"order": ORDER, "slots": SLOTS, "skips": SKIPS}), encoding="utf-8")
+            server.build_service({**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)}).close()
+
+    def test_serving_config_hash_unchanged(self):   # 가짜 응답 규칙은 serving_config에 들어가지 않는다(0.7.1에서 해시가 바뀌지 않음)
+        h = lambda r: mr.serving_config_hash(r)
+        a = mr.FakeBackend(mr.make_default_responder(ORDER))
+        b = mr.FakeBackend(mr.make_default_responder(ORDER, None, SLOTS, SKIPS))
+        self.assertEqual({r: h(c) for r, c in cfgs_and_hashes(a)[0].items()}, {r: h(c) for r, c in cfgs_and_hashes(b)[0].items()})
+
+
 if __name__ == "__main__":
     unittest.main()

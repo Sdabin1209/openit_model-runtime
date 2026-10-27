@@ -147,7 +147,7 @@ def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revisi
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("out")
-    ap.add_argument("--profile", default=str(ROOT / "profiles" / "gpu-12g.json"), help="기본 gpu-12g는 Qwen3-4B라 --model-config가 필요하다")
+    ap.add_argument("--profile", default=str(ROOT / "profiles" / "gpu-12g.json"), help="기본 gpu-12g의 기반 모델은 Qwen3-1.7B다. Qwen3 차원은 내장하지 않아 --model-config가 필요하다")
     ap.add_argument("--vllm-version", default="0.31.0", help="serving_config.constraint.backend_version(서빙 이미지의 vLLM과 같아야 한다)")
     ap.add_argument("--rank", type=int, default=8)
     ap.add_argument("--revision", default="main")

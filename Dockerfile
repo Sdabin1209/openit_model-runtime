@@ -41,7 +41,7 @@ LABEL io.openit.service="model-runtime" \
       io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
       io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
       io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
-      io.openit.model-runtime="0.7.0"
+      io.openit.model-runtime="0.7.1"
 USER 10001
 # 이 디렉터리들은 serving-data 볼륨을 /var/lib/model-runtime에 마운트하면 가려진다. 그래서 서버가 시작할 때 mkdir -p로 다시 보장하고 쓸 수 없으면 /readyz 503 reason을 낸다.
 # 번들 캐시 디렉터리는 10001 소유로 만들어 둔다(새 이름 있는 볼륨은 이 소유권을 물려받는다). 바인드 마운트라면 호스트에서 소유자를 맞춘다.

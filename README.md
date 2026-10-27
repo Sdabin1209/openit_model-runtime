@@ -62,7 +62,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 ## 현재 상태
 
-문서 기준 버전은 0.7.0(docs/STATUS.md 20차). 확인된 것:
+문서 기준 버전은 0.7.1(docs/STATUS.md 21차). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
 - 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 이 세션의 수집 개수 154는 통과 수가 아니다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
