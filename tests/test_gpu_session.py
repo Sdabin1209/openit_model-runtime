@@ -218,3 +218,84 @@ def test_run_session_refuses_work_dir_outside_write_root(tmp_path):
                         "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--work", str(tmp_path / "elsewhere")], capture_output=True, text=True,
                        env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(tmp_path / "wr"), "NVIDIA_SMI": smi(tmp_path, 1)}, timeout=60)
     assert r.returncode != 0 and "쓰기 허용 폴더" in r.stderr
+
+
+def _snapshot(base):
+    return sorted(str(p.relative_to(base)) for p in Path(base).rglob("*"))
+
+
+def _inputs_c1(tmp_path):
+    setup_inputs(tmp_path)
+    c1 = tmp_path / "c1"; c1.mkdir()
+    (tmp_path / "a.jsonl").rename(c1 / "lora_a_val.jsonl"); (tmp_path / "b.jsonl").rename(c1 / "lora_b_val.jsonl")
+    return c1
+
+
+def _session(tmp_path, c1, root, *extra, work=None, budget="5"):
+    cmd = ["bash", str(KIT / "run_session.sh"), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
+           "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--n-a", "2", "--n-b", "2", "--concurrency", "1", "--budget-min", budget, *extra]
+    if work:
+        cmd += ["--work", str(work)]
+    return subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi(tmp_path, 300)}, timeout=180)
+
+
+def test_run_session_outside_root_creates_nothing(tmp_path):   # MR-1: 거부돼도 쓰기 허용 폴더 밖에 디렉터리가 생기지 않는다
+    c1 = _inputs_c1(tmp_path)
+    root = tmp_path / "root"; root.mkdir()
+    smi(tmp_path, 300)   # 가짜 nvidia-smi 파일을 먼저 만든다
+    before = _snapshot(tmp_path)
+    r = _session(tmp_path, c1, root, work=tmp_path / "outside" / "deep")
+    assert r.returncode != 0 and "쓰기 허용 폴더" in r.stderr
+    assert _snapshot(tmp_path) == before, "거부했는데 파일시스템이 바뀌었다"
+    assert not (tmp_path / "outside").exists()
+    link = tmp_path / "root" / "lnk"; link.symlink_to(tmp_path / "outside2")   # 허용 폴더 안의 링크가 밖을 가리켜도 거부
+    r = _session(tmp_path, c1, root, work=link / "w")
+    assert r.returncode != 0 and not (tmp_path / "outside2").exists()
+
+
+def test_clean_cache_only_removes_a_cache_this_kit_made(tmp_path):   # MR-2
+    c1 = _inputs_c1(tmp_path)
+    root = tmp_path / "root"
+    foreign = root / "mine" / "cache"; foreign.mkdir(parents=True)
+    (foreign / "keep.txt").write_text("남의 파일")
+    r = _session(tmp_path, c1, root, "--clean-cache", work=root / "mine")
+    assert r.returncode != 0 and "만든 캐시가 아니다" in r.stderr
+    assert (foreign / "keep.txt").read_text() == "남의 파일" and not list((root / "mine").glob("run-*"))   # 아무것도 지우거나 만들지 않았다
+    r = _session(tmp_path, c1, root, "--clean-cache", work=root / "fresh")                              # 키트가 만든 캐시는 지운다
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    assert not (root / "fresh" / "cache").exists()
+    r = _session(tmp_path, c1, root, work=root / "fresh")                                               # 옵션이 없으면 남기고 표식이 있다
+    assert r.returncode == 0 and (root / "fresh" / "cache" / ".mr-session-owned").exists()
+    (root / "fresh" / "cache" / ".mr-session-owned").unlink()                                           # 표식이 사라지면 --clean-cache가 지우지 않는다
+    (root / "fresh" / "cache" / "x").write_text("x")
+    r = _session(tmp_path, c1, root, "--clean-cache", work=root / "fresh")
+    assert r.returncode != 0 and (root / "fresh" / "cache" / "x").exists()
+
+
+def test_prepare_bundle_rejects_dangerous_release_ids_and_foreign_overwrite(tmp_path):   # prepare_bundle 검증
+    setup_inputs(tmp_path)
+    sibling = tmp_path / "out" / "sibling.txt"; sibling.parent.mkdir(); sibling.write_text("형제")
+    for bad in ("..", ".", "../x", "a/b", "/", "a b", ""):
+        r = run_prepare(tmp_path, "--release-id", bad, "--overwrite")
+        assert r.returncode != 0, bad
+    assert sibling.read_text() == "형제"
+    assert run_prepare(tmp_path, "--release-id", "rel-1").returncode == 0
+    assert (tmp_path / "out" / "rel-1" / ".mr-session-owned").exists()
+    assert run_prepare(tmp_path, "--release-id", "rel-1").returncode != 0                      # --overwrite 없이는 거부
+    assert run_prepare(tmp_path, "--release-id", "rel-1", "--overwrite").returncode == 0       # 이 도구가 만든 것은 덮어쓴다
+    foreign = tmp_path / "out" / "foreign"; foreign.mkdir(); (foreign / "f.txt").write_text("남의 것")
+    r = run_prepare(tmp_path, "--release-id", "foreign", "--overwrite")
+    assert r.returncode != 0 and (foreign / "f.txt").exists()                                  # 표식 없는 폴더는 지우지 않는다
+
+
+def test_options_without_value_exit_2_instead_of_hanging(tmp_path):   # 인자 파싱
+    for script, opts in (("preflight.sh", ("--until", "--max-used-mib", "--min-free-mib")),
+                         ("run_session.sh", ("--until", "--work", "--adapter-a", "--c1-dir", "--backend"))):
+        for o in opts:
+            r = subprocess.run(["bash", str(KIT / script), o], capture_output=True, text=True, timeout=10, env={**os.environ, "NVIDIA_SMI": smi(tmp_path, 1)})
+            assert r.returncode == 2 and "값이 필요" in r.stderr, (script, o, r.returncode)
+
+
+def test_token_is_not_in_curl_arguments():   # 토큰은 헤더 파일로만 전달한다
+    text = (KIT / "run_session.sh").read_text(encoding="utf-8")
+    assert 'Bearer $(cat' not in text and '-H "@$RUN/auth_header"' in text

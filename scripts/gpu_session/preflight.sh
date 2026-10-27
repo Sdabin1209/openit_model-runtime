@@ -14,6 +14,9 @@ MIN_FREE=0
 UNTIL=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --max-used-mib|--min-free-mib|--until) [ $# -ge 2 ] || { echo "$1 에 값이 필요하다. 사용: preflight.sh [--max-used-mib N] [--min-free-mib N] [--until HH:MM]" >&2; exit 2; } ;;
+  esac
+  case "$1" in
     --max-used-mib) MAX_USED="${2:-}"; shift 2 ;;
     --min-free-mib) MIN_FREE="${2:-}"; shift 2 ;;
     --until) UNTIL="${2:-}"; shift 2 ;;

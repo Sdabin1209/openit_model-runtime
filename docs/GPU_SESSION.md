@@ -74,3 +74,10 @@
 
 ## 시험
 `../.venv/bin/python -m pytest tests/test_gpu_session.py`: preflight(통과, 사용 중, 외부 프로세스 표시, 임계, 시간 초과, nvidia-smi 없음), prepare_bundle(릴리스 검증, 시스템 프롬프트 종류 보고, 기반 모델 불일치, 순위 초과), measure 집계, run_session 한 바퀴(fake 백엔드), 쓰기 폴더 밖 거부. 같은 파일로 전체 `pytest`를 돌린다. (참고: 이 작업 이전부터 `tests/test_anyof_constraint.py` 3건이 이 환경에서 실패한다. 이 키트와 무관하다.)
+
+## 안전 불변식 보강 (감사 라운드 2: MR-1~5)
+- `run_session.sh`는 `--work`가 쓰기 허용 폴더(`~/dabin`) 안인지를 **만들기 전에** 검사한다(`realpath -m`, 심볼릭 링크 해석). 거부하면 아무것도 만들지 않는다.
+- 캐시 폴더 `$WORK/cache`는 이 키트가 만든 것만 쓴다. 표식 파일 `.mr-session-owned`가 없는 비어 있지 않은 `cache`가 이미 있으면 시작을 거부(아무것도 만들지 않음). `--clean-cache`는 표식이 있고 같은 캐시를 쓰는 다른 실행(`.active.<pid>`)이 살아 있지 않을 때만 지운다.
+- `prepare_bundle.py`의 `--release-id`는 `[A-Za-z0-9._-]+`이고 `.`/`..`이 아니어야 하며 `--out` 바로 아래여야 한다. `--overwrite`는 이 도구가 만든 번들(표식 `.mr-session-owned`)만 지운다.
+- 값이 필요한 옵션이 마지막 인자면 사용법을 내고 **종료 코드 2**로 끝난다(무한 루프 수정). run_session.sh의 종료 코드 2는 preflight 거부와 같은 값이다(메시지로 구분한다).
+- 준비 대기의 토큰은 `curl -H @파일`로 전달해 프로세스 인자(`ps`)에 보이지 않는다.

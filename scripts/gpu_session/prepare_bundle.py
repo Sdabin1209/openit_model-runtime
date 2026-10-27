@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -70,16 +71,26 @@ def check_adapter(src: Path, role: str, base_model: str, max_rank: int, rewrite_
     return info
 
 
+RELEASE_ID_RE = re.compile(r"[A-Za-z0-9._-]+")
+OWNED_MARK = ".mr-session-owned"   # 이 도구가 만든 번들이라는 표식. --overwrite는 표식이 있는 폴더만 지운다
+
+
 def build(a: argparse.Namespace) -> dict:
     prof = mr.load_profile(a.profile)
     base_model = prof.get("base_model")
     if not base_model:
         raise SystemExit("프로파일에 base_model이 없다")
     max_rank = int(prof.get("engine", {}).get("max_lora_rank", 16))
+    if not RELEASE_ID_RE.fullmatch(a.release_id) or a.release_id in (".", ".."):   # 서버의 ID_RE와 같은 문자 집합. `..`이면 부모가 지워진다
+        raise SystemExit("--release-id는 영문·숫자·`.`·`_`·`-`만 쓰고 `.`/`..`이 아니어야 한다")
     out = Path(a.out) / a.release_id
-    if out.exists():
+    if out.resolve().parent != Path(a.out).resolve():
+        raise SystemExit("--release-id가 --out 바로 아래 폴더를 가리키지 않는다")
+    if out.exists() or out.is_symlink():
         if not a.overwrite:
-            raise SystemExit(f"{out}이 이미 있다. 덮어쓰려면 --overwrite (이 디렉터리 안만 지운다)")
+            raise SystemExit(f"{out}이 이미 있다. 덮어쓰려면 --overwrite (이 도구가 만든 번들만 지운다)")
+        if out.is_symlink() or not (out / OWNED_MARK).is_file():
+            raise SystemExit(f"{out}은 이 도구가 만든 번들이 아니다({OWNED_MARK} 표식 없음). 지우지 않는다")
         shutil.rmtree(out)
     if a.backend == "fake":
         backend = mr.FakeBackend()
@@ -102,6 +113,8 @@ def build(a: argparse.Namespace) -> dict:
             report["warnings"].append(f"{role}: C1 파일에 시스템 프롬프트가 {len(kinds)}종이다. 첫 행의 것을 썼다(행 수 {r['system_prompt_rows_by_kind']}). 학습 때 어느 것이 쓰였는지 확인해야 한다")
         r["adapter"] = check_adapter(srcs[role], role, base_model, max_rank, a.rewrite_base_name)
         report["roles"][role] = r
+    out.mkdir(parents=True)
+    (out / OWNED_MARK).write_text("scripts/gpu_session/prepare_bundle.py\n", encoding="utf-8")
     for role in ROLES:
         d = out / "adapters" / role
         d.mkdir(parents=True)

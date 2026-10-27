@@ -31,6 +31,10 @@ MAX_USED=2048; MARGIN=4096; PROD=0; BACKEND=vllm; KEEP_BUNDLE=0; CLEAN_CACHE=0; 
 die() { echo "[run_session] 오류: $*" >&2; exit "${2:-64}"; }
 log() { echo "[run_session $(date +%H:%M:%S)] $*"; }
 while [ $# -gt 0 ]; do
+  case "$1" in   # 값이 필요한 옵션이 마지막이면 shift 2가 실패해 무한 루프가 된다(MR-3): 사용법을 내고 종료 코드 2
+    --kit|--work|--python|--until|--budget-min|--ready-timeout-min|--profile|--util|--n-a|--n-b|--concurrency|--max-used-mib|--margin-mib|--adapter-a|--adapter-b|--c1-dir|--backend)
+      [ $# -ge 2 ] || { echo "[run_session] 오류: $1 에 값이 필요하다(--help로 사용법)" >&2; exit 2; } ;;
+  esac
   case "$1" in
     --kit) KIT="${2:-}"; shift 2 ;; --work) WORK="${2:-}"; shift 2 ;; --python) PY="${2:-}"; shift 2 ;;
     --until) UNTIL="${2:-}"; shift 2 ;; --budget-min) BUDGET_MIN="${2:-}"; shift 2 ;; --ready-timeout-min) READY_MIN="${2:-}"; shift 2 ;;
@@ -59,11 +63,12 @@ PYLIB="$KIT/pylib"; [ -d "$PYLIB" ] || PYLIB=""
 # 쓰기 규칙: 쓰는 모든 경로가 WRITE_ROOT 안인지 확인한다(심볼릭 링크를 푼 뒤)
 mkdir -p "$WRITE_ROOT" 2>/dev/null || die "$WRITE_ROOT 를 만들 수 없다"
 ROOT_REAL="$(cd "$WRITE_ROOT" && pwd -P)"
-mkdir -p "$WORK" 2>/dev/null || die "$WORK 를 만들 수 없다"
-WORK_REAL="$(cd "$WORK" && pwd -P)"
+# 만들기 전에 검사한다(MR-1): 거부되면 WRITE_ROOT 밖에 아무것도 만들지 않는다. realpath -m은 없는 경로도 기존 심볼릭 링크를 풀어 정규화한다.
+WORK_REAL="$(realpath -m -- "$WORK" 2>/dev/null)" || die "작업 폴더 경로를 해석하지 못했다: $WORK"
 case "$WORK_REAL/" in "$ROOT_REAL"/*) ;; *) die "작업 폴더 $WORK_REAL 는 쓰기 허용 폴더($ROOT_REAL) 밖이다. 서버에서는 ~/dabin 안만 쓸 수 있다" ;; esac
 [ "$WORK_REAL" != "$ROOT_REAL" ] || die "작업 폴더는 쓰기 허용 폴더 자체가 아니라 그 안의 하위 폴더여야 한다"
 
+mkdir -p "$WORK_REAL" 2>/dev/null || die "$WORK_REAL 를 만들 수 없다"
 START_S=$(date +%s)
 BUDGET_S=$(( BUDGET_MIN * 60 ))
 if [ -n "$UNTIL" ]; then
@@ -75,7 +80,14 @@ remaining() { echo $(( START_S + BUDGET_S - $(date +%s) )); }
 # 이 실행용 프로파일(gpu_memory_utilization 덮어쓰기 반영)을 실행 폴더에 쓴다
 RUN="$WORK_REAL/run-$(date +%Y%m%d-%H%M%S)"
 C="$WORK_REAL/cache"
+CACHE_MARK=".mr-session-owned"   # 이 키트가 만든 캐시라는 표식. 없는 폴더는 건드리지 않는다(MR-2)
+if [ -e "$C" ] || [ -L "$C" ]; then
+  if [ -L "$C" ] || [ ! -f "$C/$CACHE_MARK" ]; then
+    if [ -L "$C" ] || [ -n "$(ls -A "$C" 2>/dev/null)" ]; then die "$C 가 이미 있고 이 키트가 만든 캐시가 아니다(표식 $CACHE_MARK 없음). 다른 --work를 주거나 그 폴더를 옮긴다. 아무것도 만들지 않았다" 64; fi
+  fi
+fi
 mkdir -p "$RUN/tmp" "$RUN/bundles" "$RUN/logs" "$C" || die "실행 폴더를 만들 수 없다"
+: > "$C/$CACHE_MARK"; echo "$$" > "$C/.active.$$"   # 이 실행이 캐시를 쓰는 동안 표시(다른 실행이 살아 있으면 지우지 않는다)
 RUN_PROFILE="$RUN/profile.json"
 "$PY" -I - "$PROFILE" "$RUN_PROFILE" "$UTIL" <<'PYEOF' || die "프로파일을 쓰지 못했다"
 import json, sys
@@ -122,7 +134,14 @@ cleanup() {
   wait 2>/dev/null
   if [ "$KEEP_BUNDLE" -eq 0 ]; then rm -rf -- "${RUN:?}/release" "${RUN:?}/bundles" 2>/dev/null; fi
   rm -rf -- "${RUN:?}/tmp" 2>/dev/null
-  if [ "$CLEAN_CACHE" -eq 1 ]; then rm -rf -- "${C:?}" 2>/dev/null; fi
+  rm -f -- "${C:?}/.active.$$" 2>/dev/null
+  if [ "$CLEAN_CACHE" -eq 1 ]; then
+    others=0
+    for f in "${C:?}"/.active.*; do [ -e "$f" ] || continue; p="${f##*.active.}"; if kill -0 "$p" 2>/dev/null; then others=1; fi; done
+    if [ -L "$C" ] || [ ! -f "${C:?}/$CACHE_MARK" ]; then log "캐시 $C 에 표식이 없어 지우지 않는다"
+    elif [ "$others" -eq 1 ]; then log "같은 캐시를 쓰는 다른 실행이 살아 있어 지우지 않는다"
+    else rm -rf -- "${C:?}" 2>/dev/null; fi
+  fi
   after="$(gpu_mem)"
   if [ -n "$after" ]; then echo "$(date +%H:%M:%S) 종료 후 $after" >> "$RUN/logs/gpu_mem.log"; log "종료 후 GPU 메모리: $after (logs/gpu_mem.log의 '시작 전'과 비교한다)"; fi
   log "남은 것: $RUN (logs/, measure.json, measure.txt, profile.json). 캐시는 $C"
@@ -147,7 +166,8 @@ cp "$RUN/release/PREPARE_REPORT.json" "$RUN/logs/PREPARE_REPORT.json"   # releas
 # 4) 릴리스 서버(I4 모양, 루프백)와 추론 서버. 토큰은 파일로 만든다(권한 600)
 umask 077
 TOKEN="$("$PY" -I -c "import secrets;print(secrets.token_hex(16))")"
-printf 'measure=%s\n' "$TOKEN" > "$RUN/tokens"; printf '%s' "$TOKEN" > "$RUN/token"; unset TOKEN
+printf 'measure=%s\n' "$TOKEN" > "$RUN/tokens"; printf '%s' "$TOKEN" > "$RUN/token"
+printf 'Authorization: Bearer %s\n' "$TOKEN" > "$RUN/auth_header"; unset TOKEN   # curl -H @파일: 토큰이 프로세스 인자(ps)에 보이지 않는다
 freeport() { "$PY" -I -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1])"; }
 "$PY" "$HERE/release_server.py" "$RUN/release" --port 0 --port-file "$RUN/release.port" > "$RUN/logs/release_server.log" 2>&1 &
 REL_PID=$!
@@ -168,7 +188,7 @@ cap=$(( READY_MIN * 60 )); r=$(remaining); [ "$r" -lt "$cap" ] && cap=$r
 t0=$(date +%s); ready=0
 while [ $(( $(date +%s) - t0 )) -lt "$cap" ]; do
   kill -0 "$SERVER_PID" 2>/dev/null || { tail -n 30 "$RUN/logs/server.log"; die "서버 프로세스가 종료됐다(logs/server.log)" 5; }
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "Authorization: Bearer $(cat "$RUN/token")" "http://127.0.0.1:$PORT/readyz" 2>/dev/null)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "@$RUN/auth_header" "http://127.0.0.1:$PORT/readyz" 2>/dev/null)
   if [ "$code" = 200 ]; then ready=1; break; fi
   sleep 3
 done
