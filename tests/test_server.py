@@ -381,3 +381,125 @@ class RuntimeDirs(unittest.TestCase):
                   "TORCHINDUCTOR_CACHE_DIR=", "VLLM_CACHE_ROOT=", "XDG_CACHE_HOME=", "TORCH_HOME=", "HOME=/var/lib/model-runtime/home"):
             self.assertIn(k, df)
         self.assertIn('"$VARIANT" = "gpu"', df)   # CPU 변형에는 컴파일러를 넣지 않는다
+
+
+class FaultCells(unittest.TestCase):
+    """FAULT_MATRIX A4(F2 멈춤, F3 느림, F5/F6 엔진 사망·깨진 출력)와 B3(백엔드 기동 실패)의 영역 시험. 가짜 엔진으로 만든다."""
+    def setUp(self):
+        self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
+
+    def up(self, responder, **kw):
+        s = start(self._t.name, **kw); self.addCleanup(s[0].shutdown)
+        _, url, svc, _ = s
+        call(url, "/v1/releases/r1", method="PUT")
+        svc.releases["r1"].session._backend = mr.FakeBackend(responder)
+        return url, svc
+
+    def test_hung_engine_returns_503_engine_timeout_within_deadline_and_recovers(self):
+        gate = threading.Event(); self.addCleanup(gate.set)
+        def hang(req):
+            if req.role == "LORA_A":
+                gate.wait(30)
+            return json.dumps(mr.backends.FAKE_EXTRACTION)
+        url, svc = self.up(hang, MODEL_RUNTIME_REQUEST_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
+        t = time.monotonic()
+        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
+        self.assertLess(time.monotonic() - t, 1.5)   # 멈춘 엔진을 무한히 기다리지 않는다
+        self.assertEqual((s, b["code"], b["retryable"], b["details"]["reason"]), (503, "UNAVAILABLE", True, "ENGINE_TIMEOUT"))
+        # 엔진이 아직 멈춰 있는 동안: 다음 요청은 대기 상한 안에 거절되고 /readyz는 503과 사유, /healthz는 200
+        t = time.monotonic()
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 503)
+        self.assertLess(time.monotonic() - t, 1.5)
+        s, b, _ = call(url, "/readyz")
+        self.assertEqual(s, 503); self.assertIn("엔진", b["reason"])
+        self.assertEqual(call(url, "/healthz")[0], 200)
+        gate.set()   # 엔진이 돌아오면 사람 개입 없이 복구
+        for _ in range(100):
+            if not svc.overdue: break
+            time.sleep(0.02)
+        self.assertEqual(call(url, "/readyz")[0], 200)
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
+
+    def test_slow_engine_within_deadline_is_normal(self):
+        def slow(req):
+            time.sleep(0.2)
+            return json.dumps(mr.backends.FAKE_EXTRACTION) if req.role == "LORA_A" else "괜찮은 문장입니다."
+        url, _ = self.up(slow, MODEL_RUNTIME_REQUEST_DEADLINE_S="2.0")
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
+
+    def test_retries_are_bounded_by_the_total_deadline(self):   # 출력이 계속 틀려 3번 시도해도 총 상한을 넘기지 않는다
+        def slow_bad(req):
+            time.sleep(0.4)
+            return "아님"
+        url, _ = self.up(slow_bad, MODEL_RUNTIME_REQUEST_DEADLINE_S="0.7")
+        t = time.monotonic()
+        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
+        self.assertLess(time.monotonic() - t, 1.2)
+        self.assertEqual((s, b["details"]["reason"]), (503, "ENGINE_TIMEOUT"))
+
+    def test_dead_engine_gives_503_and_readyz_503_until_next_success(self):
+        state = {"dead": True}
+        def maybe_dead(req):
+            if state["dead"]:
+                raise RuntimeError("EngineCore died")
+            return json.dumps(mr.backends.FAKE_EXTRACTION)
+        url, _ = self.up(maybe_dead)
+        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
+        self.assertEqual((s, b["code"], b["retryable"]), (503, "UNAVAILABLE", True))
+        self.assertNotIn("EngineCore", json.dumps(b))   # 내부 메시지를 싣지 않는다
+        s, b, _ = call(url, "/readyz")
+        self.assertEqual(s, 503); self.assertIn("RuntimeError", b["reason"])
+        self.assertEqual(call(url, "/healthz")[0], 200)
+        state["dead"] = False   # 재시작되어 돌아옴
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
+        self.assertEqual(call(url, "/readyz")[0], 200)
+
+    def test_broken_or_empty_model_output_is_503_output_invalid_never_invented(self):
+        for bad in ("", "   ", "{", "[]", '{"action":"NEXT"}', '{"action":"BOGUS","next_item":"END","values":[]}'):
+            url, _ = self.up(lambda req, bad=bad: bad)
+            s, b, h = call(url, "/v1/releases/r1/extract", A_INPUT)
+            self.assertEqual((s, b["code"], b["details"]["reason"]), (503, "UNAVAILABLE", "OUTPUT_INVALID"), repr(bad))
+            self.assertNotIn("values", b)
+            self.assertEqual(call(url, "/readyz")[0], 200)   # 출력 문제는 서버 고장이 아니다
+
+    def test_backend_start_failure_reports_reason_then_recovers(self):   # B3: 모델 내려받기 실패 -> 재시도로 복구
+        n = {"i": 0}
+        def factory():
+            n["i"] += 1
+            if n["i"] < 3:
+                raise OSError("download failed")
+            return mr.FakeBackend()
+        svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=factory,
+                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=0.05)
+        self.addCleanup(svc.close)
+        for _ in range(20):
+            if n["i"] >= 1 and not svc.ready: break
+            time.sleep(0.01)
+        ok, why = svc.readiness()
+        if not ok:
+            self.assertEqual(why, "OSError")   # 사유는 예외 이름뿐(경로·URL 없음)
+        for _ in range(100):
+            if svc.ready: break
+            time.sleep(0.02)
+        self.assertEqual((svc.ready, n["i"], svc.readiness()), (True, 3, (True, None)))
+
+    def test_backend_start_failure_without_retry_stays_not_ready(self):
+        svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=lambda: (_ for _ in ()).throw(OSError("x")),
+                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=0)
+        self.addCleanup(svc.close)
+        time.sleep(0.2)
+        self.assertEqual(svc.readiness(), (False, "OSError"))
+
+    def test_hung_release_server_during_load_keeps_active_release(self):   # B1: 번들 읽기 중 릴리스 서버 멈춤
+        gate = threading.Event(); self.addCleanup(gate.set)
+        s = start(self._t.name, MODEL_RUNTIME_PUT_WAIT_S="0.3"); self.addCleanup(s[0].shutdown)
+        _, url, svc, rd = s
+        self.assertEqual(call(url, "/v1/releases/good", method="PUT")[0], 200)
+        orig = rd.load_bundle
+        rd.load_bundle = lambda rid, dest: (gate.wait(30), orig(rid, dest=dest))[1] if rid == "slow" else orig(rid, dest=dest)
+        t = time.monotonic()
+        self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(5)))   # 임시 폴더를 지우기 전에 멈춘 적재가 풀려 끝나게 한다
+        self.assertEqual(call(url, "/v1/releases/slow", method="PUT")[0], 202)   # PUT은 put_wait에서 돌려준다
+        self.assertLess(time.monotonic() - t, 2)
+        self.assertEqual(call(url, "/v1/releases/good/extract", A_INPUT)[0], 200)   # 활성 릴리스는 그대로
+        self.assertEqual(call(url, "/v1/info")[1]["loaded"], ["good"])

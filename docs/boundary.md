@@ -34,6 +34,19 @@
 - **extract의 503 OUTPUT_INVALID는 호출자가 한 번 다시 보내고, 그래도 안 되면 턴을 실패 신호로 처리한다(INTERFACES I9 '서비스가 지키는 것').**
 - 학습 데이터 변환은 `render_prompt(..., system_prompt=<패키지의 프롬프트>, serving_config=...)`를 쓴다.
 
+## 시간 불변식과 장애 동작 (FAULT_POLICY 4·10·12)
+
+불변식: 키오스크 대기 10s > gateway 9.5s > survey 턴 마감 6s > survey의 model-serving 읽기 timeout 4s > **`MODEL_RUNTIME_REQUEST_DEADLINE_S` 3.5s(기본)**. 수치는 호출자 쪽 문서(헤드의 FAULT_POLICY 3항, survey boundary)에서 가져온 값이고 이 리포가 정하지 않는다. 이 서버의 상한을 survey의 4초 읽기 timeout보다 짧게 두는 근거: 서버가 먼저 `503 UNAVAILABLE`(`details.reason: ENGINE_TIMEOUT`, 재시도 가능)로 끝내야 호출자가 소켓 timeout이 아니라 분류된 오류를 받는다. 3.5s는 큐 대기(`QUEUE_WAIT_S` 3.0, 상한에 포함)와 재시도 3회를 포함한 총합이다. 실제 GPU 모델의 extract 지연은 측정하지 못했다(미확인). 실제 모델이 3.5s를 자주 넘기면 이 값이 아니라 survey의 timeout과 함께 헤드가 정한다.
+
+| 상황 | 동작 |
+|---|---|
+| 엔진이 멈춤/매우 느림 | 요청은 상한(3.5s)에 503 `ENGINE_TIMEOUT`로 끝난다. 엔진 호출은 스레드에서 계속되어 락을 쥐므로(파이썬 스레드는 중단할 수 없다) 그동안 다른 요청은 대기 상한(3.0s) 안에 503이고 `/readyz`는 503("추론 엔진이 요청 상한을 넘겨 응답하지 않는다"), `/healthz`는 200. 엔진이 돌아오면 자동 복구. 영영 안 돌아오면 `/healthz`가 살아 있어 컨테이너가 재시작되지 않는다: 프로세스 재시작은 밖(스케줄러/운영자)이 `/readyz` 503 지속을 보고 한다 |
+| 동시 요청 | 엔진 호출은 한 번에 하나(`engine_lock`). 예상 대기(`(대기+1) x 평균 호출 시간`)가 `QUEUE_WAIT_S`를 넘으면 큐에 쌓지 않고 503 |
+| 엔진 사망(호출 예외) | 503 `UNAVAILABLE`(내부 메시지 없음), `/readyz` 503("추론 엔진 호출이 실패했다(<예외 이름>)"). 다음 추론이 성공하면 해제 |
+| 모델 출력이 비었거나 문법 위반 | 재시도 후에도 어기면 extract는 503 `OUTPUT_INVALID`(값을 지어내지 않음), respond는 200 + `X-Openit-Outcome: fallback`. `/readyz`는 그대로 200 |
+| 번들 읽기 중 릴리스 서버 멈춤/손상(해시 불일치) | 적재는 그 릴리스에만 실패/지연(PUT은 202 또는 오류 코드). 서빙 중인 릴리스는 유지. 소켓 timeout `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S`(기본 120s) |
+| 모델 내려받기/백엔드 기동 실패(GPU 모드) | `/readyz` 503(사유는 예외 이름), `MODEL_RUNTIME_BACKEND_RETRY_S`(기본 30s)마다 다시 시도해 성공하면 자동 복구. 실제 vLLM의 부분 기동 실패 후 재시도에서 GPU 메모리가 정리되는지는 확인하지 못했다(미확인) |
+
 ## 장애 영향
 - extract: 모델 출력이 깨지면 재시도 후 `ModelOutputInvalid`(503 OUTPUT_INVALID). 서비스가 턴을 실패 처리하고 세션 상태를 바꾸지 않는다. 보호가 아니라 실패다.
 - respond: 모델 출력이 깨지면 재료를 이은 대체 문장(`is_fallback`)이 나간다. 턴은 실패하지 않는다.

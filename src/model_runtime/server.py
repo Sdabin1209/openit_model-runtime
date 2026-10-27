@@ -13,6 +13,7 @@ MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON 또는 {"order",
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요)
 비밀(MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN)은 D84에 따라 <이름>_FILE(파일 경로)을 우선 읽고 없을 때만 환경 변수를 쓴다(boundary_contracts.read_secret),
+MODEL_RUNTIME_REQUEST_DEADLINE_S(extract/respond 한 요청의 총 상한: 대기+추론, 기본 3.5; 넘기면 503 ENGINE_TIMEOUT, 근거는 docs/boundary.md 불변식), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
 MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
 from __future__ import annotations
@@ -78,7 +79,8 @@ class Service:
                  reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
-                 hf_home: str | None = None, runtime_dirs: list[str] | None = None):
+                 hf_home: str | None = None, runtime_dirs: list[str] | None = None,
+                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
@@ -93,6 +95,10 @@ class Service:
         self.engine_lock = threading.Lock()          # 엔진 직렬화
         self.pending = 0                             # 실행 중 + 대기 중
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
+        self.request_deadline_s, self.backend_retry_s = request_deadline_s, backend_retry_s   # 요청 상한(FAULT_POLICY 4), 백엔드 기동 재시도 간격(0이면 재시도 없음)
+        self.overdue = False          # 상한을 넘긴 엔진 호출이 아직 끝나지 않았다(엔진이 멈췄을 수 있다)
+        self.engine_error = None      # 마지막 추론이 엔진 예외로 끝났으면 예외 이름(성공하면 None)
+        self._closing = False
         self.base = None
         self.ready, self.not_ready_reason = False, "백엔드를 올리는 중"
         self.bundle_error = self._check_bundle_dir() or self._check_hf_cache() or self._check_runtime_dirs()
@@ -140,6 +146,10 @@ class Service:
         /healthz는 이것과 무관하게 프로세스가 살아 있으면 200이다."""
         if not self.ready:
             return False, self.not_ready_reason
+        if self.overdue:
+            return False, "추론 엔진이 요청 상한을 넘겨 응답하지 않는다"
+        if self.engine_error:
+            return False, f"추론 엔진 호출이 실패했다({self.engine_error})"
         if self.release_required and not self.release_url:
             return False, "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다"
         if self.release_url:
@@ -159,6 +169,7 @@ class Service:
     def close(self):
         """종료 시 엔진을 내린다(시그널 처리에서 부른다). 내리지 않으면 EngineCore가 GPU 메모리를 쥔 채 남는다."""
         self.ready = False
+        self._closing = True
         with self.rlock:
             self.releases.clear()
         close = getattr(self.base, "close", None)
@@ -166,12 +177,17 @@ class Service:
             close()
 
     def _start_backend(self, factory):
-        try:
-            self.base = factory()
-            self.ready, self.not_ready_reason = True, None
-        except Exception as e:   # noqa: BLE001
-            self.not_ready_reason = type(e).__name__
-            log.error("백엔드를 올리지 못함: %s", type(e).__name__)
+        while not self._closing:
+            try:
+                self.base = factory()
+                self.ready, self.not_ready_reason = True, None
+                return
+            except Exception as e:   # noqa: BLE001
+                self.not_ready_reason = type(e).__name__
+                log.error("백엔드를 올리지 못함: %s", type(e).__name__)
+            if self.backend_retry_s <= 0:
+                return
+            time.sleep(self.backend_retry_s)   # 모델 내려받기 실패 등은 돌아오면 사람 개입 없이 /readyz가 200이 된다(FAULT_POLICY 12)
 
     # --- 적재 ---
     def put(self, rid: str):
@@ -261,15 +277,34 @@ class Service:
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             self.pending += 1
         try:
-            if not self.engine_lock.acquire(timeout=self.queue_wait_s):
+            deadline = time.monotonic() + self.request_deadline_s   # 요청 전체의 상한(대기 + 추론). 호출별이 아니라 총합이다
+            if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
-            try:
-                t = time.time()
-                out = getattr(r.session, op)(body)
-                info = r.session.last_call_info
-                self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
-            finally:
-                self.engine_lock.release()
+            res: dict = {}
+            done = threading.Event()
+
+            def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
+                try:
+                    t = time.time()
+                    out = getattr(r.session, op)(body)
+                    info = r.session.last_call_info
+                    self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
+                    res["ok"] = (out, info)
+                except BaseException as e:   # noqa: BLE001
+                    res["err"] = e
+                finally:
+                    self.engine_lock.release()
+                    self.overdue = False
+                    done.set()
+            threading.Thread(target=work, daemon=True).start()
+            if not done.wait(max(0.0, deadline - time.monotonic())):
+                self.overdue = True
+                log.error("추론이 요청 상한 %.1fs를 넘겼다(op=%s)", self.request_deadline_s, op)
+                return 503, BoundaryError("UNAVAILABLE", "추론이 요청 상한을 넘겼다", {"reason": "ENGINE_TIMEOUT"}).to_record(), {}
+            if "err" in res:
+                raise res["err"]
+            out, info = res["ok"]
+            self.engine_error = None
             headers = {"X-Openit-Outcome": info.outcome, "X-Openit-Attempts": str(info.attempts)}
             if info.protections:
                 headers["X-Openit-Protections"] = ",".join(f"{k}:{v}" for k, v in info.protections)
@@ -283,6 +318,7 @@ class Service:
                                        "violations": violation_names(e.errors)}).to_record(), {}
         except Exception as e:   # noqa: BLE001 (엔진 사망 등)
             log.error("추론 실패 %s", type(e).__name__)
+            self.engine_error = type(e).__name__   # 엔진 사망 등: 다음 추론이 성공할 때까지 /readyz 503
             return 503, BoundaryError("UNAVAILABLE", "추론 실패").to_record(), {}
         finally:
             with self.rlock:
@@ -396,7 +432,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     if reader_factory is None:
         def reader_factory():
             from boundary_contracts.clients.releases import HttpReleaseReader
-            return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], read_secret("MODEL_RUNTIME_RELEASE_TOKEN", environ=env) or "", timeout=120)
+            return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], read_secret("MODEL_RUNTIME_RELEASE_TOKEN", environ=env) or "", timeout=float(env.get("MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S", "120")))
     offline = env.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes")
     hf_home = None if (backend_name != "vllm" or offline) else (env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
     dirs = [env[k] for k in ("HOME", "XDG_CACHE_HOME", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TORCH_HOME")
@@ -407,6 +443,8 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),
                    put_wait_s=float(env.get("MODEL_RUNTIME_PUT_WAIT_S", "3.0")),
+                   request_deadline_s=float(env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S", "3.5")),
+                   backend_retry_s=float(env.get("MODEL_RUNTIME_BACKEND_RETRY_S", "30")),
                    max_releases=int(env.get("MODEL_RUNTIME_MAX_RELEASES", "4")))
 
 

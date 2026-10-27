@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 0.7.3 후보 (태그·버전 올림 없음, 제안) — 장애 대응(FAULT_MATRIX A4·B1·B3)
+호환 변경(새 설정은 모두 기본값이 있고 HTTP 계약 모양은 그대로, 새 `details.reason: ENGINE_TIMEOUT`은 `details`가 자유 객체라 계약 변경 없음).
+- 요청 상한 `MODEL_RUNTIME_REQUEST_DEADLINE_S`(기본 3.5s): 멈춘 엔진 호출을 무한히 기다리던 문제를 고쳤다. 상한을 넘으면 503 `ENGINE_TIMEOUT`, 엔진이 돌아오면 자동 복구. 멈춰 있는 동안 `/readyz` 503.
+- 엔진 호출 예외 후 `/readyz` 503(다음 성공까지). 이전에는 엔진이 죽어도 `/readyz`가 200이었다.
+- 백엔드 기동 실패(모델 내려받기 등)를 `MODEL_RUNTIME_BACKEND_RETRY_S`(기본 30s)마다 재시도. 이전에는 한 번 실패하면 재시작 전까지 영구 not ready.
+- `MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S`(기본 120s, 이전 하드코딩 값과 같음).
+- 시험: `tests/test_server.py` `FaultCells` 8건(멈춤+복구, 느림, 재시도 총합 상한, 엔진 사망, 깨진·빈 출력 6종, 기동 실패 재시도/무재시도, 번들 읽기 중 릴리스 서버 멈춤). 불변식과 칸별 동작은 docs/boundary.md.
+
 ## 문서 정정 (0.7.2 이후, 코드 변경 없음)
 - 설치 줄이 `-e ../boundary-contracts`(형제 폴더 editable)여서 gpu-dev에서 `test_reference_checkout_is_the_installed_tag`가 실패했다(설치된 패키지가 형제 작업 트리 그 자체). 시험은 옳고(설치본이 태그와 같은지 보는 것이 목적) 설치 줄이 공통 규칙(태그 설치)과 어긋났다. README, runbook, design의 설치 줄을 태그 설치로 고쳤다.
 
