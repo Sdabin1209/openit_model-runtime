@@ -36,6 +36,10 @@
 
 ## 시간 불변식과 장애 동작 (FAULT_POLICY 4·10·12)
 
+> **초기값 경고.** 이 절의 `REQUEST_DEADLINE_S` 3.5s, `QUEUE_WAIT_S` 3.0s는 **실제 모델 지연으로 측정한 적이 없는 초기값**이다(가짜 백엔드·1.7B 측정, 중앙값 약 1.7초에서 나옴). 한 환자 턴은 extract와 respond 두 번의 모델 호출이고 survey 턴 마감은 6초라서, 8B 모델(24GB GPU, 미측정)에서는 호출 하나가 3.5초를 넘어 `ENGINE_TIMEOUT`이 날 수 있다. **H1(24GB 실측)에서 재정해야 한다.**
+>
+> **실측 절차.** (1) 실제 모델·어댑터를 적재한 서버에 deploy의 `probe-serving`(`--url`, `--token-file`, `--repeat`)으로 대표 발화 묶음을 충분히(수십~백 회) 보내 extract 지연을 재고, respond도 같은 방식으로 호출해 **extract·respond 각각의 p50/p95/max**를 구한다(확인한 것: probe-serving의 문서 머리말은 extract 집계와 첫 호출 대 이후 중앙값만 말한다. p95·max와 respond는 도구가 내는지 확인하지 못했으므로, 없으면 헤드/deploy가 도구를 확장하거나 응답 시간을 따로 기록한다). 첫 호출(콜드)은 따로 보고 정상 상태 값과 구분한다. (2) 재시도가 있는 호출(`X-Openit-Attempts` > 1)의 지연도 따로 본다. 출력 재시도는 호출 안에서 지연을 배로 만든다. (3) 값 정하기: 한 턴 = extract p95 + respond p95 + 여유가 survey 턴 마감(6s)을 넘지 않는지 먼저 확인한다. 넘으면 서버 설정이 아니라 헤드가 6s·모델·프로파일을 다시 정한다(원칙 3 불변식). 안 넘으면 `REQUEST_DEADLINE_S`를 호출 하나의 p95보다 크고 max에 가깝게, 그리고 survey 읽기 timeout(4s)보다 작게 두며, `QUEUE_WAIT_S`는 평균 호출 시간의 1~2배로 둔다. (4) 정한 값과 측정 조건(모델, GPU, 입력 묶음, 측정일)을 이 절에 적고 위 경고를 지운다.
+
 불변식: 키오스크 대기 10s > gateway 9.5s > survey 턴 마감 6s > survey의 model-serving 읽기 timeout 4s > **`MODEL_RUNTIME_REQUEST_DEADLINE_S` 3.5s(기본)**. 수치는 호출자 쪽 문서(헤드의 FAULT_POLICY 3항, survey boundary)에서 가져온 값이고 이 리포가 정하지 않는다. 이 서버의 상한을 survey의 4초 읽기 timeout보다 짧게 두는 근거: 서버가 먼저 `503 UNAVAILABLE`(`details.reason: ENGINE_TIMEOUT`, 재시도 가능)로 끝내야 호출자가 소켓 timeout이 아니라 분류된 오류를 받는다. 3.5s는 큐 대기(`QUEUE_WAIT_S` 3.0, 상한에 포함)와 재시도 3회를 포함한 총합이다. 실제 GPU 모델의 extract 지연은 측정하지 못했다(미확인). 실제 모델이 3.5s를 자주 넘기면 이 값이 아니라 survey의 timeout과 함께 헤드가 정한다.
 
 | 상황 | 동작 |
