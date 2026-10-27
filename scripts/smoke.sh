@@ -5,9 +5,12 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.2}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true' EXIT
-[ "$(git -C "$HERE/../boundary-contracts" describe --tags --exact-match 2>/dev/null || true)" = "$BOUNDARY_TAG" ] || { echo "boundary-contracts 형제 폴더가 태그 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
-docker build -q --build-context boundary="$HERE/../boundary-contracts" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
+BDIR="$(mktemp -d)"
+trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
+# 계약 소스는 형제 폴더의 작업 트리가 아니라 태그 그대로(git archive)다. 작업 트리가 태그보다 앞서 있어도 상관없다.
+git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ] \
+  || { echo "../boundary-contracts에서 태그 $BOUNDARY_TAG를 꺼내지 못했다(폴더가 없거나 태그가 없다)" >&2; exit 1; }
+docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
   --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" \
   --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
 docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \

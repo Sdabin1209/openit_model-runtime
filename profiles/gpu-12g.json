@@ -1,5 +1,5 @@
 {
-  "_comment": "12GB급(RTX 3060 12GB, 4070 SUPER 12GB 등) 이하 GPU용 표준 프로파일. 호스트 이름이 아니라 VRAM 크기로 고른다. 파이프라인 데모용이다(D81): 학습된 Qwen3-4B/8B 어댑터는 이 프로파일에 올리지 않고 24GB급 이상(rtx4090-24g)에서 서빙한다. 기반 모델 Qwen3-1.7B(Qwen3 계열이라 prompt-4와 채팅 템플릿 enable_thinking=False가 그대로 맞는다). 이전 gpu-12g(v0.5.x, Qwen2.5-1.5B, 0.8/8192/8)는 실제로 적재에 성공했고 GPU 약 10.2GB를 썼다. 아래 engine 값은 측정값이 아니라 그 값에서 출발한 보수적 추정이다: 1.7B는 가중치가 작아(bf16 약 3~4GB, 정확한 크기는 확인하지 못함) max_model_len은 4096, max_num_seqs는 4로 올리지 않았고 gpu_memory_utilization은 0.8을 유지했다. max_lora_rank 16은 학습 어댑터 rank 16(D74)과 같다. 8GB 이하 GPU에는 맞는지 확인하지 못했다.",
+  "_comment": "12GB급(RTX 3060 12GB, 4070 SUPER 12GB 등) 이하 GPU용 표준 프로파일. 호스트 이름이 아니라 VRAM 크기로 고른다. 파이프라인 데모용이다(D81): 학습된 Qwen3-4B/8B 어댑터는 이 프로파일에 올리지 않고 24GB급 이상(rtx4090-24g)에서 서빙한다. 기반 모델 Qwen3-1.7B(Qwen3 계열이라 prompt-4와 채팅 템플릿 enable_thinking=False가 그대로 맞는다). 이전 gpu-12g(v0.5.x, Qwen2.5-1.5B, 0.8/8192/8)는 실제로 적재에 성공했고 GPU 약 10.2GB를 썼다. 아래 engine 값은 그 값에서 출발한 보수적 추정이었고, 2026-10-27 gpu-dev 1회 측정(status.note)은 이 engine 값 그대로 적재해 얻은 것이다: 1.7B는 가중치가 작아(bf16 약 3~4GB, 정확한 크기는 확인하지 못함) max_model_len은 4096, max_num_seqs는 4로 올리지 않았고 gpu_memory_utilization은 0.8을 유지했다. max_lora_rank 16은 학습 어댑터 rank 16(D74)과 같다. 8GB 이하 GPU에는 맞는지 확인하지 못했다.",
   "status": {
     "loadable": "measured",
     "two_adapters_loaded_together": "unverified",
