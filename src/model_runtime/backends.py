@@ -95,6 +95,30 @@ def load_fake_flow_spec(path: str) -> tuple[dict, list]:
     return slots, list(skips)
 
 
+def load_fake_corrections(path: str) -> list:
+    """문항 흐름 파일(객체 형식)의 선택 항목 `corrections`를 읽는다(0.7.2). 목록 형식이거나 항목이 없으면 [].
+    `corrections`: [{"contains": "발화에 들어 있는 문구", "key": "Q4.answer", "value": false, "at": "Q5"(선택: 이 question_id일 때만)}].
+    key의 문항은 `order`에 있어야 한다. value는 null이 아닌 boolean|number|string. 형식이 틀리면 ValueError."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        return []
+    corr = data.get("corrections", [])
+    order = data.get("order")
+    if not isinstance(corr, list):
+        raise ValueError("corrections는 목록이어야 한다")
+    for c in corr:
+        if not (isinstance(c, dict) and isinstance(c.get("contains"), str) and c["contains"].strip() and isinstance(c.get("key"), str)
+                and isinstance(c.get("value"), (bool, int, float, str)) and (c.get("at") is None or isinstance(c["at"], str))):
+            raise ValueError("corrections 항목은 contains(비어 있지 않은 문자열), key(문자열), value(boolean|number|string)를 가져야 한다")
+        if not _KEY.match(c["key"]):
+            raise ValueError("corrections의 key가 모델 키 문법이 아니다")
+        if isinstance(order, list) and c["key"].rsplit(".", 1)[0].split("[")[0] not in order:
+            raise ValueError("corrections의 key 문항이 order에 없다")
+    return list(corr)
+
+
+_KEY = re.compile(r"^Q[0-9]+(\.D[0-9]{2})?(_[0-9]+)?(\[(soju|beer|spirits|makgeolli|wine)\])?\.[a-z][a-z_]*$")
 _INT = re.compile(r"\d+")
 
 
@@ -114,28 +138,41 @@ def fake_slot_value(slot_type: str, utterance: str):
     return None
 
 
+def _next_after(i: int, order: list, saved: Mapping, skips: Sequence[Mapping]) -> str:
+    """order[i]부터 시작해 저장 값에 걸리는 건너뛰기를 적용한 다음 문항(없으면 END)."""
+    while i < len(order) and any(r["skip_item"] == order[i] and r["slot"] in saved and saved[r["slot"]] == r["value"]
+                                 and isinstance(saved[r["slot"]], bool) == isinstance(r["value"], bool) for r in skips):
+        i += 1
+    return order[i] if i < len(order) else "END"
+
+
 def fake_extraction_for(question_id: str, order: Sequence[str], utterance: str | None = None,
-                        slots: Mapping | None = None, skips: Sequence[Mapping] = ()) -> dict:
+                        slots: Mapping | None = None, skips: Sequence[Mapping] = (), corrections: Sequence[Mapping] = ()) -> dict:
     """question_id 다음 문항으로 가는 최소 유효 ActionExtraction. values가 비어 있으면 저장 값이 없어 건너뛰기 규칙이 적용되지 않으므로
     기대 next_item은 순서상 바로 다음 문항(마지막이면 END)이다(turn-engine v0.3.0 validate_extraction과 일치).
     문항에 칸 정의(slots)가 있고 발화에서 값을 정할 수 있으면 첫 칸에 ANSWERED 값을 내고, 그 값에 건너뛰기(skips)를 적용한 다음 문항으로 간다."""
     order = list(order)
     i = order.index(question_id) + 1 if question_id in order else len(order)
+    # 정정(0.7.2): corrections 항목의 문구가 발화에 있으면(at이 있으면 그 문항일 때만) CORRECT. 앞서 한 답의 칸을 CORRECTION으로 저장한다.
+    # next_item은 turn-engine 규칙대로 정정한 문항(값의 문항) 바로 다음에 건너뛰기를 적용한 문항이다.
+    for c in corrections:
+        if utterance and c["contains"] in utterance and c.get("at") in (None, question_id):
+            item = c["key"].rsplit(".", 1)[0].split("[")[0]
+            if item in order:
+                slot = re.sub(r"\[[^\]]*\]", "", c["key"])
+                return {"action": "CORRECT", "next_item": _next_after(order.index(item) + 1, order, {slot: c["value"]}, skips),
+                        "values": [{"key": c["key"], "precision": "exact", "save": True, "status": "CORRECTION", "value": c["value"]}]}
     cols = (slots or {}).get(question_id)
     value = fake_slot_value(cols[0]["type"], utterance) if cols and utterance else None
     if value is None:
         return {"action": "NEXT", "next_item": order[i] if i < len(order) else "END", "values": []}
     key = cols[0]["key"]
-    saved = {key: value}
-    while i < len(order) and any(r["skip_item"] == order[i] and r["slot"] in saved and saved[r["slot"]] == r["value"]
-                                 and isinstance(saved[r["slot"]], bool) == isinstance(r["value"], bool) for r in skips):
-        i += 1
-    return {"action": "NEXT", "next_item": order[i] if i < len(order) else "END",
+    return {"action": "NEXT", "next_item": _next_after(i, order, {key: value}, skips),
             "values": [{"key": key, "precision": "exact", "save": True, "status": "ANSWERED", "value": value}]}
 
 
 def make_default_responder(order: Sequence[str] | None = None, extraction: Mapping | None = None,
-                           slots: Mapping | None = None, skips: Sequence[Mapping] = ()) -> Callable[[GenerationRequest], str]:
+                           slots: Mapping | None = None, skips: Sequence[Mapping] = (), corrections: Sequence[Mapping] = ()) -> Callable[[GenerationRequest], str]:
     """extraction(고정 출력)이 있으면 그것, 아니면 order가 있으면 입력 기준 다음 문항(slots가 있으면 발화의 값 포함), 둘 다 없으면 FAKE_EXTRACTION."""
     fixed = json.dumps(extraction, ensure_ascii=False) if extraction is not None else None
 
@@ -148,7 +185,7 @@ def make_default_responder(order: Sequence[str] | None = None, extraction: Mappi
         qid = inp.get("question_id") if order else None
         if order and isinstance(qid, str):
             utt = inp.get("user_utterance")
-            return json.dumps(fake_extraction_for(qid, order, utt if isinstance(utt, str) else None, slots, skips), ensure_ascii=False)
+            return json.dumps(fake_extraction_for(qid, order, utt if isinstance(utt, str) else None, slots, skips, corrections), ensure_ascii=False)
         return json.dumps(FAKE_EXTRACTION, ensure_ascii=False)
     return respond
 

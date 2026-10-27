@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 0.7.2 후보 (태그 없음, 제안) — 2026-10-27 (OPEN_GAPS U16, 정정 흐름)
+호환 변경. HTTP API, 계약, `serving_config`와 해시 불변. 기존 흐름 파일(목록 형식, `order`/`slots`/`skips`)의 동작은 그대로다.
+- 확인: boundary-contracts v2.0.2 `ActionExtraction`의 action 열거에 `CORRECT`가 있다(NEXT와 같이 reason·targets·note 금지). 0.7.1의 fake는 `CORRECT`를 낼 수 없었다(항상 NEXT). 계약·스키마 변경은 필요 없다.
+- 흐름 파일(객체 형식)에 선택 항목 `corrections`를 더했다: `[{"contains": "발화 문구", "key": "Q4.answer", "value": false, "at": "Q5"}]`. 발화에 `contains`가 들어 있으면(`at`이 있으면 입력 question_id가 그 문항일 때만) `{"action":"CORRECT","next_item":...,"values":[{key, value, status:"CORRECTION", save:true, precision:"exact"}]}`를 낸다. `corrections`가 `slots`보다 먼저 적용된다. `next_item`은 turn-engine `validate_extraction` 규칙대로 정정한 문항 바로 다음에 `skips`를 적용한 문항이다(정정한 값이 건너뛰기에 걸리면 그 문항을 건너뛴다). 형식 오류(key 문법, key 문항이 `order`에 없음, value null 등)는 서버 시작 거부(`ValueError` -> `SystemExit`). 새 API: `load_fake_corrections`, `make_default_responder(..., corrections)`, `fake_extraction_for(..., corrections)`.
+- 시험: `tests/test_fake_flow.py` `FakeCorrect` 5건(규칙표, at 제한과 불변, turn-engine `validate_extraction` 문항 x 발화 전수, 파일 형식 오류, 서버 환경). 사용법은 `docs/runbook.md`의 `MODEL_RUNTIME_FAKE_FLOW_FILE` 행.
+- 미확인: deploy E2E에서 이 경로가 도는지(deploy `test/fake-model/question_flow.json`에 `corrections`를 넣고 정정 발화를 보내야 한다). 칸 키는 이 리포가 모르므로 지어내지 않았다.
+
 ## 0.7.1 (미배포) — 2026-10-27 (OPEN_GAPS U16)
 호환 변경. HTTP API, 계약, `serving_config`와 그 해시는 바뀌지 않았다(가짜 응답 규칙은 serving_config에 들어가지 않는다. 골든 갱신 없음, `test_serving_config_hash_unchanged`로 확인).
 - fake 백엔드가 값을 낸다: `MODEL_RUNTIME_FAKE_FLOW_FILE`을 객체 형식 `{"order","slots","skips"}`로 주면 LORA-A가 입력 문항에 칸 정의(`slots`, type boolean|integer, 첫 칸만)가 있고 발화에서 값을 정할 수 있을 때 NEXT에 ANSWERED 값 하나(`save: true`, `precision: exact`)를 내고, `skips`를 적용한 next_item을 낸다. 규칙: boolean은 발화에 '아니'가 있으면 false, 아니면 true. integer는 발화의 첫 아라비아 숫자열, 숫자가 없고 '아니'나 '없'이 있으면 0, 그 밖은 값 없음. 공백뿐인 발화, 칸 정의가 없는 문항, 값을 정하지 못한 경우는 기존처럼 빈 `values`의 NEXT. 목록 형식 파일은 동작이 그대로다. **E2E에서 이 경로를 쓰려면 deploy의 `test/fake-model/question_flow.json`에 `slots`(와 `skips`)를 넣어야 한다**(칸 키·타입은 이 리포가 모르므로 지어내지 않았다).

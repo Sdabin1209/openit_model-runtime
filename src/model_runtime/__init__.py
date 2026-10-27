@@ -1,4 +1,4 @@
-from .backends import ConstraintBackend, FakeBackend, GenerationRequest, fake_extraction_for, fake_slot_value, load_fake_flow, load_fake_flow_spec, make_default_responder
+from .backends import ConstraintBackend, FakeBackend, GenerationRequest, fake_extraction_for, fake_slot_value, load_fake_flow, load_fake_flow_spec, load_fake_corrections, make_default_responder
 from .errors import (BackendNotAvailable, ContractVersionMismatch, ContractViolation, ModelOutputInvalid, ModelRuntimeError,
                      ServingConfigMismatch, SystemPromptMismatch, UnsupportedServingConfig)
 from .fallback import fallback_text
@@ -12,7 +12,7 @@ from .session import (FAKE_SYSTEM_PROMPTS, RUNTIME_VERSION, CallInfo, FakeModelS
 
 __all__ = [
     "BackendNotAvailable", "CallInfo", "ConstraintBackend", "ContractVersionMismatch", "ContractViolation",
-    "FAKE_SYSTEM_PROMPTS", "FakeBackend", "fake_extraction_for", "fake_slot_value", "load_fake_flow", "load_fake_flow_spec", "make_default_responder", "FakeModelSession", "GenerationRequest", "ModelOutputInvalid", "ModelRuntimeError", "ModelSession",
+    "FAKE_SYSTEM_PROMPTS", "FakeBackend", "fake_extraction_for", "fake_slot_value", "load_fake_flow", "load_fake_flow_spec", "load_fake_corrections", "make_default_responder", "FakeModelSession", "GenerationRequest", "ModelOutputInvalid", "ModelRuntimeError", "ModelSession",
     "PROTECTION_POLICIES", "PROTECTION_POLICY_VERSION", "ProtectionPolicy", "RELAX_POLICY_VERSION", "RUNTIME_VERSION", "RawResult",
     "ResponseResult", "SUPPORTED_RUNTIME_CONTRACT_VERSION", "SchemaSet", "ServingConfigMismatch", "SystemPromptMismatch", "UnsupportedServingConfig",
     "fake_serving_config", "fake_serving_configs", "fallback_text", "load", "relax", "render_prompt", "serving_config_hash",

@@ -193,5 +193,91 @@ class FakeValues(unittest.TestCase):
         self.assertEqual({r: h(c) for r, c in cfgs_and_hashes(a)[0].items()}, {r: h(c) for r, c in cfgs_and_hashes(b)[0].items()})
 
 
+CORRECTIONS = [{"contains": "아까 말", "key": "Q4.answer", "value": False, "at": "Q5"},
+               {"contains": "사실은 하루", "key": "Q8_1.days", "value": 1}]
+V2_ORDER = ["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04", "Q4", "Q4_1", "Q5", "Q8_1", "Q8_2", "Q9_1"]
+
+
+def corr_session():
+    b = mr.FakeBackend(mr.make_default_responder(V2_ORDER, None, SLOTS, SKIPS, CORRECTIONS))
+    cfgs, hashes = cfgs_and_hashes(b)
+    return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+
+
+class FakeCorrect(unittest.TestCase):
+    """0.7.2: 정정(CORRECT). 앞서 한 답을 고치는 발화에서 CORRECTION 값을 낸다. 스키마(v2.0.2)의 action 열거에 CORRECT가 있고
+    NEXT와 같이 reason·targets·note를 갖지 않는다."""
+    def test_correct_rule_table(self):
+        s = corr_session()
+        cv = lambda k, v: {"key": k, "precision": "exact", "save": True, "status": "CORRECTION", "value": v}
+        for qid, utt, want in (
+            ("Q5", "아까 말한 거 틀렸어요", {"action": "CORRECT", "next_item": "Q5", "values": [cv("Q4.answer", False)]}),   # Q4=False -> Q4_1 건너뜀
+            ("Q8_2", "사실은 하루예요", {"action": "CORRECT", "next_item": "Q8_2", "values": [cv("Q8_1.days", 1)]}),
+            ("Q9_1", "사실은 하루예요", {"action": "CORRECT", "next_item": "Q8_2", "values": [cv("Q8_1.days", 1)]}),
+        ):
+            out = s.extract({**a_input(qid), "user_utterance": utt})
+            assert_valid("ActionExtraction", out)
+            self.assertEqual(out, want, (qid, utt))
+            self.assertEqual(list(out), sorted(out))
+            self.assertEqual(list(out["values"][0]), sorted(out["values"][0]))
+
+    def test_at_restricts_and_no_match_is_unchanged(self):
+        s = corr_session()
+        # at=Q5 이므로 다른 문항에서는 정정이 아니라 기존 규칙(NEXT)
+        out = s.extract({**a_input("Q4"), "user_utterance": "아까 말한 대로 네"})
+        self.assertEqual(out["action"], "NEXT")
+        # corrections를 주지 않으면 기존 동작 그대로
+        self.assertEqual(v2_session().extract({**a_input("Q5"), "user_utterance": "아까 말한 거 틀렸어요"})["action"], "NEXT")
+
+    def test_passes_turn_engine_validate_extraction(self):
+        pytest.importorskip("turn_engine")
+        from turn_engine.flow import DATASET_V2_FLOW
+        from turn_engine.validation import validate_extraction
+        order = list(DATASET_V2_FLOW.order)
+        skips = [{"slot": r.slot, "op": "==", "value": r.value, "skip_item": r.skip_item} for r in DATASET_V2_FLOW.skips]
+        corr = [{"contains": "고칠게요", "key": "Q4.answer", "value": False}, {"contains": "고칠게요 일수", "key": "Q8_1.days", "value": 0},
+                {"contains": "고칠게요 술", "key": "Q1.D03.diagnosed", "value": True, "at": "Q5"}]
+        b = mr.FakeBackend(mr.make_default_responder(order, None, {}, skips, corr))
+        cfgs, hashes = cfgs_and_hashes(b)
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+        n = 0
+        for qid in order:
+            for utt in ("고칠게요", "고칠게요 일수", "고칠게요 술"):
+                inp = {**a_input(qid), "user_utterance": utt}
+                out = s.extract(inp)
+                self.assertEqual(validate_extraction(inp, out, DATASET_V2_FLOW), [], (qid, utt))
+                n += out["action"] == "CORRECT"
+        self.assertGreater(n, 20)
+
+    def test_file_format_and_errors(self):
+        with TemporaryDirectory() as t:
+            ok = Path(t) / "ok.json"
+            ok.write_text(json.dumps({"order": V2_ORDER, "slots": SLOTS, "skips": SKIPS, "corrections": CORRECTIONS}), encoding="utf-8")
+            self.assertEqual(mr.load_fake_corrections(str(ok)), CORRECTIONS)
+            self.assertEqual(mr.load_fake_flow_spec(str(ok)), (SLOTS, SKIPS))   # 기존 읽기는 불변
+            lst = Path(t) / "l.json"
+            lst.write_text(json.dumps(ORDER), encoding="utf-8")
+            self.assertEqual(mr.load_fake_corrections(str(lst)), [])
+            for i, bad in enumerate(({"corrections": {}}, {"corrections": [{"key": "Q4.answer", "value": True}]},
+                                     {"corrections": [{"contains": " ", "key": "Q4.answer", "value": True}]},
+                                     {"corrections": [{"contains": "a", "key": "bad", "value": True}]},
+                                     {"corrections": [{"contains": "a", "key": "Q4.answer", "value": None}]},
+                                     {"corrections": [{"contains": "a", "key": "Q99.answer", "value": True}]})):
+                p = Path(t) / f"bad{i}.json"
+                p.write_text(json.dumps({"order": V2_ORDER, **bad}), encoding="utf-8")
+                with self.assertRaises(ValueError, msg=i):
+                    mr.load_fake_corrections(str(p))
+
+    def test_server_env_with_corrections(self):
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        with TemporaryDirectory() as t:
+            p = Path(t) / "flow.json"
+            p.write_text(json.dumps({"order": V2_ORDER, "slots": SLOTS, "skips": SKIPS, "corrections": CORRECTIONS}), encoding="utf-8")
+            server.build_service({**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)}).close()
+            p.write_text(json.dumps({"order": V2_ORDER, "corrections": [{"contains": "a", "key": "Q99.x", "value": 1}]}), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                server.build_service({**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)})
+
+
 if __name__ == "__main__":
     unittest.main()

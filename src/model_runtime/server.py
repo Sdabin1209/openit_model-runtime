@@ -38,7 +38,7 @@ from boundary_contracts.errors import BoundaryError
 from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
                FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
                UnsupportedServingConfig, load, serving_config_hash)
-from .backends import load_fake_flow, load_fake_flow_spec, make_default_responder
+from .backends import load_fake_corrections, load_fake_flow, load_fake_flow_spec, make_default_responder
 from .errors import BackendNotAvailable
 from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
 from .protection import PROTECTION_POLICIES
@@ -377,7 +377,8 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
             responder = make_default_responder(
                 load_fake_flow(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else None,
                 json.loads(env["MODEL_RUNTIME_FAKE_EXTRACTION"]) if env.get("MODEL_RUNTIME_FAKE_EXTRACTION") else None,
-                *(load_fake_flow_spec(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else ({}, [])))
+                *(load_fake_flow_spec(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else ({}, [])),
+                load_fake_corrections(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else ())
         except (OSError, ValueError) as e:
             raise SystemExit(f"fake 출력 설정이 틀렸다(MODEL_RUNTIME_FAKE_FLOW_FILE / MODEL_RUNTIME_FAKE_EXTRACTION): {type(e).__name__}")
         factory = lambda: FakeBackend(responder)
