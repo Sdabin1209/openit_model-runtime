@@ -10,7 +10,7 @@
 > | 채팅 형식 | 한 덩어리 문자열 | Qwen3 ChatML, `enable_thinking=False`(`<think>\n\n</think>\n\n`를 어시스턴트 시작에 붙임). 입력 직렬화는 `prompt-4`(D77, 학습 데이터와 같은 `json.dumps(ensure_ascii=False)`; A는 최상위만 정렬, B는 전 수준 정렬). 학습 val 대조와 chat_template 렌더 대조는 확인됨, 학습 때 쓴 채팅 템플릿 설정은 미확인(prompts.py 머리말) |
 > | extract 실패 | 보호(P1~P6), 빈 목록 | 보호 없음. `ModelOutputInvalid`(HTTP 503 `OUTPUT_INVALID`). 값을 지어내지 않는다(D75) |
 > | respond 실패 | 대체 문장 + `is_fallback`(JSON) | 재료(`known`, `ask`, `hold`, `next.text`)를 이은 대체 문장, `is_fallback`/`X-Openit-Outcome: fallback`. 정책 `protect-2` |
-> | 제약 디코딩 | A·B 모두 JSON 스키마 | A만(`ActionExtraction`을 `relax-2`로 완화, 0.6.4·D82). B는 텍스트라 제약 없음. action별 `allOf/if/then`은 xgrammar가 부분 지원이라 보내지 않고 사후 검증이 한다. `pattern`·`minItems`는 xgrammar 0.2.7이 강제하는 것을 컨테이너 안 시험으로 확인해(헤드) 0.6.4부터 보낸다(relax-1은 이 둘을 빼서 key·targets·next_item이 제약되지 않았다) |
+> | 제약 디코딩 | A·B 모두 JSON 스키마 | A만(`ActionExtraction`을 `relax-3`으로 완화, 0.6.5·D83). B는 텍스트라 제약 없음. action별·status별 `allOf/if/then`은 xgrammar가 부분 지원이라 같은 뜻의 `anyOf` 변형으로 펼쳐 보내고(`relax-2`까지는 제거), 사후 검증은 그대로 한다. `pattern`·`minItems`는 xgrammar 0.2.7이 강제하는 것을 컨테이너 안 시험으로 확인해(헤드) 0.6.4부터 보낸다(relax-1은 이 둘을 빼서 key·targets·next_item이 제약되지 않았다) |
 > | 프로파일 | `gpu-12g`=Qwen2.5-1.5B | `gpu-12g`=Qwen3-4B, `rtx4090-24g`=Qwen3-8B(둘 다 적재 가능 여부·A+B 동시 적재 미확인). 어댑터와 프로파일의 기반 모델이 다르면 적재 거부 |
 > | 서버 | `.../parse`·`.../generate` JSON | `.../extract`(JSON), `.../respond`(`text/plain`), `X-Openit-Protections`는 보호가 있을 때만, `/v1/info`에 `system_prompt_sha256` 추가 |
 > | fake | 위험 신호 스위치 | 스위치 없음(환경 변수가 남아 있으면 시작 거부). 기본 출력은 `ActionExtraction` 최소값과 `(가짜 응답)` |

@@ -213,10 +213,13 @@ class Session(unittest.TestCase):
                 for v in n:
                     yield from keys(v)
         used = set(keys(sent))
-        for kw in ("oneOf", "if", "then", "not", "allOf", "maxItems", "$comment"):
+        for kw in ("oneOf", "if", "then", "not", "allOf", "$comment"):
             self.assertNotIn(kw, used)   # 지원 집합 밖 키워드는 완화로 빠진다(설명 문장 안의 글자는 해당 없음)
         self.assertEqual(s.last_call_info.attempts, 3)
-        self.assertIn("allOf", s.last_call_info.relaxed)
+        self.assertIn("allOf->anyOf", s.last_call_info.relaxed)   # relax-3(D83): allOf의 if/then은 anyOf 변형으로 펼쳐 보낸다
+        self.assertNotIn("maxItems", s.last_call_info.relaxed)    # maxItems는 relax-3 지원 집합이라 변형에 그대로 간다
+        self.assertIn("maxItems", used)
+        self.assertEqual(len(sent["anyOf"]), 8)
         self.assertNotIn("pattern", s.last_call_info.relaxed)   # relax-2(D82): pattern·minItems는 엔진에 그대로 보낸다
         self.assertNotIn("minItems", s.last_call_info.relaxed)
         self.assertIn("pattern", used)

@@ -361,13 +361,17 @@ class Relax(unittest.TestCase):
         relaxed, removed = mr.relax(schema, b.supported_features)
         for kw in ("'allOf'", "'if'", "'then'", "'oneOf'", "'not'"):
             self.assertNotIn(kw, repr(relaxed))
-        self.assertIn("allOf", removed)
+        self.assertIn("allOf->anyOf", removed)    # relax-3(D83): anyOf 변형으로 펼쳐 제약에 들어간다
         bad = json.loads(BAD_A)
-        self.assertTrue(jsonschema.Draft202012Validator(relaxed).is_valid(bad))   # 제약 디코딩만으로는 놓친다
-        self.assertTrue(s._schemas.output_violations("LORA_A", bad))              # 사후 검증이 잡는다
+        self.assertFalse(jsonschema.Draft202012Validator(relaxed).is_valid(bad))
+        # anyOf가 없는 엔진이면 예전처럼 allOf를 빼고, 그때는 제약만으로는 놓친다
+        old, old_removed = mr.relax(schema, ["type", "properties", "required", "enum", "items", "additionalProperties"])
+        self.assertIn("allOf", old_removed)
+        self.assertTrue(jsonschema.Draft202012Validator(old).is_valid(bad))
+        self.assertTrue(s._schemas.output_violations("LORA_A", bad))              # 사후 검증은 그대로 잡는다
         s.extract(A_INPUT)
         self.assertEqual(s.last_call_info.attempts, 2)
-        self.assertIn("allOf", s.last_call_info.relaxed)
+        self.assertIn("allOf->anyOf", s.last_call_info.relaxed)
 
     def test_never_narrows(self):
         import jsonschema

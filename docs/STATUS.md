@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (18차, 0.6.4)
+갱신: 2026-10-27 (19차, 0.6.5)
+
+- 19차(0.6.5, 브랜치 `anyof-constraint`, D83): 완화 `relax-3`. `allOf`의 `if/then(/else)`를 같은 뜻의 `anyOf` 변형으로 펼쳐 제약에 넣는다(최상위 action 변형 8, values 항목 status 변형 3). `maxItems`를 지원 집합에 추가. 상한 64, 못 펼치는 규칙은 제거+`CallInfo.relaxed`에 기록. relax-2 `serving_config`는 거부하므로 매니페스트·해시를 다시 만들어야 한다. **확인(CPU)**: 원본/변환 스키마 판정 등가(전수 조합·변이), xgrammar 0.2.7 컴파일 경고 없음, 수락 75/거부 1895 불일치 0(`scripts/xgrammar_check.py`, torch·transformers가 필요해 별도 venv). **미확인**: 실제 vLLM/Qwen3 동작·컴파일 시간, 모델 통과율. **발견**: xgrammar가 `properties` 순서를 강제해 계약의 사전순 키 출력과 어긋난다(변경 요청 후보, CHANGELOG 0.6.5). push·태그 없음.
 
 - 18차(0.6.4, 브랜치 `relax2-pattern`, D82): 완화 `relax-2`(`pattern`·`minItems`를 엔진에 보냄, `allOf`는 계속 제거), OUTPUT_INVALID의 `details.violations`(경로:키워드)와 로그. relax-1 `serving_config`는 거부하므로 매니페스트·해시를 다시 만들어야 한다. **미확인**: 실제 vLLM/Qwen3에서 extract 통과(GPU 없음, gpu-dev는 헤드가 확인), `minItems` 강제 여부. push·태그 없음.
 

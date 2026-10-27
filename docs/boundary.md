@@ -1,6 +1,6 @@
 # model-runtime 경계
 
-상태: 계약 2.0.0 기준(0.6.4). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
+상태: 계약 2.0.0 기준(0.6.5). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
 
 ## 소유 저장소
 없음(공유 라이브러리 + 추론 서버 이미지).

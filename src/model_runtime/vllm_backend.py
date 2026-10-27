@@ -17,10 +17,11 @@ from .errors import BackendNotAvailable, ContractViolation, UnsupportedServingCo
 
 # gpu-dev 시험(vLLM 0.31.0 + xgrammar 0.2.7, 2026-10-15, design.md §11)으로 제약이 지켜지는 것을 확인한 키워드.
 # relax-2(0.6.4, D82): pattern·minItems 추가. 2026-10-27 컨테이너 안 직접 시험에서 xgrammar 0.2.7이 pattern을 강제하는 것을 헤드가 확인했다(minItems는 같은 시험에서 확인되었는지 이 리포는 모른다).
+# relax-3(0.6.5, D83): maxItems 추가(allOf를 anyOf로 펼칠 때 REDIRECT의 values 빈 목록 규칙에 쓰인다). CPU에서 xgrammar 0.2.7로 강제되는 것을 확인했다(scripts/xgrammar_check.py). 실제 vLLM에서는 미확인.
 # 넣지 않은 것: oneOf(const 열거는 enum으로 바꿔 쓴다. 객체 가지는 표본이 적어 anyOf로 넓힌다), allOf·if/then/not(조용히 무시됨),
 # uniqueItems(오류로 거부됨). 조용히 무시되는 키워드는 넣으면 안 된다(완화되지 않은 채 제약이 느슨해진다).
 DEFAULT_SUPPORTED_FEATURES = ("type", "properties", "required", "enum", "const", "items", "anyOf", "$defs", "$ref",
-                              "additionalProperties", "minLength", "minimum", "pattern", "minItems")
+                              "additionalProperties", "minLength", "minimum", "pattern", "minItems", "maxItems")
 ROLES = ("LORA_A", "LORA_B")
 
 _ENGINE_KEYS = ("dtype", "max_model_len", "gpu_memory_utilization", "max_num_seqs", "max_loras", "max_lora_rank",

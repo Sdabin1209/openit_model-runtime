@@ -37,5 +37,5 @@ code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz"
 echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 ] || { echo "root로 실행됨" >&2; exit 1; }
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
-echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.6.4"' || { echo "라벨의 model-runtime 버전이 0.6.4가 아니다" >&2; exit 1; }
+echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.6.5"' || { echo "라벨의 model-runtime 버전이 0.6.5가 아니다" >&2; exit 1; }
 echo "스모크 통과"

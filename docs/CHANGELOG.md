@@ -1,5 +1,17 @@
 # 변경 이력
 
+## 0.6.5 (미배포) — 2026-10-27 (D83)
+완화 정책이 바뀌어 `serving_config`의 `constraint`와 해시가 바뀐다(계약 2.0.0 그대로, HTTP API 그대로). 계약 스키마 원본은 바꾸지 않는다.
+- **relax-3**: `relax()`가 `allOf`의 `if/then(/else)`를 같은 뜻의 `anyOf` 변형으로 펼쳐 제약 디코딩에 준다(코드가 원본에서 기계적으로 만든다. 사본 스키마 없음). `ActionExtraction`은 최상위 8개 규칙이 action 변형 8개(NEXT, CORRECT, REASK, CONFIRM, HOLD, SKIP, REDIRECT+note, REDIRECT-note)로, values 항목 2개 규칙이 status 변형 3개(ANSWERED·CORRECTION / MISSING·UNCLEAR·UNKNOWN·REJECTED / CONFLICT)로 펼쳐진다. action별 reason 허용값, NEXT·CORRECT의 reason·targets·note 금지, REASK 등의 reason·targets 필수, status별 save·precision·value 규칙이 문법에 들어간다.
+  - 지원 모양: `if`가 한 속성의 const/enum 검사이고(`required`는 그 속성 하나이거나 없음), 그 속성이 기본 스키마에 유한 값 집합(enum/const)을 가진 규칙. `then`/`else`는 `properties`·`required`만. 규칙마다 가지(if 참/거짓)를 만들고 곱한 뒤 모순 변형을 버린다. 부정은 기본 enum의 여집합으로 만든다.
+  - 못 펼치는 규칙은 그 규칙만 빼고 `CallInfo.relaxed`에 `allOf@<경로>[<번호>]:<이유>`로 남긴다. 변형이 `MAX_VARIANTS`(64)를 넘으면 그 객체의 규칙을 모두 빼고 `allOf@<경로>:variants>64`. 펼친 성공은 `allOf->anyOf`. `allOf`/`anyOf`/`enum`이 지원되지 않는 백엔드는 예전처럼 `allOf`를 빼고 `allOf`로 기록한다.
+  - `DEFAULT_SUPPORTED_FEATURES`에 `maxItems`를 더했다(REDIRECT의 values 빈 목록 규칙). xgrammar 0.2.7에서 강제되는 것을 CPU에서 확인했다.
+  - 사후 검증(원본 계약 스키마)은 그대로다.
+- **호환(결정)**: `relax-2` `serving_config`는 받지 않는다(`UnsupportedServingConfig`, relax-2 때와 같다). **매니페스트의 `serving_config.constraint`(`relax_policy_version: "relax-3"`, `supported_features`에 `maxItems` 포함)와 `serving_config_hash`를 새로 만들어 릴리스에 다시 제출해야 한다.** fake의 해시도 바뀌었다(정책 문자열만).
+- 시험: `tests/test_anyof_constraint.py`(원본과 변환 스키마의 판정 등가: 전수 조합 1764건 + status·precision·save·value 168건 + 규칙 위반 변이 33건 + 유효 예시 5건, 한도·미지원 모양·폭발 상한). `scripts/xgrammar_check.py`(xgrammar 0.2.7로 컴파일해 1970건 수락·거부).
+- 확인(CPU): 변환 스키마는 xgrammar 0.2.7에서 경고 없이 컴파일되고, 유효 75건 수락·위반 1895건 거부(불일치 0). 원본 스키마는 `allOf with multiple options` 경고를 내고 위반 1895건을 모두 수락한다.
+- 미확인: 실제 vLLM 0.31.0·Qwen3·어댑터에서의 동작, 지연·컴파일 시간(변형 8개로 문법이 커진다), 모델이 재시도 없이 통과하는 비율. **주의(기존부터, 이번에 발견)**: xgrammar는 `properties` 순서대로 키를 내도록 강제한다. 스키마 순서는 `values, action, reason, targets, note, next_item`인데 계약은 "키 순서는 사전순"(action이 먼저)이라 학습 데이터의 사전순 출력은 이 문법을 통과하지 못한다(사전순 예시가 거부되는 것을 확인). 변경 요청 후보로 헤드에게 넘긴다.
+
 ## 0.6.4 (미배포) — 2026-10-27 (D82)
 완화 정책이 바뀌어 `serving_config`의 `constraint`와 해시가 바뀐다(계약 2.0.0 그대로, HTTP API 모양 그대로).
 - **relax-2**: `DEFAULT_SUPPORTED_FEATURES`에 `pattern`, `minItems`를 더했다. `RELAX_POLICY_VERSION`은 `relax-2`. gpu-dev 실측에서 vLLM 0.31.0/xgrammar 0.2.7이 `pattern`을 실제로 강제하는데(컨테이너 안 직접 시험, 헤드 확인) relax-1이 `pattern`·`minItems`를 빼서 ActionExtraction의 `key`·`targets`·`next_item` 문법이 제약되지 않아 LoRA-A extract가 100% OUTPUT_INVALID였다. `allOf`는 xgrammar가 부분 지원이라 계속 뺀다. `minItems`는 이 리포에서 따로 강제 여부를 확인하지 못했다.
