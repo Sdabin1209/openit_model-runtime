@@ -1,6 +1,6 @@
 # model-runtime 경계
 
-상태: 계약 2.0.0 기준(0.7.1). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
+상태: 계약 2.0.0 기준(0.7.2). 정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9와 `HTTP.md`의 I9 절이 정한다.
 
 ## 소유 저장소
 없음(공유 라이브러리 + 추론 서버 이미지).
@@ -19,7 +19,7 @@
 - **키 순서**: 제약 디코딩(xgrammar)은 스키마의 `properties` 순서대로 키를 낸다. 순서의 정본은 계약(v2.0.1부터 사전순)이며 `relax`는 순서를 바꾸지 않는다.
 - `boundary-contracts` **태그 v2.0.2**(`read_secret`: 토큰은 `<이름>_FILE`로 받는다, D84): 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
 - 문진 스키마 정수 버전 1(`SUPPORTED_RUNTIME_CONTRACT_VERSION`, `CONTRACT_VERSION`). 다른 값이면 `ContractVersionMismatch`/422 `UNSUPPORTED_VERSION`.
-- 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버의 `RUNTIME_VERSION`과 같아야 한다(`server.py`가 앞 두 조각을 비교, 현재 0.7.1이므로 0.7.x). 0.6.x 이하로 만든 릴리스는 `UNSUPPORTED_VERSION`으로 거부된다.
+- 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버의 `RUNTIME_VERSION`과 같아야 한다(`server.py`가 앞 두 조각을 비교, 현재 0.7.2이므로 0.7.x). 0.6.x 이하로 만든 릴리스는 `UNSUPPORTED_VERSION`으로 거부된다.
 
 ## 백엔드와 프로파일
 - 첫 실제 백엔드는 vLLM이다(선택 의존 `.[vllm]`). `serving_config.constraint.backend`는 `"vllm"`, `backend_version`은 설치된 vLLM 버전, `supported_features`는 `DEFAULT_SUPPORTED_FEATURES`여야 `load`가 받는다.

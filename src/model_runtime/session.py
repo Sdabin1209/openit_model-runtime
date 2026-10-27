@@ -21,7 +21,7 @@ from .schema_guard import (INPUT_CONTRACT, JSON_OUTPUT_ROLES, OUTPUT_CONTRACT, R
                            SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet, relax)
 from .serving_config import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.7.1"
+RUNTIME_VERSION = "0.7.2"
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
 # FakeModelSession이 시스템 프롬프트를 따로 받지 않을 때 쓰는 시험용 문장. 학습과 짝인 프롬프트가 아니다.

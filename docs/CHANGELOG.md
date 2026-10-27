@@ -1,6 +1,6 @@
 # 변경 이력
 
-## 0.7.2 후보 (태그 없음, 제안) — 2026-10-27 (OPEN_GAPS U16, 정정 흐름)
+## 0.7.2 (미배포) — 2026-10-27 (OPEN_GAPS U16, 정정 흐름)
 호환 변경. HTTP API, 계약, `serving_config`와 해시 불변. 기존 흐름 파일(목록 형식, `order`/`slots`/`skips`)의 동작은 그대로다.
 - 확인: boundary-contracts v2.0.2 `ActionExtraction`의 action 열거에 `CORRECT`가 있다(NEXT와 같이 reason·targets·note 금지). 0.7.1의 fake는 `CORRECT`를 낼 수 없었다(항상 NEXT). 계약·스키마 변경은 필요 없다.
 - 흐름 파일(객체 형식)에 선택 항목 `corrections`를 더했다: `[{"contains": "발화 문구", "key": "Q4.answer", "value": false, "at": "Q5"}]`. 발화에 `contains`가 들어 있으면(`at`이 있으면 입력 question_id가 그 문항일 때만) `{"action":"CORRECT","next_item":...,"values":[{key, value, status:"CORRECTION", save:true, precision:"exact"}]}`를 낸다. `corrections`가 `slots`보다 먼저 적용된다. `next_item`은 turn-engine `validate_extraction` 규칙대로 정정한 문항 바로 다음에 `skips`를 적용한 문항이다(정정한 값이 건너뛰기에 걸리면 그 문항을 건너뛴다). 형식 오류(key 문법, key 문항이 `order`에 없음, value null 등)는 서버 시작 거부(`ValueError` -> `SystemExit`). 새 API: `load_fake_corrections`, `make_default_responder(..., corrections)`, `fake_extraction_for(..., corrections)`.

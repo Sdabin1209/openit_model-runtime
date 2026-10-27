@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-27 (21차, 0.7.1)
+갱신: 2026-10-27 (22차, 0.7.2)
+
+- 22차(0.7.2, OPEN_GAPS U16 정정 흐름): fake LORA-A가 흐름 파일 `corrections`로 CORRECT(CORRECTION 값)를 낸다(CHANGELOG 0.7.2). 시험 164 통과 1 건너뜀(xgrammar 없음), smoke.sh 통과. **미확인**: deploy E2E에서 정정 경로가 도는지(deploy 흐름 파일에 `corrections` 필요).
 
 - 21차(0.7.1, 브랜치 `train-0.7.1`, OPEN_GAPS U16): fake LORA-A가 문항 흐름 파일의 `slots`·`skips`로 발화에서 ANSWERED 값을 낸다(규칙은 CHANGELOG 0.7.1). `serving_config` 해시 불변. `gpu-12g` 프로파일 status를 측정으로(U01). **미확인**: deploy E2E에서 이 경로가 도는지(deploy 파일에 `slots`가 있어야 함, E2E는 이 세션에서 돌리지 않음), `Q4.answer` 등 실제 칸 키가 survey-service 스키마와 같은지(시험은 turn-engine DATASET_V2 순서·건너뛰기와 시험용 칸 정의로만 확인).
 
