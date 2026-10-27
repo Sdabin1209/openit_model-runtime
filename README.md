@@ -24,7 +24,7 @@
 | `src/model_runtime/backends.py`, `vllm_backend.py` | 가짜 백엔드와 vLLM 백엔드(제약 디코딩) |
 | `src/model_runtime/protection.py`, `fallback.py`, `schema_guard.py`, `errors.py` | 출력 보호, 대체 문장, 스키마 검사, 예외 |
 | `src/model_runtime/server.py` | HTTP 추론 서버 |
-| `profiles/` | 하드웨어별 설정: `gpu-12g.json`, `rtx4090-24g.json`, `gpu-dev-12g.json`(이 파일의 용도는 미확인) |
+| `profiles/` | 하드웨어별 설정: `gpu-12g.json`, `rtx4090-24g.json`, `gpu-dev-12g.json`(Qwen2.5-1.5B, 중립 어댑터·파이프라인 시험 전용, 파일의 `status`) |
 | `tests/`, `scripts/` | 시험(가짜 백엔드·vLLM 모킹 포함), 스모크와 GPU 점검 스크립트 |
 | `Dockerfile`, `requirements-{cpu,gpu}.lock` | 이미지 두 변형(CPU/fake, GPU/vLLM)과 잠금 파일 |
 

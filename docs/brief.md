@@ -1,6 +1,6 @@
 # 영역 브리프: model-runtime (공유 라이브러리)
 
-> **계약 상태.** 이 라이브러리는 문진 스키마만 소비하며 경계 계약에는 의존하지 않는다.
+> **계약 상태.** 이 영역은 문진 스키마(정수 버전)와 `boundary-contracts` 태그 v2.0.2(`Dockerfile`·`pyproject.toml` 기준)를 소비한다. I9의 HTTP 서버와 입출력 스키마는 계약 패키지에 들어 있다.
 > **읽기.** `../survey-service/schema`는 문진 서비스의 데이터 스키마(스키마만 남긴 최소 구성)다. 구현이 가져가는 계약은 `schemas/<계약명>.json`(JSON Schema Draft 2020-12), 컴포넌트별 입력·출력 대응은 `COMPONENTS.yaml`, 정수 버전은 `CONTRACT_VERSION`이다. 읽기 전용이다.
 > **버전(D14, D19).** 문진 스키마 정수 버전(`CONTRACT_VERSION`)에 정확히 일치해야 한다.
 
@@ -13,20 +13,20 @@
 ## 2. 소유하는 것
 
 - 소유 저장소: 없음.
-- 제공(정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9가 정한다): 라이브러리 API. Parser(`UtteranceParserInput` → `ParserOutput`)와 Generator(`ResponseGeneratorInput` → `GeneratorOutput`) 호출 인터페이스, 어댑터 로딩 인터페이스. 실제 모델 없이 테스트할 수 있는 가짜 모델 구현을 함께 배포한다.
+- 제공(정확한 시그니처는 `../boundary-contracts/INTERFACES.md`의 I9가 정한다): 라이브러리 API. `extract`(`ActionExtractionInput` → `ActionExtraction`)와 `respond`(`ResponseRequest` → `ResponseText`) 호출 인터페이스, 어댑터 로딩 인터페이스. 실제 모델 없이 테스트할 수 있는 가짜 모델 구현을 함께 배포한다.
 - 프롬프트 템플릿과 디코딩 설정의 버전을 모델 패키지·릴리스 매니페스트에 기록할 수 있게 한다.
 
 ## 3. 소비하는 것
 
-- 소비하는 계약: `UtteranceParserInput`/`ParserOutput`, `ResponseGeneratorInput`/`GeneratorOutput` 및 하위 타입.
-- 소비하는 SDK: 없음. 의존은 문진 스키마뿐이다.
+- 소비하는 계약: `ActionExtractionInput`/`ActionExtraction`, `ResponseRequest`/`ResponseText`, `BoundaryError` 및 하위 타입(`boundary-contracts` v2.0.2).
+- 소비하는 SDK: `boundary_contracts`(`HttpReleaseReader` 등). 이웃 영역 SDK는 없다.
 - 지원하는 계약 버전: 문진 스키마 정수 버전 한 값.
 
 ## 3-1. 경계 명세 (블랙박스 기준)
 
 상대 영역은 블랙박스다. 아래 인터페이스 번호의 시그니처, 오류, 멱등성은 `../boundary-contracts/INTERFACES.md`와 `CONVENTIONS.md`가 정한다. 이 명세 밖의 것을 상대에게 기대하거나 가정하지 않는다.
 
-- 내는 것: **I9** (`load`, `ModelSession.parse/generate`, `render_prompt`, `FakeModelSession`, `RUNTIME_VERSION`).
+- 내는 것: **I9** (`load`, `ModelSession.extract/respond`, `render_prompt`, `FakeModelSession`, `RUNTIME_VERSION`).
 - 받는 것: 문진 스키마의 입력 계약, 어댑터 디렉터리.
 - 해야 하는 것: 출력이 스키마를 통과하지 못하면 `BackendNotAvailable 같은 인프라 예외(출력 문제는 예외가 아니라 규칙이 정한 대체 출력, D36)`. 학습 변환과 서빙이 `render_prompt`로 같은 프롬프트를 쓴다.
 
