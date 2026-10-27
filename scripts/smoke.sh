@@ -3,7 +3,7 @@
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.0}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
+BOUNDARY_TAG="${BOUNDARY_TAG:-v2.0.1}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true' EXIT
 [ "$(git -C "$HERE/../boundary-contracts" describe --tags --exact-match 2>/dev/null || true)" = "$BOUNDARY_TAG" ] || { echo "boundary-contracts 형제 폴더가 태그 $BOUNDARY_TAG가 아니다" >&2; exit 1; }

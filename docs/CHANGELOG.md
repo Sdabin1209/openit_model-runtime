@@ -10,7 +10,7 @@
 - **호환(결정)**: `relax-2` `serving_config`는 받지 않는다(`UnsupportedServingConfig`, relax-2 때와 같다). **매니페스트의 `serving_config.constraint`(`relax_policy_version: "relax-3"`, `supported_features`에 `maxItems` 포함)와 `serving_config_hash`를 새로 만들어 릴리스에 다시 제출해야 한다.** fake의 해시도 바뀌었다(정책 문자열만).
 - 시험: `tests/test_anyof_constraint.py`(원본과 변환 스키마의 판정 등가: 전수 조합 1764건 + status·precision·save·value 168건 + 규칙 위반 변이 33건 + 유효 예시 5건, 한도·미지원 모양·폭발 상한). `scripts/xgrammar_check.py`(xgrammar 0.2.7로 컴파일해 1970건 수락·거부).
 - 확인(CPU): 변환 스키마는 xgrammar 0.2.7에서 경고 없이 컴파일되고, 유효 75건 수락·위반 1895건 거부(불일치 0). 원본 스키마는 `allOf with multiple options` 경고를 내고 위반 1895건을 모두 수락한다.
-- 미확인: 실제 vLLM 0.31.0·Qwen3·어댑터에서의 동작, 지연·컴파일 시간(변형 8개로 문법이 커진다), 모델이 재시도 없이 통과하는 비율. **주의(기존부터, 이번에 발견)**: xgrammar는 `properties` 순서대로 키를 내도록 강제한다. 스키마 순서는 `values, action, reason, targets, note, next_item`인데 계약은 "키 순서는 사전순"(action이 먼저)이라 학습 데이터의 사전순 출력은 이 문법을 통과하지 못한다(사전순 예시가 거부되는 것을 확인). 변경 요청 후보로 헤드에게 넘긴다.
+- 미확인: 실제 vLLM 0.31.0·Qwen3·어댑터에서의 동작, 지연·컴파일 시간(변형 8개로 문법이 커진다), 모델이 재시도 없이 통과하는 비율. **키 순서(해결)**: xgrammar는 `properties` 순서대로 키를 내도록 강제하는데 v2.0.0 스키마는 사전순이 아니어서 사전순 출력이 거부됐다(기존 문제, 사전순 예시 거부로 확인). 계약 v2.0.1이 `properties`를 사전순으로 고쳤고(최상위 action,next_item,note,reason,targets,values / values 항목 key,precision,save,status,value) 이 리포는 v2.0.1로 올렸다(Dockerfile, smoke.sh, gpu_check.sh, pyproject, 문서, 시험의 설치 버전, venv). **relax는 `properties` 순서를 건드리지 않는다. 순서의 정본은 계약이다.** CPU에서 xgrammar 0.2.7로 확인: 사전순 예시 5/5 수락, 거꾸로 직렬화한 예시 5/5 거부, 거꾸로 직렬화한 유효 사례 75/75 거부(`scripts/xgrammar_check.py`), 정식 시험 `tests/test_key_order.py`(xgrammar가 없으면 그 한 건만 건너뜀).
 
 ## 0.6.4 (미배포) — 2026-10-27 (D82)
 완화 정책이 바뀌어 `serving_config`의 `constraint`와 해시가 바뀐다(계약 2.0.0 그대로, HTTP API 모양 그대로).

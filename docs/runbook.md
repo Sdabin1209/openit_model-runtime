@@ -11,7 +11,7 @@
 ## 서버와 컨테이너 (D62, 0.5.0) — deploy가 compose에 넣을 정보
 
 ### 이미지 두 변형
-같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.0이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
+같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.1이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |

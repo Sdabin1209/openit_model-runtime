@@ -62,3 +62,23 @@ print(stats)
 print("mismatch:", len(bad))
 for b in bad[:40]:
     print("  ", b)
+
+
+# --- 키 순서(계약 v2.0.1: properties는 사전순이고 순서의 정본은 계약이다. relax는 순서를 건드리지 않는다) ---
+def reverse_keys(d):
+    """같은 내용을 키 순서만 거꾸로(최상위와 values 항목 모두) 직렬화한다."""
+    d = dict(reversed(list(d.items())))
+    if isinstance(d.get("values"), list):
+        d["values"] = [dict(reversed(list(it.items()))) for it in d["values"]]
+    return d
+
+
+assert TOP == sorted(TOP) and ITEM == sorted(ITEM), "계약 properties가 사전순이 아니다(v2.0.1 이상 필요)"
+ex = T.examples()
+srt = sum(accepts(json.dumps(dict(sorted(d.items())) | {"values": [dict(sorted(i.items())) for i in d["values"]]}, ensure_ascii=False))
+          for d in ex.values())
+rev = sum(not accepts(json.dumps(reverse_keys(d), ensure_ascii=False)) for d in ex.values())
+valid_cases = [d for _, d in corpus if truth.is_valid(d)]
+rev_all = sum(not accepts(json.dumps(reverse_keys(d), ensure_ascii=False)) for d in valid_cases)
+print(f"key order: sorted examples accepted {srt}/{len(ex)}, reversed examples rejected {rev}/{len(ex)}, "
+      f"reversed valid cases rejected {rev_all}/{len(valid_cases)}")

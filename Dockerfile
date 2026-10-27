@@ -1,7 +1,7 @@
 # model-runtime 추론 서버 이미지. 서빙 목표: RTX 4090 24GB(GPU 변형), 같은 이미지의 CPU 변형은 가짜 백엔드 스모크용.
 #   GPU: docker build --build-arg VARIANT=gpu --build-context boundary=../boundary-contracts -t model-runtime:gpu .
 #   CPU: docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .
-# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드는 형제 폴더를 읽기 전용 빌드 컨텍스트로 쓰며, 그 폴더는 태그 v2.0.0(BOUNDARY_VERSION)이어야 한다(scripts/smoke.sh가 확인한다).
+# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드는 형제 폴더를 읽기 전용 빌드 컨텍스트로 쓰며, 그 폴더는 태그 v2.0.1(BOUNDARY_VERSION)이어야 한다(scripts/smoke.sh가 확인한다).
 # 의존은 잠금 파일(requirements-*.lock)로 고정한다. 비밀 값은 넣지 않는다.
 # 문진 스키마를 이미지에 넣는 선택 옵션: --build-context schema=<.../survey-service/schema>(없으면 빈 스테이지라 아무것도 안 들어간다).
 # 넣으면 MODEL_RUNTIME_SCHEMA_DIR 없이 /opt/survey-schema/schemas를 쓴다. 라벨 io.openit.contracts.survey-schema에 정수 버전을 밝힌다.
@@ -33,7 +33,7 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
     && chown -R 10001 /var/lib/model-runtime
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
-ARG BOUNDARY_VERSION=v2.0.0
+ARG BOUNDARY_VERSION=v2.0.1
 ARG SURVEY_SCHEMA_VERSION=unknown
 ARG TURN_ENGINE_VERSION=none
 LABEL io.openit.service="model-runtime" \

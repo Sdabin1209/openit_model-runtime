@@ -7,7 +7,7 @@ name = "model-runtime"
 version = "0.6.5"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
-# boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v2.0.0
+# boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v2.0.1
 dependencies = ["jsonschema>=4.10", "boundary-contracts"]
 
 [project.optional-dependencies]

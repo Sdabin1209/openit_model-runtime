@@ -16,7 +16,8 @@
 `/v1/info`는 계약 목록 외에 `system_prompt_sha256`(가장 최근 적재한 릴리스의 패키지 프롬프트 해시)을 낸다(추가 필드, 계약에는 없다).
 
 ## 소비
-- `boundary-contracts` **태그 v2.0.0**: 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
+- **키 순서**: 제약 디코딩(xgrammar)은 스키마의 `properties` 순서대로 키를 낸다. 순서의 정본은 계약(v2.0.1부터 사전순)이며 `relax`는 순서를 바꾸지 않는다.
+- `boundary-contracts` **태그 v2.0.1**: 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
 - 문진 스키마 정수 버전 1(`SUPPORTED_RUNTIME_CONTRACT_VERSION`, `CONTRACT_VERSION`). 다른 값이면 `ContractVersionMismatch`/422 `UNSUPPORTED_VERSION`.
 - 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버와 같아야 한다(0.6.x). 0.5.x로 만든 릴리스는 거부된다.
 
