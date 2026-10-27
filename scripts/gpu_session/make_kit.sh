@@ -7,7 +7,7 @@
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${1:?출력 tar.gz 경로}"; shift || true
-PY="python3"; SCHEMA_ROOT="$ROOT/../survey-service/schema"
+PY="python3"; SCHEMA_ROOT="$ROOT/../survey-service/schema"; [ -d "$SCHEMA_ROOT/schemas" ] || SCHEMA_ROOT="$ROOT/../../survey-service/schema"
 while [ $# -gt 0 ]; do case "$1" in --python) PY="$2"; shift 2;; --schema-root) SCHEMA_ROOT="$2"; shift 2;; *) echo "알 수 없는 인자 $1" >&2; exit 64;; esac; done
 [ -d "$SCHEMA_ROOT/schemas" ] || { echo "문진 스키마가 없다: $SCHEMA_ROOT/schemas" >&2; exit 1; }
 BC_DIR="$("$PY" -I -c "import boundary_contracts,os;print(os.path.dirname(boundary_contracts.__file__))")" || { echo "이 파이썬에 boundary_contracts가 없다(--python)" >&2; exit 1; }
