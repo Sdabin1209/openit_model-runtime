@@ -13,7 +13,7 @@ git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -
 docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
   --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" \
   --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
-docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
+docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
   "$TAG" >/dev/null
 PORT="$(docker port "$NAME" 8080/tcp | head -1 | sed 's/.*://')"; URL="http://127.0.0.1:$PORT"
 for i in $(seq 1 30); do curl -sf "$URL/healthz" >/dev/null && break; sleep 1; done
@@ -31,7 +31,7 @@ echo "PUT without I4: $code"; [ "$code" = 503 ] || { echo "503이어야 한다" 
 # 스키마는 이미지에 들어 있다(마운트 없음). 새 볼륨도 번들 디렉터리에 쓸 수 있어야 한다. 쓸 수 없으면 /readyz 503과 이유.
 docker exec "$NAME" python -c "import os,tempfile;tempfile.TemporaryFile(dir=os.environ['MODEL_RUNTIME_BUNDLE_DIR'])" && echo "bundle dir writable"
 NAME2="$NAME-ro"
-docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
+docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
 trap 'docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true' EXIT
 PORT2="$(docker port "$NAME2" 8080/tcp | head -1 | sed 's/.*://')"
 for i in $(seq 1 20); do curl -sf "http://127.0.0.1:$PORT2/healthz" >/dev/null && break; sleep 1; done
@@ -41,4 +41,7 @@ echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
 echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.7.2"' || { echo "라벨의 model-runtime 버전이 0.7.2가 아니다" >&2; exit 1; }
+# 기본은 닫힘(MR-1): 토큰 없이는, 그리고 ALLOW_FAKE 없이 fake로는 시작하지 않는다.
+! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 "$TAG" >/dev/null 2>&1 || { echo "토큰 없이 시작되면 안 된다" >&2; exit 1; }
+! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_TOKENS=survey=smoke-token "$TAG" >/dev/null 2>&1 || { echo "ALLOW_FAKE 없이 fake로 시작되면 안 된다" >&2; exit 1; }
 echo "스모크 통과"

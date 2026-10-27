@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import copy
 import json
+import re
+import warnings
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -40,6 +42,21 @@ def _strip_comments(node: Any) -> Any:
     return node
 
 
+_END_ANCHOR = re.compile(r"(?<!\\)\$")
+
+
+def _strict_pattern_validator(v):
+    """`pattern`의 `$`는 파이썬 `re`에서 끝 줄바꿈 앞에도 맞는다(`Q4.answer\\n`이 통과, MR-14). 검증기에서만 `$`를 `\\Z`로 읽는다.
+    계약 스키마 원본은 바꾸지 않는다(제약 디코딩에 주는 스키마도 그대로)."""
+    def pattern(validator_, patrn, instance, schema):
+        if validator_.is_type(instance, "string") and not re.search(_END_ANCHOR.sub(r"\\Z", patrn), instance):
+            yield jsonschema.ValidationError(f"does not match {patrn!r}")
+    cls = jsonschema.validators.extend(type(v), {"pattern": pattern})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return cls(v.schema, resolver=v.resolver)
+
+
 class SchemaSet:
     def __init__(self, schema_dir: Path | str):
         """schema_dir: 문진 스키마의 배포 스키마 디렉터리(`<...>/schema/schemas`). CONTRACT_VERSION은 그 상위에서 읽는다.
@@ -53,7 +70,7 @@ class SchemaSet:
             raise ContractVersionMismatch(
                 f"문진 스키마 버전 {self.contract_version}은 지원하지 않는다 (지원: {SUPPORTED_RUNTIME_CONTRACT_VERSION})"
             )
-        self._validators = {name: validator(name) for name in [*INPUT_CONTRACT.values(), *OUTPUT_CONTRACT.values()]}
+        self._validators = {name: _strict_pattern_validator(validator(name)) for name in [*INPUT_CONTRACT.values(), *OUTPUT_CONTRACT.values()]}
         self._model_schemas = {role: _strip_comments(load_schema(OUTPUT_CONTRACT[role])) for role in JSON_OUTPUT_ROLES}
 
     def model_output_schema(self, role: str) -> dict | None:

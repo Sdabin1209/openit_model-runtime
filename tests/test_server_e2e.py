@@ -55,7 +55,7 @@ def sha256_file(data: bytes) -> str:
 @unittest.skipUnless(HAVE, "boundary-contracts 참조 서버가 없다")
 class E2E(unittest.TestCase):
     def serve(self, i4, tmp, **extra):
-        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "10",
+        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "10",
                "MODEL_RUNTIME_RELEASE_URL": i4.url, "MODEL_RUNTIME_RELEASE_TOKEN": "tok", "MODEL_RUNTIME_BUNDLE_DIR": tmp, **extra}
         svc = server.build_service(env)
         srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))

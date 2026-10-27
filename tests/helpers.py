@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 from boundary_contracts import validator
@@ -36,3 +37,13 @@ def cfgs_and_hashes(backend, a=None, b=None):
     import model_runtime as mr
     cfgs = mr.fake_serving_configs(backend, LORA_A=a, LORA_B=b)
     return cfgs, {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
+
+
+def wait_until(pred, timeout=5.0):
+    """고정 sleep 대신 조건이 참이 될 때까지 기다린다(상한 안에서 짧게 폴링). 마지막 판정을 돌려준다."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if pred():
+            return True
+        time.sleep(0.005)
+    return pred()

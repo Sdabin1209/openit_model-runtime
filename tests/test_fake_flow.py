@@ -81,7 +81,7 @@ class FakeFlow(unittest.TestCase):
                         mr.load_fake_flow(str(p))
 
     def test_server_env(self):
-        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
         with TemporaryDirectory() as t:
             p = Path(t) / "flow.json"
             p.write_text(json.dumps(ORDER), encoding="utf-8")
@@ -180,7 +180,7 @@ class FakeValues(unittest.TestCase):
                     mr.load_fake_flow_spec(str(p))
 
     def test_server_env_with_slots(self):
-        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
         with TemporaryDirectory() as t:
             p = Path(t) / "flow.json"
             p.write_text(json.dumps({"order": ORDER, "slots": SLOTS, "skips": SKIPS}), encoding="utf-8")
@@ -269,7 +269,7 @@ class FakeCorrect(unittest.TestCase):
                     mr.load_fake_corrections(str(p))
 
     def test_server_env_with_corrections(self):
-        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
         with TemporaryDirectory() as t:
             p = Path(t) / "flow.json"
             p.write_text(json.dumps({"order": V2_ORDER, "slots": SLOTS, "skips": SKIPS, "corrections": CORRECTIONS}), encoding="utf-8")

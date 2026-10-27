@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from boundary_contracts.errors import BoundaryError
 from boundary_contracts.sdk import ReleaseBundle
 from boundary_contracts.canonical import file_hash
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid
+from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, wait_until
 
 import model_runtime as mr
 from model_runtime import server
@@ -41,7 +41,7 @@ class StubReader:
 
 
 def start(tmp, plan=None, tokens=None, **kw):
-    env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "5", "MODEL_RUNTIME_BUNDLE_DIR": str(Path(tmp) / "bundles")}
+    env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "5", "MODEL_RUNTIME_BUNDLE_DIR": str(Path(tmp) / "bundles")}
     env.update(kw)
     if tokens:
         env["MODEL_RUNTIME_TOKENS"] = tokens
@@ -49,9 +49,7 @@ def start(tmp, plan=None, tokens=None, **kw):
     svc = server.build_service(env, reader_factory=lambda: rd)
     srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    for _ in range(100):
-        if svc.ready: break
-        time.sleep(0.02)
+    wait_until(lambda: svc.ready)
     return srv, f"http://127.0.0.1:{srv.server_address[1]}", svc, rd
 
 
@@ -118,8 +116,7 @@ class Server(unittest.TestCase):
         _, url, _, _ = self.srv(plan={"r1": slow}, MODEL_RUNTIME_PUT_WAIT_S="0.1")
         s, b, _ = call(url, "/v1/releases/r1", method="PUT")
         self.assertEqual((s, b["state"]), (202, "LOADING"))
-        time.sleep(0.9)
-        self.assertEqual(call(url, "/v1/releases/r1")[1]["state"], "LOADED")
+        self.assertTrue(wait_until(lambda: call(url, "/v1/releases/r1")[1]["state"] == "LOADED"))
 
     def test_failed_load_keeps_serving_release(self):
         def bad_hash(m):
@@ -262,7 +259,8 @@ class Cr17(unittest.TestCase):
         for backend in ("fake", "vllm"):
             with self.assertRaises(SystemExit) as cm:
                 server.build_service({"MODEL_RUNTIME_BACKEND": backend, "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
-                                      "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x"})
+                                      "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x",
+                                      "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1"})
             self.assertIn("없어졌다", str(cm.exception))
         srv, url, _, _ = start(self._t.name); self.addCleanup(srv.shutdown)
         self.assertEqual(call(url, "/v1/info")[1]["test_hooks"], {})
@@ -275,13 +273,11 @@ class Location(unittest.TestCase):
         self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
 
     def _serve(self, env):
-        svc = server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
+        svc = server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
                                     "MODEL_RUNTIME_BUNDLE_DIR": str(Path(self._t.name) / "b"), "MODEL_RUNTIME_READY_PROBE_TTL_S": "0", **env})
         srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
         threading.Thread(target=srv.serve_forever, daemon=True).start(); self.addCleanup(srv.shutdown)
-        for _ in range(100):
-            if svc.ready: break
-            time.sleep(0.02)
+        wait_until(lambda: svc.ready)
         return f"http://127.0.0.1:{srv.server_address[1]}"
 
     def test_unreachable_release_url_healthz_ok_readyz_503_then_recovers(self):
@@ -332,13 +328,11 @@ class HfCache(unittest.TestCase):
             self.assertEqual(why, f"hf cache not writable: {hf} (uid {__import__('os').getuid()})")
             ok_svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(t) / "b2", base_backend_factory=mr.FakeBackend,
                                     reader_factory=lambda: None, backend_name="vllm", hf_home=str(Path(t) / "hf-ok"))
-            for _ in range(100):
-                if ok_svc.ready: break
-                time.sleep(0.02)
+            wait_until(lambda: ok_svc.ready)
             self.assertTrue(ok_svc.readiness()[0])
 
     def test_build_service_checks_hf_only_for_vllm_online(self):
-        base = {"MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        base = {"MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1"}
         with TemporaryDirectory() as t:
             bad = str(Path(t) / "f" / "hf"); (Path(t) / "f").write_text("x")
             env = dict(base, MODEL_RUNTIME_BUNDLE_DIR=str(Path(t) / "b"), HF_HOME=bad)
@@ -351,14 +345,12 @@ class HfCache(unittest.TestCase):
 class RuntimeDirs(unittest.TestCase):
     def test_runtime_dirs_created_when_missing_and_reason_when_not_writable(self):
         with TemporaryDirectory() as t:
-            mk = lambda **kw: server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
+            mk = lambda **kw: server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
                                                     "MODEL_RUNTIME_BUNDLE_DIR": str(Path(t) / "b"), **kw})
             env = {"HOME": str(Path(t) / "home"), "XDG_CACHE_HOME": str(Path(t) / "cache"),
                    "VLLM_CACHE_ROOT": str(Path(t) / "cache" / "vllm"), "TRITON_CACHE_DIR": str(Path(t) / "cache" / "triton")}
             svc = mk(**env)
-            for _ in range(100):
-                if svc.ready: break
-                time.sleep(0.02)
+            wait_until(lambda: svc.ready)
             self.assertTrue(svc.ready)
             for v in env.values():
                 self.assertTrue(Path(v).is_dir())   # 빈 볼륨이 이미지의 디렉터리를 가려도 시작 때 만든다
@@ -414,9 +406,7 @@ class FaultCells(unittest.TestCase):
         self.assertEqual(s, 503); self.assertIn("엔진", b["reason"])
         self.assertEqual(call(url, "/healthz")[0], 200)
         gate.set()   # 엔진이 돌아오면 사람 개입 없이 복구
-        for _ in range(100):
-            if not svc.overdue: break
-            time.sleep(0.02)
+        wait_until(lambda: not svc.overdue)
         self.assertEqual(call(url, "/readyz")[0], 200)
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
@@ -472,15 +462,11 @@ class FaultCells(unittest.TestCase):
         svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=factory,
                              reader_factory=lambda: None, backend_name="fake", backend_retry_s=0.05)
         self.addCleanup(svc.close)
-        for _ in range(20):
-            if n["i"] >= 1 and not svc.ready: break
-            time.sleep(0.01)
+        wait_until(lambda: n["i"] >= 1 and not svc.ready)
         ok, why = svc.readiness()
         if not ok:
             self.assertEqual(why, "OSError")   # 사유는 예외 이름뿐(경로·URL 없음)
-        for _ in range(100):
-            if svc.ready: break
-            time.sleep(0.02)
+        wait_until(lambda: svc.ready)
         self.assertEqual((svc.ready, n["i"], svc.readiness()), (True, 3, (True, None)))
 
     def test_backend_start_failure_without_retry_stays_not_ready(self):

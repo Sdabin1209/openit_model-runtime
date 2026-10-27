@@ -44,7 +44,7 @@ class SecretsHidden(unittest.TestCase):
 
     def test_unreadable_file_fails_without_value(self):
         from model_runtime import server
-        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_TOKENS_FILE": os.path.join(self.t.name, "missing"),
+        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_TOKENS_FILE": os.path.join(self.t.name, "missing"),
                "MODEL_RUNTIME_TOKENS": f"svc={SECRET}"}
         with self.assertRaises(SystemExit) as cm:
             server.build_service(env, reader_factory=lambda: None)
@@ -59,7 +59,7 @@ class SecretsHidden(unittest.TestCase):
         rel.HttpReleaseReader = lambda url, token, timeout: seen.setdefault("t", token)
         self.addCleanup(setattr, rel, "HttpReleaseReader", orig)
         p = os.path.join(self.t.name, "rt"); open(p, "w").write(SECRET + "\n")
-        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_RELEASE_URL": "http://127.0.0.1:9", "MODEL_RUNTIME_RELEASE_TOKEN_FILE": p,
+        env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_RELEASE_URL": "http://127.0.0.1:9", "MODEL_RUNTIME_RELEASE_TOKEN_FILE": p,
                "MODEL_RUNTIME_BUNDLE_DIR": self.t.name}
         svc = server.build_service(env)
         self.addCleanup(svc.close)

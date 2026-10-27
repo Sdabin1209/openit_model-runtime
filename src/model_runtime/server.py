@@ -18,11 +18,14 @@ MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MO
 MODEL_RUNTIME_HOST/PORT(기본 0.0.0.0:8080)."""
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
 import re
+import shutil
 import signal
+import socket
 import sys
 import tempfile
 import threading
@@ -48,11 +51,72 @@ from .schema_guard import RELAX_POLICY_VERSION
 
 log = logging.getLogger("model_runtime.server")
 MAX_BODY = 4 * 1024 * 1024
+MAX_INPUT_CHARS = 2500          # 입력(JSON 직렬화, 비ASCII 그대로)의 문자 수 상한 기본값. 근거는 docs/boundary.md "입력 길이 상한"
+CONN_TIMEOUT_S = 15.0           # 연결 하나의 소켓 timeout(느린 클라이언트·유휴 keep-alive가 스레드를 쥐지 못하게)
+MAX_CONNECTIONS = 32            # 동시 연결 상한(엔진은 한 번에 하나라 이보다 많이 받아도 대기만 길어진다)
+MAX_LOADING = 2                 # 동시에 진행하는 번들 적재 수 상한
+MAX_FAILED_KEPT = 16            # 실패한 릴리스 항목 보존 수(오래된 것부터 버린다)
+INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
+_SPECIAL_OPEN = re.compile(r"<(?=[|/A-Za-z_])")   # 채팅 특수 토큰(<|im_end|>, <think>, </think>, <tool_call> 등)의 여는 꺾쇠
 DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
           "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
+
+
+def neutralize_special_tokens(value):
+    """환자 발화 등 입력 문자열 값 속의 채팅 특수 토큰 모양을 깨뜨린다(MR-2). `<`가 `|`, `/`, 영문자, `_` 앞에 있으면 뒤에 공백 하나를 넣고,
+    `|>`는 `| >`로 바꾼다. 특수 토큰은 정확한 문자열로만 해석되므로 이것으로 깨진다. 학습 분포: 자연스러운 한국어 발화에 `<`+영문자나 `|>`는 없다고 보고
+    (추정, 학습 데이터 전수는 확인하지 못함) 그런 문자열만 바뀐다. 키와 비문자열 값, 서버가 만든 프롬프트 틀은 건드리지 않는다."""
+    if isinstance(value, str):
+        return _SPECIAL_OPEN.sub("< ", value).replace("|>", "| >")
+    if isinstance(value, list):
+        return [neutralize_special_tokens(v) for v in value]
+    if isinstance(value, dict):
+        return {k: neutralize_special_tokens(v) for k, v in value.items()}
+    return value
+
+
+def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
+    """`역할=토큰,역할=토큰`. 빈 역할·빈 토큰·형식 위반·역할/토큰 중복은 시작 거부(ValueError, 메시지에 값이 없다)."""
+    out: dict = {}
+    for kv in [x for x in (raw or "").split(",") if x.strip()]:
+        role, sep, tok = kv.partition("=")
+        role, tok = role.strip(), tok.strip()
+        if not sep or not role or not tok:
+            raise ValueError("MODEL_RUNTIME_TOKENS 항목은 `역할=토큰` 형식이고 역할과 토큰이 비어 있으면 안 된다")
+        if role in out or tok in out.values():
+            raise ValueError("MODEL_RUNTIME_TOKENS에 같은 역할 또는 같은 토큰이 두 번 있다")
+        out[role] = tok
+    if not out and not allow_empty:
+        raise ValueError("MODEL_RUNTIME_TOKENS(또는 _FILE)가 필요하다. 인증 없이 열려면 개발용으로만 MODEL_RUNTIME_ALLOW_NO_AUTH=1")
+    return out
+
+
+class BoundedServer(ThreadingHTTPServer):
+    """동시 연결 상한이 있는 서버. 넘으면 새 연결에 503을 쓰고 닫는다(스레드를 만들지 않는다)."""
+    daemon_threads = True
+
+    def __init__(self, addr, handler, max_connections: int = MAX_CONNECTIONS):
+        super().__init__(addr, handler)
+        self._slots = threading.BoundedSemaphore(max_connections)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nRetry-After: 1\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 def to_boundary(e: Exception) -> BoundaryError:
@@ -80,7 +144,8 @@ class Service:
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
-                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0):
+                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,
+                 max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
@@ -96,6 +161,8 @@ class Service:
         self.pending = 0                             # 실행 중 + 대기 중
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
         self.request_deadline_s, self.backend_retry_s = request_deadline_s, backend_retry_s   # 요청 상한(FAULT_POLICY 4), 백엔드 기동 재시도 간격(0이면 재시도 없음)
+        self.max_input_chars, self.max_loading, self.conn_timeout_s = max_input_chars, max_loading, conn_timeout_s
+        self.put_roles = None if put_roles is None else frozenset(put_roles)   # None이면 인증된 모든 역할이 적재 신호를 보낼 수 있다(survey-service가 404에서 PUT으로 다시 적재한다)
         self.overdue = False          # 상한을 넘긴 엔진 호출이 아직 끝나지 않았다(엔진이 멈췄을 수 있다)
         self.engine_error = None      # 마지막 추론이 엔진 예외로 끝났으면 예외 이름(성공하면 None)
         self._closing = False
@@ -114,6 +181,8 @@ class Service:
             self.bundle_dir.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryFile(dir=self.bundle_dir):
                 pass
+            for d in self.bundle_dir.glob(".bundle-*"):   # 이전 실행이 중단되며 남긴 적재 임시 폴더(지금은 적재 중인 것이 없다)
+                shutil.rmtree(d, ignore_errors=True)
         except OSError as e:
             return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
         return None
@@ -199,6 +268,12 @@ class Service:
         with self.rlock:
             r = self.releases.get(rid)
             if r is None or r.state == "FAILED":
+                if sum(1 for v in self.releases.values() if v.state == "LOADING") >= self.max_loading:
+                    return 503, BoundaryError("UNAVAILABLE", "적재가 몰려 있다. 잠시 후 다시 보낸다").to_record()
+                self.releases.pop(rid, None)
+                failed = [k for k, v in self.releases.items() if v.state == "FAILED"]
+                for k in failed[:-(MAX_FAILED_KEPT - 1)] if len(failed) >= MAX_FAILED_KEPT else []:
+                    del self.releases[k]   # 실패 항목이 무한히 쌓이지 않게 오래된 것부터 버린다
                 r = self.releases[rid] = Release()
                 threading.Thread(target=self._load, args=(rid, r), daemon=True).start()
         r.done.wait(self.put_wait_s)
@@ -228,12 +303,22 @@ class Service:
                 loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
                 for k in loaded[:-self.max_releases] if len(loaded) > self.max_releases else []:
                     del self.releases[k]
+                    self._drop_bundle(k)   # 내려간 릴리스의 번들 파일도 지운다(MR-9)
             log.info("적재 완료 release=%s", rid)
         except Exception as e:   # noqa: BLE001  실패는 이 릴리스에만 기록한다. 다른 릴리스는 그대로다
             r.error, r.state = to_boundary(e), "FAILED"
+            self._drop_bundle(rid)
             log.warning("적재 실패 release=%s code=%s", rid, r.error.code)
         finally:
             r.done.set()
+
+    def _drop_bundle(self, rid: str) -> None:
+        """번들 디렉터리 아래의 릴리스 폴더를 지운다. ID 형식과 경로가 번들 디렉터리 바로 아래일 때만."""
+        if not ID_RE.match(rid):
+            return
+        d = self.bundle_dir / rid
+        if d.parent == self.bundle_dir and d.is_dir() and not d.is_symlink():
+            shutil.rmtree(d, ignore_errors=True)
 
     def status_body(self, rid: str, r: Release | None):
         if r is None:
@@ -277,6 +362,9 @@ class Service:
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             self.pending += 1
         try:
+            if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
+                return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
+            body = neutralize_special_tokens(body)
             deadline = time.monotonic() + self.request_deadline_s   # 요청 전체의 상한(대기 + 추론). 호출별이 아니라 총합이다
             if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
@@ -316,6 +404,9 @@ class Service:
             return 503, BoundaryError("UNAVAILABLE", "모델 출력이 ActionExtraction 형식을 지키지 못했다",
                                       {"reason": "OUTPUT_INVALID", "attempts": e.attempts,
                                        "violations": violation_names(e.errors)}).to_record(), {}
+        except ValueError as e:   # 엔진이 입력(프롬프트 길이 등)을 거부: 요청 하나의 문제다. /readyz를 건드리지 않는다(MR-3)
+            log.warning("엔진이 입력을 거부함 %s", type(e).__name__)
+            return 400, BoundaryError("INVALID_RECORD", "입력을 처리할 수 없다(길이 등)").to_record(), {}
         except Exception as e:   # noqa: BLE001 (엔진 사망 등)
             log.error("추론 실패 %s", type(e).__name__)
             self.engine_error = type(e).__name__   # 엔진 사망 등: 다음 추론이 성공할 때까지 /readyz 503
@@ -328,6 +419,7 @@ class Service:
 def make_handler(svc: Service):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        timeout = svc.conn_timeout_s   # 소켓 timeout: 느린·멈춘 클라이언트가 스레드를 무한히 쥐지 못한다(MR-4)
 
         def log_message(self, fmt, *a):
             log.info("%s %s", self.command, re.sub(r"/releases/[^/]+", "/releases/{id}", self.path.split("?")[0]))
@@ -347,22 +439,41 @@ def make_handler(svc: Service):
             self.wfile.write(data)
 
         def _err(self, code: str, message: str):
+            self.close_connection = True   # 본문을 읽지 않고 돌려보낸 경우 keep-alive 스트림이 어긋나지 않게 닫는다
             self._send(STATUS[code], BoundaryError(code, message).to_record())
 
-        def _authorized(self) -> bool:
+        def _role(self) -> str | None:
+            """Bearer 토큰의 역할. 토큰 설정이 없으면(개발용 무인증) "dev". 모든 토큰을 상수 시간 비교한다."""
             if not svc.tokens:
-                return True
+                return "dev"
             auth = self.headers.get("Authorization", "")
-            return auth.startswith("Bearer ") and auth[7:] in svc.tokens.values()
+            if not auth.startswith("Bearer "):
+                return None
+            got, found = auth[7:].encode("utf-8"), None
+            for role, tok in svc.tokens.items():
+                if hmac.compare_digest(got, tok.encode("utf-8")):
+                    found = role
+            return found
+
+        def _length(self) -> int | None:
+            """Content-Length. 없으면 0. 숫자가 아니거나 음수, Transfer-Encoding이 있으면 None."""
+            if self.headers.get("Transfer-Encoding"):
+                return None
+            raw = self.headers.get("Content-Length", "0").strip() or "0"
+            return int(raw) if raw.isdigit() else None
 
         def _route(self, method: str):
             p = self.path.split("?")[0]
             if method == "GET" and p == "/healthz":
                 return self._send(200, {"status": "ok"})
+            role = self._role()
             if method == "GET" and p == "/readyz":
                 ok, why = svc.readiness()
-                return self._send(200, {"status": "ready"}) if ok else self._send(503, {"status": "not ready", "reason": why})
-            if not self._authorized():
+                if ok:
+                    return self._send(200, {"status": "ready"})
+                # 인증 없이 부르는 쪽(점검 스크립트, 이웃)에는 사유를 주지 않는다(내부 주소·예외 이름 노출 최소화, MR-10)
+                return self._send(503, {"status": "not ready", "reason": why} if role else {"status": "not ready"})
+            if role is None:
                 return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다")
             if method == "GET" and p == "/v1/info":
                 return self._send(200, svc.info())
@@ -373,24 +484,44 @@ def make_handler(svc: Service):
             if not ID_RE.match(rid):
                 return self._err("INVALID_RECORD", "release_id 형식 위반")
             if op is None and method == "PUT":
-                self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
+                if svc.put_roles is not None and role != "dev" and role not in svc.put_roles:
+                    return self._err("PERMISSION_DENIED", "이 토큰의 역할은 적재를 할 수 없다")
+                n = self._length()
+                if n is None or n > MAX_BODY:
+                    return self._err("INVALID_RECORD", "본문 크기가 맞지 않다")
+                self.rfile.read(n)
                 return self._send(*svc.put(rid))
             if op is None and method == "GET":
                 return self._send(200, svc.get(rid))
             if op and method == "POST":
+                if role in INFER_DENY_ROLES:
+                    return self._err("PERMISSION_DENIED", "이 토큰의 역할은 추론을 할 수 없다")
+                n = self._length()
+                if not n or n > MAX_BODY:
+                    return self._err("INVALID_RECORD", "본문 크기가 맞지 않다")
                 try:
-                    n = int(self.headers.get("Content-Length", "0"))
-                    if n <= 0 or n > MAX_BODY:
-                        return self._err("INVALID_RECORD", "본문 크기가 맞지 않다")
                     body = json.loads(self.rfile.read(n))
-                except ValueError:
+                except (ValueError, RecursionError):   # 깊게 중첩된 JSON은 RecursionError
                     return self._err("INVALID_RECORD", "JSON이 아니다")
                 return self._send(*svc.infer(rid, op, body))
             self._err("NOT_FOUND", "경로가 없다")
 
-        def do_GET(self): self._route("GET")
-        def do_PUT(self): self._route("PUT")
-        def do_POST(self): self._route("POST")
+        def _guarded(self, method: str):
+            try:
+                self._route(method)
+            except (socket.timeout, ConnectionError):
+                self.close_connection = True
+            except Exception as e:   # noqa: BLE001  처리하지 못한 예외도 내부 정보 없이 끝낸다
+                log.error("요청 처리 실패 %s", type(e).__name__)
+                self.close_connection = True
+                try:
+                    self._send(503, BoundaryError("UNAVAILABLE", "요청을 처리하지 못했다").to_record())
+                except OSError:
+                    pass
+
+        def do_GET(self): self._guarded("GET")
+        def do_PUT(self): self._guarded("PUT")
+        def do_POST(self): self._guarded("POST")
 
     return H
 
@@ -401,14 +532,22 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     if not schema_dir:
         raise SystemExit("MODEL_RUNTIME_SCHEMA_DIR가 필요하다(이미지에 스키마가 들어 있지 않다)")
     try:   # 비밀은 파일로 받는다(D84): MODEL_RUNTIME_TOKENS_FILE 우선, 없으면 MODEL_RUNTIME_TOKENS(개발·시험용)
-        tokens = dict(kv.split("=", 1) for kv in (read_secret("MODEL_RUNTIME_TOKENS", environ=env) or "").split(",") if "=" in kv)
+        raw_tokens = read_secret("MODEL_RUNTIME_TOKENS", environ=env) or ""
     except SecretError as e:
         raise SystemExit(str(e))   # 메시지에는 이름과 경로만 있다
+    try:   # 인증은 기본 닫힘(MR-1): 토큰이 없으면 시작을 거부한다. 개발용으로만 MODEL_RUNTIME_ALLOW_NO_AUTH=1
+        tokens = parse_tokens(raw_tokens, allow_empty=env.get("MODEL_RUNTIME_ALLOW_NO_AUTH") == "1")
+    except ValueError as e:
+        raise SystemExit(str(e))
+    if not tokens:
+        log.warning("인증 없이 시작한다(MODEL_RUNTIME_ALLOW_NO_AUTH=1, 개발용)")
     log.info("비밀 출처(값 아님): MODEL_RUNTIME_TOKENS=%s MODEL_RUNTIME_RELEASE_TOKEN=%s",
              secret_source("MODEL_RUNTIME_TOKENS", environ=env), secret_source("MODEL_RUNTIME_RELEASE_TOKEN", environ=env))
     if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
         raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
+        if env.get("MODEL_RUNTIME_ALLOW_FAKE") != "1":   # 운영에서 가짜 백엔드로 뜨는 사고를 막는다(실수로 BACKEND=fake가 들어가도 시작 거부)
+            raise SystemExit("MODEL_RUNTIME_BACKEND=fake는 개발·시험용이다. 의도한 것이면 MODEL_RUNTIME_ALLOW_FAKE=1을 함께 준다")
         try:
             responder = make_default_responder(
                 load_fake_flow(env["MODEL_RUNTIME_FAKE_FLOW_FILE"]) if env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") else None,
@@ -445,24 +584,32 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
                    put_wait_s=float(env.get("MODEL_RUNTIME_PUT_WAIT_S", "3.0")),
                    request_deadline_s=float(env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S", "3.5")),
                    backend_retry_s=float(env.get("MODEL_RUNTIME_BACKEND_RETRY_S", "30")),
-                   max_releases=int(env.get("MODEL_RUNTIME_MAX_RELEASES", "4")))
+                   max_releases=int(env.get("MODEL_RUNTIME_MAX_RELEASES", "4")),
+                   max_input_chars=int(env.get("MODEL_RUNTIME_MAX_INPUT_CHARS", str(MAX_INPUT_CHARS))),
+                   max_loading=int(env.get("MODEL_RUNTIME_MAX_LOADING", str(MAX_LOADING))),
+                   put_roles=(frozenset(x.strip() for x in env["MODEL_RUNTIME_PUT_ROLES"].split(",") if x.strip()) if env.get("MODEL_RUNTIME_PUT_ROLES") else None),
+                   conn_timeout_s=float(env.get("MODEL_RUNTIME_CONN_TIMEOUT_S", str(CONN_TIMEOUT_S))))
 
 
 def main(env: Mapping[str, str] | None = None) -> None:
     env = os.environ if env is None else env
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     svc = build_service(env)
-    host, port = env.get("MODEL_RUNTIME_HOST", "0.0.0.0"), int(env.get("MODEL_RUNTIME_PORT", "8080"))
-    srv = ThreadingHTTPServer((host, port), make_handler(svc))
+    host, port = env.get("MODEL_RUNTIME_HOST", "127.0.0.1"), int(env.get("MODEL_RUNTIME_PORT", "8080"))   # 기본은 루프백. 컨테이너 이미지가 0.0.0.0을 준다
+    srv = BoundedServer((host, port), make_handler(svc), int(env.get("MODEL_RUNTIME_MAX_CONNECTIONS", str(MAX_CONNECTIONS))))
     log.info("대기 %s:%s backend=%s", host, srv.server_address[1], svc.backend_name)
 
-    def stop(*_):
-        raise SystemExit(0)
+    def stop(*_):   # 우아한 종료: 새 연결을 그만 받고(serve_forever 반환), 진행 중인 요청이 끝나길 잠시 기다린 뒤 엔진을 내린다
+        threading.Thread(target=srv.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     try:
         srv.serve_forever()
     finally:
         srv.server_close()
+        end = time.monotonic() + float(env.get("MODEL_RUNTIME_SHUTDOWN_GRACE_S", "5"))
+        while svc.pending > 0 and time.monotonic() < end:
+            time.sleep(0.05)
         svc.close()
 
 
