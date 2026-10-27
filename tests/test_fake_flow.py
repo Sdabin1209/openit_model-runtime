@@ -1,8 +1,10 @@
 """fake 백엔드가 입력 문항에 맞는 유효한 ActionExtraction을 낸다(0.6.2). survey-service가 쓰는 turn-engine의 validate_extraction으로 직접 확인한다.
-turn-engine(v0.3.0)은 시험 전용 의존(dev extras)이다. 없으면 이 시험의 해당 부분은 건너뛴다."""
+turn-engine은 시험 전용이며 pyproject에 핀하지 않는다(설치 방법: docs/runbook.md). 없으면 이 시험의 해당 부분은 건너뛴다."""
 import copy
 import json
 import unittest
+
+import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -11,12 +13,12 @@ from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes
 import model_runtime as mr
 from model_runtime import server
 
-try:
+def _turn_engine():
+    """turn-engine은 설치하지 않았으면 건너뛴다(pyproject는 버전을 핀하지 않는다. 어떤 태그를 쓸지는 docs/runbook.md)."""
+    pytest.importorskip("turn_engine")
     from turn_engine.flow import DATASET_V2_FLOW
     from turn_engine.validation import validate_extraction
-    HAVE_TE = True
-except ImportError:
-    HAVE_TE = False
+    return DATASET_V2_FLOW, validate_extraction
 
 ORDER = ["Q1.D01", "Q1.D02", "Q1.D03", "Q2.D01", "Q3"]
 
@@ -53,15 +55,15 @@ class FakeFlow(unittest.TestCase):
         fixed = {"action": "NEXT", "next_item": "Q3", "values": []}
         self.assertEqual(session(ORDER, fixed).extract(a_input("Q1.D01")), fixed)
 
-    @unittest.skipUnless(HAVE_TE, "turn-engine 없음(.[dev])")
     def test_passes_turn_engine_validate_extraction_for_every_item(self):
+        DATASET_V2_FLOW, validate_extraction = _turn_engine()
         s = session(list(DATASET_V2_FLOW.order))
         for qid in DATASET_V2_FLOW.order:
             inp = a_input(qid)
             self.assertEqual(validate_extraction(inp, s.extract(inp), DATASET_V2_FLOW), [], qid)
 
-    @unittest.skipUnless(HAVE_TE, "turn-engine 없음(.[dev])")
     def test_legacy_fixed_output_is_rejected_by_validate_extraction(self):   # 이 변경의 동기(deploy CR-D22 1항)를 시험으로 남긴다
+        DATASET_V2_FLOW, validate_extraction = _turn_engine()
         inp = a_input("Q1.D01")
         v = validate_extraction(inp, session().extract(inp), DATASET_V2_FLOW)
         self.assertEqual([x.code for x in v], ["SKIP_ORDER_MISMATCH"])
