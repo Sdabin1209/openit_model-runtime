@@ -1,0 +1,19 @@
+{
+  "_comment": "공유 GPU(RTX PRO 6000 Blackwell 97.9GB 1장, 다른 작업과 나눠 씀)에서 Qwen3-8B + LoRA A·B를 짧게 측정하는 GPU 세션용 프로파일(docs/GPU_SESSION.md, ADR 0013). 서빙 목표 프로파일이 아니다: 운영 목표는 rtx4090-24g. gpu_memory_utilization 0.30은 계산한 추정이다: 0.30 x 97.9GB = 약 29.4GB 중 가중치 bf16 약 16GB(8.2B 파라미터 x 2바이트), 나머지 약 13GB가 KV 캐시·활성값·CUDA 그래프다. 토큰당 KV 약 144KiB(36층 x KV 헤드 8 x head_dim 128 x K·V x 2바이트, 모델 카드 값을 기억에 의존해 미확인)이면 13GB는 약 9만 토큰이고 max_num_seqs 8 x max_model_len 8192 = 약 6.6만 토큰을 담는다. 어느 수치도 측정하지 않았다. 남에게 피해를 주지 않으려 필요한 만큼만 잡고(0.9는 약 88GB), run_session.sh의 preflight가 남은 메모리가 이 값 + 여유 이상인지 먼저 본다. --util 인자로 덮어쓴다.",
+  "status": {
+    "loadable": "unverified",
+    "two_adapters_loaded_together": "unverified",
+    "note": "GPU 세션 전. 이 하드웨어에서 적재해 본 적이 없다."
+  },
+  "base_model": "Qwen/Qwen3-8B",
+  "engine": {
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "gpu_memory_utilization": 0.30,
+    "max_num_seqs": 8,
+    "max_loras": 2,
+    "max_lora_rank": 16,
+    "enforce_eager": false
+  },
+  "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "rtx4090-24g 프로파일과 같은 이유(nvcc 없는 환경에서 FlashInfer JIT 샘플러 실패). 이 서버에서 nvcc가 있는지는 확인하지 못했다."}
+}
