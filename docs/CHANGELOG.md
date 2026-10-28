@@ -1,12 +1,19 @@
 # 변경 이력
 
-## 0.7.3 이후 (태그 없음) — 2026-10-28 가짜 A의 되묻기(REASK) 설정
-가짜 백엔드 전용, 운영(vLLM) 경로 무변경. 흐름 파일(`MODEL_RUNTIME_FAKE_FLOW_FILE`)의 선택 항목 `reasks`: `[{"contains","key","reason"(선택, 기본 MISSING),"at"(선택)}]`. 문구가 발화에 있으면 매번 REASK(next_item=입력 question_id, targets=[key], 그 칸은 MISSING)를 낸다. survey-service의 되묻기 한도(REASK_LIMIT)를 통합으로 시험하려고 더했다. `load_fake_reasks`를 내보낸다. 버전은 올리지 않았다. 시험 `FakeReask`(tests/test_fake_flow.py).
+## 0.7.4 — 2026-10-28 (가짜 A 되묻기, GPU 세션 키트)
+v0.7.3 이후 쌓인 변경의 정식 릴리스. HTTP 경로·계약 스키마·`serving_config`와 해시는 그대로이고, 운영(vLLM) 경로의 서버 동작은 바뀌지 않았다. 바뀐 서버 쪽 코드는 가짜 백엔드의 `reasks`뿐이다. 버전 표기(`pyproject.toml`, `RUNTIME_VERSION`, 이미지 라벨 `io.openit.model-runtime`, `scripts/smoke.sh`)를 0.7.4로 올렸다.
+- 가짜 A `reasks`(아래 첫 항목): deploy E2E 5n-reask와 survey-service 되묻기 한도(REASK_LIMIT) 통합 시험용.
+- GPU 세션 키트(`scripts/gpu_session`, ADR 0013~0016): `pod_setup.sh`(파드 이미지 차이를 스스로 준비: uv 고정 + 독립 파이썬, gcc는 root면 apt, 단계 분리, 모델 이름은 프로파일 base_model 한 곳), `pod_run.sh`, `util_retry.py`(GPU 사용률 자동 재시도), `run_session.sh --plan`(다단계 부하), 키트 커밋 기록, `--base` 한 곳에 설치·캐시 모으기, 실제 어댑터·C1 사전 점검. 모두 가짜 백엔드와 로컬 시험으로만 확인했고 **실제 GPU 한 바퀴를 새로 돌려 확인한 것은 아니다**.
+- 실제 데이터 대조 도구 `scripts/check_reference_data.py`(OPEN_GAPS U03).
+아래 세 절은 0.7.4에 들어간 변경의 상세다(당시 제목은 "0.7.3 이후").
 
-## 0.7.3 이후 (태그 없음) — 2026-10-28 GPU 세션 키트 안전 보강(감사 라운드 2 MR-1~6)
+### 2026-10-28 가짜 A의 되묻기(REASK) 설정
+가짜 백엔드 전용, 운영(vLLM) 경로 무변경. 흐름 파일(`MODEL_RUNTIME_FAKE_FLOW_FILE`)의 선택 항목 `reasks`: `[{"contains","key","reason"(선택, 기본 MISSING),"at"(선택)}]`. 문구가 발화에 있으면 매번 REASK(next_item=입력 question_id, targets=[key], 그 칸은 MISSING)를 낸다. survey-service의 되묻기 한도(REASK_LIMIT)를 통합으로 시험하려고 더했다. `load_fake_reasks`를 내보낸다. 시험 `FakeReask`(tests/test_fake_flow.py).
+
+### 2026-10-28 GPU 세션 키트 안전 보강(감사 라운드 2 MR-1~6)
 서버 런타임 코드 변경 없음(scripts/gpu_session만): 작업 폴더 검사를 만들기 전에, `--clean-cache`·`--overwrite`는 표식이 있는 것만, `--release-id` 검증, 값 없는 옵션은 종료 코드 2, 토큰은 `curl -H @파일`. 호출자가 먼저 끊어도 엔진을 최대 3.5초 더 잡는 한계를 boundary.md에 적었다(추정). 버전은 올리지 않았다.
 
-## 0.7.3 이후 (태그 없음) — 2026-10-28 실제 데이터 대조(OPEN_GAPS U03)
+### 2026-10-28 실제 데이터 대조(OPEN_GAPS U03)
 코드 변경 없음. `scripts/check_reference_data.py`와 선택 시험 `tests/test_reference_data.py`(`MODEL_RUNTIME_REFERENCE_DATA_DIR`가 없으면 건너뜀, 데이터는 리포에 없다)를 더했다. 최종 학습 데이터 C1 전체(A 32,170행, B 32,289행)에서: prompt-4 렌더링이 system+user를 글자 단위로 재현하는 행 100%(A 32,170/32,170, B 32,289/32,289), 시스템 프롬프트는 역할마다 1종, assistant 정답이 사후 검증기를 통과하는 행 100%(A는 제약 디코딩용 relax-3 스키마와 키 순서도 100%), 입력 상한 2500자를 넘는 행 0(최대 A 643자, B 417자). 상한 조정은 필요 없다(0.7.4 후보 없음).
 
 ## 0.7.3 (미배포) — 2026-10-28 (장애 대응 FAULT_MATRIX A4·B1·B3, 감사 MR-1/2/3/4/9/10/14/15/16)

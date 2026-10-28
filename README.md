@@ -64,11 +64,12 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 ## 현재 상태
 
-문서 기준 버전은 0.7.3(docs/STATUS.md 23차). 확인된 것:
+문서 기준 버전은 0.7.4(CHANGELOG 0.7.4; 마지막 STATUS 기록은 23차, 0.7.3). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
 - **시험 상태(정본, 개수는 이 한 곳)**. 기준은 위 설치 줄 그대로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
 - 위 새 clone 기준(216/6)은 `pod_setup` 단계 시험 8개(`tests/test_gpu_session.py`)를 더하기 전 값이다. 더한 뒤 이 리포의 기존 `.venv`(turn-engine 설치됨)에서 `python -m pytest -q -rs`: **233 통과, 7 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1, `tests/test_server_e2e.py`의 'boundary-contracts 참조 서버가 없다' 5; ADR 0015·0016 시험 추가 후. 이전 측정 232/2에서 e2e 5건이 건너뛰어진 원인은 이번에 조사하지 않았다: 이웃 폴더 상태에 따른 환경 차이로 추정, 미확인). 새 venv 기준 값은 다시 재지 않았다.
-- 가짜 A의 `reasks` 설정(CHANGELOG 0.7.3 이후)과 시험 4개(`FakeReask`)를 더한 뒤 같은 기존 `.venv`에서 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(건너뜀 7건은 참조 서버·xgrammar·참조 데이터 경로 없음 등 환경 항목이며 전체 사유는 `-rs` 출력으로 확인, 이 줄에는 옮겨 적지 않았다). 새 venv 기준 값은 다시 재지 않았다.
+- 가짜 A의 `reasks` 설정(CHANGELOG 0.7.4)과 시험 4개(`FakeReask`)를 더한 뒤 같은 기존 `.venv`에서 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(건너뜀 7건은 참조 서버·xgrammar·참조 데이터 경로 없음 등 환경 항목이며 전체 사유는 `-rs` 출력으로 확인, 이 줄에는 옮겨 적지 않았다). 새 venv 기준 값은 다시 재지 않았다.
+  - 0.7.4로 버전 표기를 올린 뒤(릴리스 준비) 같은 기존 `.venv`에서 다시 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(개수 변화 없음, 152초). `scripts/smoke.sh`(라벨 기대값을 0.7.4로 고쳤다)와 이미지 빌드는 이 릴리스 준비에서 돌리지 않았다.
   - 의존을 더하면: turn-engine 0.4.0(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
   - `scripts/smoke.sh`와 이미지 라벨(`io.openit.model-runtime`)은 이번에 다시 돌리지 않았다. 23차(0.7.3)의 기록은 docs/STATUS.md 23차.
 - 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""최종 학습 데이터(C1) 전체와 서빙(v0.7.3)의 대조 보고. 데이터는 읽기 전용이고 리포에 복사하지 않는다. 본문·발화는 출력하지 않는다(건수·길이·행 번호·해시만).
+"""최종 학습 데이터(C1) 전체와 서빙(v0.7.3 시점)의 대조 보고. 데이터는 읽기 전용이고 리포에 복사하지 않는다. 본문·발화는 출력하지 않는다(건수·길이·행 번호·해시만).
 
 사용: MODEL_RUNTIME_REFERENCE_DATA_DIR=<.../data/final> python scripts/check_reference_data.py [--splits val,test,train] [--limit N] [--json]
           [--system-prompt-a FILE --system-prompt-b FILE]   (서빙 번들의 시스템 프롬프트와 해시 비교, 선택)
