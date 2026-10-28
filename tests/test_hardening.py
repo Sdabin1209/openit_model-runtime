@@ -103,9 +103,9 @@ class Auth(unittest.TestCase):   # MR-1 역할, MR-10 readyz 노출
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="SS")[0], 200)
         self.assertEqual(call(url, "/v1/releases/r2", method="PUT", token="OO")[0], 403)      # PUT_ROLES 밖
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="OO")[0], 200)
-        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="LL ")[0], 403)   # 토큰은 정확히 일치
-        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 403)
-        self.assertEqual(call(url, "/v1/info", token="nope")[0], 403)
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="LL ")[0], 401)   # 토큰은 정확히 일치(틀린 토큰은 401, D106)
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 401)   # 토큰 없음은 401(D106)
+        self.assertEqual(call(url, "/v1/info", token="nope")[0], 401)
 
     def test_without_put_roles_any_authenticated_role_can_load(self):   # survey-service가 404에서 PUT으로 다시 적재한다
         _, url, _, _ = self.srv(tokens="survey-service=SS")

@@ -207,7 +207,7 @@ class Server(unittest.TestCase):
     def test_token_required_except_health(self):
         _, url, _, _ = self.srv(tokens="svc=secret")
         self.assertEqual(call(url, "/healthz")[0], 200); self.assertEqual(call(url, "/readyz")[0], 200)
-        self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 403)
+        self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 401)   # 토큰 없음은 401(D106)
         self.assertEqual(call(url, "/v1/releases/r1", method="PUT", token="secret")[0], 200)
 
     def test_rejects_when_queue_would_exceed_wait(self):

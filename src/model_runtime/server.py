@@ -426,9 +426,9 @@ def make_handler(svc: Service):
             self.end_headers()
             self.wfile.write(data)
 
-        def _err(self, code: str, message: str):
+        def _err(self, code: str, message: str, *, status: int | None = None, headers: Mapping[str, str] | None = None):
             self.close_connection = True   # 본문을 읽지 않고 돌려보낸 경우 keep-alive 스트림이 어긋나지 않게 닫는다
-            self._send(STATUS[code], BoundaryError(code, message).to_record())
+            self._send(status or STATUS[code], BoundaryError(code, message).to_record(), headers)
 
         def _role(self) -> str | None:
             """Bearer 토큰의 역할. 토큰 설정이 없으면(개발용 무인증) "dev". 모든 토큰을 상수 시간 비교한다."""
@@ -462,7 +462,8 @@ def make_handler(svc: Service):
                 # 인증 없이 부르는 쪽(점검 스크립트, 이웃)에는 사유를 주지 않는다(내부 주소·예외 이름 노출 최소화, MR-10)
                 return self._send(503, {"status": "not ready", "reason": why} if role else {"status": "not ready"})
             if role is None:
-                return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다")
+                # 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer, 권한 없음만 403 (CONVENTIONS 6절, D106; RFC 9110 15.5.2·11.6.1, RFC 6750 3절). code는 둘 다 PERMISSION_DENIED
+                return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다", status=401, headers={"WWW-Authenticate": "Bearer"})
             if method == "GET" and p == "/v1/info":
                 return self._send(200, svc.info())
             m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(extract|respond))?", p)
