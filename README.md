@@ -58,13 +58,17 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 아래 23차 결과), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
+위 설치 줄에는 turn-engine·xgrammar가 없어 그 둘이 필요한 시험은 건너뛴다. 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
+
+이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 "현재 상태" 절), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
 ## 현재 상태
 
 문서 기준 버전은 0.7.3(docs/STATUS.md 23차). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- 23차(0.7.3) 새 가상환경(위 설치 줄 그대로, turn-engine·xgrammar 없음)에서 전체 pytest 187 통과, 5 건너뜀(turn-engine 4, xgrammar 1). turn-engine이 설치된 개발 venv에서는 191 통과, 1 건너뜀. `scripts/smoke.sh` 통과, 이미지 라벨 `io.openit.model-runtime`은 0.7.3(docs/STATUS.md 23차).
+- **시험 상태(정본, 개수는 이 한 곳)**. 기준은 위 설치 줄 그대로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
+  - 의존을 더하면: turn-engine 0.4.0(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
+  - `scripts/smoke.sh`와 이미지 라벨(`io.openit.model-runtime`)은 이번에 다시 돌리지 않았다. 23차(0.7.3)의 기록은 docs/STATUS.md 23차.
 - 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
