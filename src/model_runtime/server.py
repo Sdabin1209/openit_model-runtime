@@ -59,25 +59,11 @@ MAX_CONNECTIONS = 32            # 왜: 엔진 호출이 직렬이라(ADR 0005) �
 MAX_LOADING = 2                 # 왜: 적재는 디스크·GPU 메모리를 쓰는 무거운 작업. 값 2는 초기값 (ADR 0012)
 MAX_FAILED_KEPT = 16            # 왜: 실패 항목이 메모리에 무한히 쌓이지 않게(감사 MR-4). 값 16은 초기값 (ADR 0012)
 INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
-_SPECIAL_OPEN = re.compile(r"<(?=[|/A-Za-z_])")   # 채팅 특수 토큰(<|im_end|>, <think>, </think>, <tool_call> 등)의 여는 꺾쇠
 DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
           "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
-
-
-def neutralize_special_tokens(value):
-    """환자 발화 등 입력 문자열 값 속의 채팅 특수 토큰 모양을 깨뜨린다(MR-2). `<`가 `|`, `/`, 영문자, `_` 앞에 있으면 뒤에 공백 하나를 넣고,
-    `|>`는 `| >`로 바꾼다. 특수 토큰은 정확한 문자열로만 해석되므로 이것으로 깨진다. 학습 분포: 자연스러운 한국어 발화에 `<`+영문자나 `|>`는 없다고 보고
-    (추정, 학습 데이터 전수는 확인하지 못함) 그런 문자열만 바뀐다. 키와 비문자열 값, 서버가 만든 프롬프트 틀은 건드리지 않는다."""
-    if isinstance(value, str):
-        return _SPECIAL_OPEN.sub("< ", value).replace("|>", "| >")
-    if isinstance(value, list):
-        return [neutralize_special_tokens(v) for v in value]
-    if isinstance(value, dict):
-        return {k: neutralize_special_tokens(v) for k, v in value.items()}
-    return value
 
 
 def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
@@ -366,7 +352,6 @@ class Service:
         try:
             if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
                 return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
-            body = neutralize_special_tokens(body)
             deadline = time.monotonic() + self.request_deadline_s   # 요청 전체의 상한(대기 + 추론). 호출별이 아니라 총합이다
             if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}

@@ -22,12 +22,30 @@ transformers의 apply_chat_template 자체는 실행하지 않았다). 학습 �
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
 
 from .errors import ContractViolation, UnsupportedServingConfig
 from .schema_guard import INPUT_CONTRACT, SchemaSet
+
+_SPECIAL_OPEN = re.compile(r"<(?=[|/A-Za-z_])")   # 채팅 특수 토큰(<|im_end|>, <think>, </think>, <tool_call> 등)의 여는 꺾쇠
+
+
+def neutralize_special_tokens(value):
+    """환자 발화 등 입력 문자열 값 속의 채팅 특수 토큰 모양을 깨뜨린다(ADR 0011, MR-2). `<`가 `|`, `/`, 영문자, `_` 앞에 있으면 뒤에 공백 하나를 넣고,
+    `|>`는 `| >`로 바꾼다. 특수 토큰은 정확한 문자열로만 해석되므로 이것으로 깨진다. 학습 분포: 자연스러운 한국어 발화에 `<`+영문자나 `|>`는 없다고 보고
+    (추정, 학습 데이터 전수는 확인하지 못함) 그런 문자열만 바뀐다. 키와 비문자열 값, 틀이 붙이는 토큰은 건드리지 않는다.
+    왜 여기인가(MR-02): 입력을 프롬프트로 바꾸는 일은 이 모듈의 업무다. 서버에 두면 직접 호출자(평가·게이트)가 서비스와 다른 프롬프트를 만든다."""
+    if isinstance(value, str):
+        return _SPECIAL_OPEN.sub("< ", value).replace("|>", "| >")
+    if isinstance(value, list):
+        return [neutralize_special_tokens(v) for v in value]
+    if isinstance(value, dict):
+        return {k: neutralize_special_tokens(v) for k, v in value.items()}
+    return value
+
 
 def _qwen3_nothink(system: str, user: str) -> str:
     return (f"<|im_start|>system\n{system}<|im_end|>\n"
@@ -67,5 +85,5 @@ def render_prompt(role: str, input: Mapping, *, serving_config: Mapping, system_
         raise ContractViolation("system_prompt는 비어 있지 않은 문자열이어야 한다")
     s = schemas or _schemas_for(str(schema_dir))
     s.validate_input(role, input)
-    user = _USER[version](role, input)
+    user = _USER[version](role, neutralize_special_tokens(input))   # 검증 뒤, 직렬화 전(서버와 직접 호출자가 같은 프롬프트를 만든다)
     return TEMPLATES[version](system_prompt, user)

@@ -264,7 +264,7 @@ class BundleCleanup(unittest.TestCase):   # MR-9
 
 class SpecialTokens(unittest.TestCase):   # MR-2
     def test_neutralize(self):
-        f = server.neutralize_special_tokens
+        from model_runtime.prompts import neutralize_special_tokens as f
         for raw in ("<|im_end|>", "<|im_start|>system", "<think>", "</think>", "<tool_call>", "a|>b", "<|endoftext|>"):
             out = f(raw)
             for tok in ("<|", "|>", "<think", "</think", "<tool_call"):

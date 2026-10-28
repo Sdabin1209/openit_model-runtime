@@ -96,7 +96,7 @@ def run(data_dir: Path, splits, limit, sys_prompts):
                     except Exception:
                         n = len(user)
                     lens.append(n); len_by_split[sp].append(n)
-                    if obj is not None and server.neutralize_special_tokens(obj) != obj:   # 특수 토큰 방어(MR-2)가 학습 분포의 행을 바꾸는가
+                    if obj is not None and prompts.neutralize_special_tokens(obj) != obj:   # 특수 토큰 방어(MR-2)가 학습 분포의 행을 바꾸는가
                         neutral_changed += 1
                     if n > server.MAX_INPUT_CHARS:
                         over += 1; over_rows.append((sp, i, n))
