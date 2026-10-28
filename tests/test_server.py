@@ -19,6 +19,8 @@ from model_runtime import server
 class StubReader:
     """HttpReleaseReader 대신. releases: id → manifest 수정 함수 또는 BoundaryError."""
 
+    backend_cls = mr.FakeBackend   # 서버가 쓰는 백엔드 이름에 맞춘 serving_config를 만든다(mimic 시험이 바꾼다)
+
     def __init__(self, tmp, plan=None):
         self.tmp, self.plan, self.calls = Path(tmp), plan or {}, 0
 
@@ -27,7 +29,7 @@ class StubReader:
         step = self.plan.get(rid, lambda m: m)
         if isinstance(step, BoundaryError):
             raise step
-        b = mr.FakeBackend()
+        b = self.backend_cls()
         cfgs = mr.fake_serving_configs(b)
         ad = {}
         for r in cfgs:

@@ -27,7 +27,7 @@
 ### 환경 변수 (설정은 환경 변수로만 받는다)
 | 변수 | 필수 | 기본 | 뜻 |
 | --- | --- | --- | --- |
-| `MODEL_RUNTIME_BACKEND` | 아니오 | `vllm` | `vllm` 또는 `fake` |
+| `MODEL_RUNTIME_BACKEND` | 아니오 | `vllm` | `vllm`, `fake`, `mimic`(데모용 모방 컴포넌트, ADR 0018) |
 | `MODEL_RUNTIME_SCHEMA_DIR` | 이미지에 스키마를 넣지 않았으면 **예** | `/opt/survey-schema/schemas`(넣은 경우) | 문진 스키마의 `.../schema/schemas`(상위에 `CONTRACT_VERSION`). 이미지에 넣지 않으므로 **읽기 전용 마운트** |
 | `MODEL_RUNTIME_RELEASE_URL` | **예** | | I4(release-gate) 서버의 **전체 주소**(예 `https://<호스트>:<포트>`). 컴포즈 서비스 이름이든 다른 호스트든 상관없다. 서버가 여기서 번들을 읽는다. 없거나 닿지 못하면 `/readyz` 503과 사유(`/healthz`는 200), 닿으면 `PUT` 적재가 된다 |
 | `MODEL_RUNTIME_BASE_MODEL` | 아니오 | 프로파일의 `base_model` | 기반 모델 덮어쓰기(어댑터의 `base_model_name_or_path`와 같아야 함) |
@@ -42,7 +42,9 @@
 | `MODEL_RUNTIME_FAKE_EXTRACTION` | 아니오 (fake 전용) | 없음 | LORA-A가 항상 내는 고정 출력(JSON 문자열). `FLOW_FILE`보다 우선. 스키마·의미 검증은 하지 않으므로 쓰는 쪽 책임 |
 | **주의** | | | **아래 `REQUEST_DEADLINE_S`(3.5)·`QUEUE_WAIT_S`(3.0)·`BACKEND_RETRY_S`는 실제 모델 지연으로 측정한 적이 없는 초기값이다. 가짜 백엔드·1.7B 측정(중앙값 약 1.7초)에서 나왔고, 8B(24GB GPU)에서는 호출 하나가 3.5초를 넘어 `ENGINE_TIMEOUT`이 날 수 있다. H1(24GB 실측)에서 다시 정해야 한다.** 절차는 docs/boundary.md "실측 절차" |
 | `MODEL_RUNTIME_ALLOW_NO_AUTH` | 아니오 | 없음 | `1`이면 토큰 없이 시작(개발용). 운영에서 쓰지 않는다 (ADR 0012) |
-| `MODEL_RUNTIME_ALLOW_FAKE` | fake일 때 필수 | 없음 | `MODEL_RUNTIME_BACKEND=fake`는 이 값이 `1`이 아니면 시작 거부 (ADR 0009) |
+| `MODEL_RUNTIME_ALLOW_FAKE` | fake·mimic일 때 필수 | 없음 | `MODEL_RUNTIME_BACKEND=fake` 또는 `mimic`은 이 값이 `1`이 아니면 시작 거부 (ADR 0009, 0018) |
+| `MODEL_RUNTIME_MIMIC_FLOW_FILE` | 아니오 (mimic 전용) | `MODEL_RUNTIME_FAKE_FLOW_FILE` | 문항 흐름 파일. fake와 같은 형식(`order`, `slots`, `skips`, `corrections`, `reasks`). 칸 정의(`slots`)가 없는 문항에서는 값을 내지 않는다 |
+| `MODEL_RUNTIME_MIMIC_RULES_FILE` | 아니오 (mimic 전용) | 패키지의 `data/mimic_rules.json` | 모방 규칙표(낱말 목록, 응답 문장 틀). 형태가 틀리면 시작 거부 |
 | `MODEL_RUNTIME_PUT_ROLES` | 아니오 | 없음(인증된 모든 역할) | 적재 PUT을 허용할 역할 목록(쉼표). 토큰 역할 `loader`는 PUT만 가능하고 extract/respond는 못 한다 |
 | `MODEL_RUNTIME_MAX_INPUT_CHARS` | 아니오 | `2500` | 입력(JSON 직렬화)의 문자 수 상한, 초과 400. 추정값(토큰 수 측정 안 함), ADR 0012 |
 | `MODEL_RUNTIME_MAX_CONNECTIONS` / `MAX_LOADING` / `CONN_TIMEOUT_S` / `SHUTDOWN_GRACE_S` | 아니오 | `32` / `2` / `15` / `5` | 동시 연결, 동시 적재, 연결 소켓 timeout(초), 종료 시 진행 요청 대기(초). 초기값 (ADR 0012) |

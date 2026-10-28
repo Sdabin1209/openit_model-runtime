@@ -7,7 +7,7 @@ extract가 재시도 후에도 ActionExtraction을 지키지 못하면 값을 �
 시스템 프롬프트는 적재한 릴리스 패키지(어댑터 디렉터리의 파일)의 것만 쓴다(D75).
 엔진 호출은 직렬화하고, 대기가 길 것 같으면 큐에 쌓지 않고 503으로 거절한다. 발화·출력 원문은 로그에 남기지 않는다.
 
-환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake, 기본 vllm), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
+환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake|mimic, 기본 vllm; mimic은 데모용 모방 컴포넌트, MODEL_RUNTIME_ALLOW_FAKE=1 필요, 흐름 파일은 MODEL_RUNTIME_MIMIC_FLOW_FILE 또는 MODEL_RUNTIME_FAKE_FLOW_FILE, 규칙표는 MODEL_RUNTIME_MIMIC_RULES_FILE), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
 MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버; 주소에 닿지 못하면 /readyz 503과 사유, /healthz는 200), MODEL_RUNTIME_READY_PROBE_TTL_S(도달성 확인 캐시, 기본 5), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
 MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON 또는 {"order","slots","skips","corrections","reasks"} 객체; LORA_A가 입력 question_id의 다음 문항으로 가는 NEXT를 낸다. slots가 있으면 발화에서 첫 칸의 값도 낸다, 0.7.1), MODEL_RUNTIME_FAKE_EXTRACTION(fake 전용: LORA_A 고정 출력 JSON, flow보다 우선),
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
@@ -44,6 +44,7 @@ from boundary_contracts.errors import BoundaryError
 from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
                FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
                UnsupportedServingConfig, load, serving_config_hash)
+from .mimic import mimic_backend_from_files
 from .backends import load_fake_corrections, load_fake_flow, load_fake_flow_spec, load_fake_reasks, make_default_responder
 from .errors import BackendNotAvailable
 from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
@@ -545,6 +546,15 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         except (OSError, ValueError) as e:
             raise SystemExit(f"fake 출력 설정이 틀렸다(MODEL_RUNTIME_FAKE_FLOW_FILE / MODEL_RUNTIME_FAKE_EXTRACTION): {type(e).__name__}")
         factory = lambda: FakeBackend(responder)
+    elif backend_name == "mimic":
+        if env.get("MODEL_RUNTIME_ALLOW_FAKE") != "1":   # 모방도 모델이 아니다: fake와 같은 이유로 의도 표시가 있어야 뜬다(ADR 0009)
+            raise SystemExit("MODEL_RUNTIME_BACKEND=mimic은 데모·시험용이다. 의도한 것이면 MODEL_RUNTIME_ALLOW_FAKE=1을 함께 준다")
+        try:   # 같은 입력 형식(순서·칸·건너뛰기·정정·되묻기)을 가짜와 공유한다. 규칙표는 데이터 파일이다
+            mimic = mimic_backend_from_files(env.get("MODEL_RUNTIME_MIMIC_FLOW_FILE") or env.get("MODEL_RUNTIME_FAKE_FLOW_FILE") or None,
+                                             env.get("MODEL_RUNTIME_MIMIC_RULES_FILE") or None)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"mimic 설정이 틀렸다(MODEL_RUNTIME_MIMIC_FLOW_FILE / MODEL_RUNTIME_MIMIC_RULES_FILE): {type(e).__name__}")
+        factory = lambda: mimic
     elif backend_name == "vllm":
         def factory():
             from .vllm_backend import VLLMBackend, load_profile
@@ -554,7 +564,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
                     os.environ.setdefault(k, str(v))
             return VLLMBackend(None, profile=prof, base_model=env.get("MODEL_RUNTIME_BASE_MODEL") or None)
     else:
-        raise SystemExit("MODEL_RUNTIME_BACKEND는 vllm 또는 fake")
+        raise SystemExit("MODEL_RUNTIME_BACKEND는 vllm, fake, mimic 중 하나")
     custom_reader = reader_factory
     if reader_factory is None:
         def reader_factory():

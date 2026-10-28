@@ -17,6 +17,9 @@ vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+model_runtime = ["data/*.json"]   # 모방 컴포넌트의 규칙표(비편집 설치에서도 따라가게)
+
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]

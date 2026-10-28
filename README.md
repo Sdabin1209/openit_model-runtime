@@ -21,7 +21,8 @@
 | 경로 | 역할 |
 | --- | --- |
 | `src/model_runtime/session.py`, `prompts.py`, `serving_config.py` | `load`, 세션(extract/respond), 프롬프트 조립, 서빙 설정과 해시 |
-| `src/model_runtime/backends.py`, `vllm_backend.py` | 가짜 백엔드와 vLLM 백엔드(제약 디코딩) |
+| `src/model_runtime/roles.py` | LoRA-A·LoRA-B 두 컴포넌트(`ExtractRole`, `RespondRole`)와 공용 재시도(ADR 0017) |
+| `src/model_runtime/backends.py`, `vllm_backend.py`, `mimic.py` | 가짜 백엔드, vLLM 백엔드(제약 디코딩), 데모용 모방 백엔드(`MODEL_RUNTIME_BACKEND=mimic`, ADR 0018, 규칙표 `data/mimic_rules.json`) |
 | `src/model_runtime/protection.py`, `fallback.py`, `schema_guard.py`, `errors.py` | 출력 보호, 대체 문장, 스키마 검사, 예외 |
 | `src/model_runtime/server.py` | HTTP 추론 서버 |
 | `profiles/` | 하드웨어별 설정: `gpu-12g.json`, `rtx4090-24g.json`, `gpu-dev-12g.json`(Qwen2.5-1.5B, 중립 어댑터·파이프라인 시험 전용, 파일의 `status`) |
@@ -111,6 +112,8 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0014](docs/adr/0014-pod-self-provisioning.md) | 임대 파드가 uv(고정)로 파이썬 3.12를 받고 gcc는 root면 apt로 스스로 준비 |
 | [0015](docs/adr/0015-model-name-single-source.md) | 파드에서 받을 모델 이름은 프로파일의 base_model 하나에서만 읽고, `--model`이 다르면 시작 전 중단 |
 | [0016](docs/adr/0016-pod-cost-guards.md) | 파드 비용 가드: 메모리 부족 기동 실패 시 util 자동 재시도, 한 기동 다단계 부하(--plan), 키트 커밋 기록 |
+| [0017](docs/adr/0017-role-components-and-shared-retry.md) | LoRA-A·B를 두 컴포넌트로, 재시도는 공용 함수, 특수 토큰은 prompts.py |
+| [0018](docs/adr/0018-mimic-components.md) | 데모용 모방 컴포넌트와 규칙표 데이터 파일 |
 
 ## 더 자세한 문서
 

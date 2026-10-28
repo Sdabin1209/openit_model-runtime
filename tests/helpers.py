@@ -47,3 +47,23 @@ def wait_until(pred, timeout=5.0):
             return True
         time.sleep(0.005)
     return pred()
+
+
+TURN_ENGINE_TAG_DEFAULT = "v0.4.1"   # README가 마지막으로 시험한 태그. 기준표(deploy/scripts/lib.sh)와 다르면 환경 변수 TURN_ENGINE_TAG로 준다
+
+
+def require_turn_engine():
+    """turn-engine을 돌려준다. 없으면 건너뛰지 않고 태그로 설치한다. 설치하지 못하면 예외(시험 실패)다.
+    왜: 모방 컴포넌트의 출력은 turn-engine validate_extraction을 통과해야 한다는 검증을 환경 때문에 빼면 안 된다."""
+    import importlib
+    import os
+    import subprocess
+    import sys
+    try:
+        return importlib.import_module("turn_engine")
+    except ImportError:
+        tag = os.environ.get("TURN_ENGINE_TAG", TURN_ENGINE_TAG_DEFAULT)
+        url = f"git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@{tag}"
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", url], check=True)
+        importlib.invalidate_caches()
+        return importlib.import_module("turn_engine")

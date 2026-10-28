@@ -1,4 +1,5 @@
 from .backends import ConstraintBackend, FakeBackend, GenerationRequest, fake_extraction_for, fake_slot_value, load_fake_flow, load_fake_flow_spec, load_fake_corrections, load_fake_reasks, make_default_responder
+from .mimic import MimicBackend, MimicExtractor, MimicResponder, load_rules as load_mimic_rules, mimic_backend_from_files
 from .errors import (BackendNotAvailable, ContractVersionMismatch, ContractViolation, ModelOutputInvalid, ModelRuntimeError,
                      ServingConfigMismatch, SystemPromptMismatch, UnsupportedServingConfig)
 from .fallback import fallback_text
@@ -11,7 +12,7 @@ from .session import (FAKE_SYSTEM_PROMPTS, RUNTIME_VERSION, CallInfo, FakeModelS
                       fake_serving_config, fake_serving_configs, load, read_system_prompt)
 
 __all__ = [
-    "BackendNotAvailable", "CallInfo", "ConstraintBackend", "ContractVersionMismatch", "ContractViolation",
+    "BackendNotAvailable", "MimicBackend", "MimicExtractor", "MimicResponder", "load_mimic_rules", "mimic_backend_from_files", "CallInfo", "ConstraintBackend", "ContractVersionMismatch", "ContractViolation",
     "FAKE_SYSTEM_PROMPTS", "FakeBackend", "fake_extraction_for", "fake_slot_value", "load_fake_flow", "load_fake_flow_spec", "load_fake_corrections", "load_fake_reasks", "make_default_responder", "FakeModelSession", "GenerationRequest", "ModelOutputInvalid", "ModelRuntimeError", "ModelSession",
     "PROTECTION_POLICIES", "PROTECTION_POLICY_VERSION", "ProtectionPolicy", "RELAX_POLICY_VERSION", "RUNTIME_VERSION", "RawResult",
     "ResponseResult", "SUPPORTED_RUNTIME_CONTRACT_VERSION", "SchemaSet", "ServingConfigMismatch", "SystemPromptMismatch", "UnsupportedServingConfig",

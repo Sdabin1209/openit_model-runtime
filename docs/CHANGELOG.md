@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 미출시 (wo2 브랜치, 2026-10-28) — 역할 컴포넌트 분리, 특수 토큰 한 곳, 모방 백엔드
+공개 API(I9 서버, `ModelSession`, `load`, `render_prompt`)와 `serving_config`·해시는 그대로다. 버전 번호는 올리지 않았다(헤드가 병합 때 정한다).
+- MR-02: `neutralize_special_tokens`를 서버에서 `prompts.py`로 옮기고 `render_prompt`가 적용한다(검증 뒤, 직렬화 전). 직접 호출자도 서비스와 같은 프롬프트를 만든다. `server.neutralize_special_tokens`는 없어졌다.
+- MR-01·MR-03(최소안): `roles.py`의 `ExtractRole`/`RespondRole`, 공용 `run_attempts`, 프롬프트 직렬화 함수 둘, 가짜 응답기 역할별 분리(ADR 0017). 서버 파일 분리와 `info()` 정리는 하지 않았다.
+- 모방 백엔드: `MODEL_RUNTIME_BACKEND=mimic`(`MODEL_RUNTIME_ALLOW_FAKE=1` 필요), `MimicExtractor`/`MimicResponder`, 규칙표 `data/mimic_rules.json`(ADR 0018). `/v1/info`의 backend는 `mimic`이고 매니페스트 `serving_config.constraint.backend`도 `mimic`이어야 한다.
+- `scripts/setup-env.sh --with-turn-engine`: 모방 시험이 쓰는 turn-engine을 태그로 설치한다.
+
 ## 0.7.6 — 2026-10-28 (계약 v2.1.1 정렬)
 
 계약 v2.1.1 정렬. 0.7.5는 계약 v2.1.0 pin이라 새 열차와 맞지 않아 0.7.6으로 대체한다(0.7.5 태그를 이미지·배포 기준으로 쓰지 않는다). 계약 pin을 `pyproject.toml` 주석, `Dockerfile`, `scripts/smoke.sh`, `scripts/gpu_check.sh`에서 v2.1.1로 올렸다. 버전 정본은 `pyproject.toml`의 version이고 `RUNTIME_VERSION`과 같다(`tests/test_version_source.py`). 같은 열차에서 문서의 복사된 버전을 정본 가리킴으로 바꾸고 `docs/design.md`의 v1 서술을 `docs/history/design-v1.md`로 옮겼다. 스모크 라벨 검사는 pyproject와 설치된 `RUNTIME_VERSION` 두 출처와 비교하고, Dockerfile은 `MODEL_RUNTIME_VERSION` 빌드 인자가 비면 실패한다. 동작 변경은 없다.
