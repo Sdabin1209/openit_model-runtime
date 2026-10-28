@@ -61,3 +61,7 @@
 
 ## 알려야 할 것
 - `serving_config` 형식 변경 없음. vLLM을 쓰려면 `constraint`에 `backend: "vllm"`, 정확한 `backend_version`, `DEFAULT_SUPPORTED_FEATURES`가 필요하다.
+
+## 지시서 2 (wo2 브랜치, 2026-10-28)
+한 일: MR-02(특수 토큰 prompts.py로), MR-01·MR-03 최소안(roles.py 두 컴포넌트), 모방 백엔드(`mimic`), CR-006 경계 스키마 초안 5개. ADR 0017·0018. 시험: 기존 `.venv`(turn-engine v0.4.1 설치)에서 `pytest -q -rs` 261 통과, 1 실패, 2 건너뜀. 실패 1건 `test_reference_checkout_is_the_installed_tag`는 형제 `../boundary-contracts` 작업 트리가 v2.1.1-3으로 앞서 있어서이며 이번 변경 이전 커밋에서도 같다.
+남은 일: MR-03의 server.py 분리·`info()` 정리, MR-04(`GenerationRequest.input`), MR-11·MR-12(지시에 따라 손대지 않음). 이미지 빌드·스모크는 돌리지 않았다. 새 clone 두 번째 환경 확인은 하지 않았다.
