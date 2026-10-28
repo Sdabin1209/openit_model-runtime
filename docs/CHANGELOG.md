@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.7.3 이후 (태그 없음) — 2026-10-28 가짜 A의 되묻기(REASK) 설정
+가짜 백엔드 전용, 운영(vLLM) 경로 무변경. 흐름 파일(`MODEL_RUNTIME_FAKE_FLOW_FILE`)의 선택 항목 `reasks`: `[{"contains","key","reason"(선택, 기본 MISSING),"at"(선택)}]`. 문구가 발화에 있으면 매번 REASK(next_item=입력 question_id, targets=[key], 그 칸은 MISSING)를 낸다. survey-service의 되묻기 한도(REASK_LIMIT)를 통합으로 시험하려고 더했다. `load_fake_reasks`를 내보낸다. 버전은 올리지 않았다. 시험 `FakeReask`(tests/test_fake_flow.py).
+
 ## 0.7.3 이후 (태그 없음) — 2026-10-28 GPU 세션 키트 안전 보강(감사 라운드 2 MR-1~6)
 서버 런타임 코드 변경 없음(scripts/gpu_session만): 작업 폴더 검사를 만들기 전에, `--clean-cache`·`--overwrite`는 표식이 있는 것만, `--release-id` 검증, 값 없는 옵션은 종료 코드 2, 토큰은 `curl -H @파일`. 호출자가 먼저 끊어도 엔진을 최대 3.5초 더 잡는 한계를 boundary.md에 적었다(추정). 버전은 올리지 않았다.
 
