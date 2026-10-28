@@ -3,7 +3,7 @@
 라이브러리이므로 서비스처럼 직접 운영하지 않는다. 아래는 이 라이브러리를 쓰는 서비스·평가에서 증상이 나올 때의 확인 순서다.
 
 ## 개발 시험
-`.venv`를 만들고 `pip install pytest jsonschema "git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v2.1.0" -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 형제 폴더를 읽는 시험은 읽기 전용 참조 두 곳뿐이다: `tests/test_server_e2e.py`(참조 I4 서버·conformance, 없으면 건너뜀)와 `tests/test_anyof_constraint.py`(`examples/`). 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. turn-engine·xgrammar가 없는 새 venv에서는 그 둘이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
+`.venv`를 만들고 `pip install pytest jsonschema "git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<BOUNDARY_TAG>" -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 형제 폴더를 읽는 시험은 읽기 전용 참조 두 곳뿐이다: `tests/test_server_e2e.py`(참조 I4 서버·conformance, 없으면 건너뜀)와 `tests/test_anyof_constraint.py`(`examples/`). 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. turn-engine·xgrammar가 없는 새 venv에서는 그 둘이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
 
 **turn-engine(선택, 시험 전용)**: `pyproject.toml`은 turn-engine 버전을 핀하지 않는다(버전 표를 여러 곳에 두지 않기 위해, U15). `tests/test_fake_flow.py`의 turn-engine 검증 2건은 `pytest.importorskip("turn_engine")`라 설치되어 있지 않으면 건너뛴다. 돌리려면 어떤 turn-engine인지 정해서 직접 설치한다. 기준은 deploy의 버전 표(`versions.env` 성격)가 정한 태그이고, 이 리포는 정하지 않는다. 예: `.venv/bin/pip install --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@<태그>"` (또는 형제 체크아웃이 있으면 `.venv/bin/pip install --no-deps -e ../turn-engine`). 건너뛴 시험 수는 `pytest -rs`의 SKIPPED 줄과 마지막 줄의 `skipped`로 본다.
 
@@ -13,7 +13,7 @@
 ## 서버와 컨테이너 (D62, 0.5.0) — deploy가 compose에 넣을 정보
 
 ### 이미지 두 변형
-같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 태그 v2.0.2이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
+같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 기준 태그(`deploy/scripts/lib.sh`의 `BOUNDARY_TAG`)이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |
@@ -22,7 +22,7 @@
 
 스키마를 이미지에 넣는 선택 옵션: `--build-context schema=<.../survey-service/schema>`를 더하면 `/opt/survey-schema`에 들어가고, `MODEL_RUNTIME_SCHEMA_DIR`가 없을 때 `/opt/survey-schema/schemas`를 쓴다(읽기 전용 마운트 불필요). 안 주면 빈 스테이지라 이미지에 스키마가 없고 마운트가 필요하다. 어느 쪽이든 정수 버전은 라벨 `io.openit.contracts.survey-schema`(`--build-arg SURVEY_SCHEMA_VERSION=<n>`)로 밝히고, 스키마 버전이 바뀌면 이미지를 다시 만든다(D21).
 
-라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n> TURN_ENGINE_VERSION=<v>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 0.5.0). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
+라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n> TURN_ENGINE_VERSION=<v>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 빌드 인자 `MODEL_RUNTIME_VERSION`, 정본은 pyproject의 version). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
 
 ### 환경 변수 (설정은 환경 변수로만 받는다)
 | 변수 | 필수 | 기본 | 뜻 |

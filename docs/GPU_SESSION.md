@@ -18,7 +18,7 @@
 ## 사람이 하는 일 (헤드가 서버에서)
 **서버에는 키트 코드만 올리고, 서버 쓰기는 `~/dabin` 안뿐이다.** 서버 접속과 실행은 사람이 한다(이 키트를 만든 세션은 접속하지 않았다).
 
-1. **[PC] 키트 만들기**: 커밋된 상태에서 `scripts/gpu_session/make_kit.sh /tmp/mr-kit.tgz --python <boundary-contracts 2.0.2가 설치된 파이썬>`. 출력의 `KIT_MANIFEST.txt`(커밋, boundary 버전)를 기록한다. 서버로 `scp`한다.
+1. **[PC] 키트 만들기**: 커밋된 상태에서 `scripts/gpu_session/make_kit.sh /tmp/mr-kit.tgz --python <boundary-contracts(기준 태그)가 설치된 파이썬>`. 출력의 `KIT_MANIFEST.txt`(커밋, boundary 버전)를 기록한다. 서버로 `scp`한다.
 2. **[서버] 풀기**: `mkdir -p ~/dabin && tar -xzf mr-kit.tgz -C ~/dabin` (결과 `~/dabin/mr-kit`).
 3. **[서버] 환경 확인(읽기만)**: `PY=/home/openit/miniconda3/envs/openit-llm/bin/python`
    - `$PY -c "import jsonschema, vllm; print(vllm.__version__)"` -> `0.31.0`이어야 한다(키트의 requirements-gpu.lock과 같아야 `backend_version`이 맞는다). `jsonschema`가 없으면 멈추고 헤드가 결정한다(환경을 고치지 않는다).
@@ -88,7 +88,7 @@
 ### 0. 임대 전(PC, 비용 0): 확인할 것과 사용자 결정
 | 항목 | 값 / 출처 | 업로드 필요? |
 | --- | --- | --- |
-| 키트 코드(`make_kit.sh`) | 이 리포 + boundary-contracts 2.0.2 설치된 파이썬(`.venv`). 비밀 없음, 100KB | 필요(코드만) |
+| 키트 코드(`make_kit.sh`) | 이 리포 + boundary-contracts(기준 태그) 설치된 파이썬(`.venv`). 비밀 없음, 100KB | 필요(코드만) |
 | 어댑터 A·B | 학습 산출물(서버 `~/taehyeon/runs/a_8b_v2/adapter`, `~/myungchan/runs/b_8b_1014/adapter`)을 PC로 먼저 가져와야 한다. 각 약 350MB | **사용자 결정**(학습 산출물의 외부 반출) |
 | C1 val jsonl 2개 | `lora_a_val.jsonl`, `lora_b_val.jsonl`(합성 발화) | **사용자 결정**(데이터셋 소유자 확인 포함) |
 | 기반 모델 Qwen3-8B 약 16GB | 파드가 Hugging Face에서 직접 내려받음(공개 모델, 토큰 불필요) | 업로드 불필요 |
