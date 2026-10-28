@@ -204,15 +204,19 @@ def fake_extraction_for(question_id: str, order: Sequence[str], utterance: str |
             "values": [{"key": key, "precision": "exact", "save": True, "status": "ANSWERED", "value": value}]}
 
 
+def route_by_adapter(table: Mapping[str, Callable[[GenerationRequest], str]]) -> Callable[[GenerationRequest], str]:
+    """어댑터(역할) 이름으로 그 역할의 응답기를 고른다. 한 엔진에 두 어댑터를 올리는 구조(ADR 0003)의 가짜 쪽 모습이며, 역할마다 응답기가 따로다(MR-01)."""
+    return lambda req: table[req.role](req)
+
+
 def make_default_responder(order: Sequence[str] | None = None, extraction: Mapping | None = None,
                            slots: Mapping | None = None, skips: Sequence[Mapping] = (), corrections: Sequence[Mapping] = (),
                            reasks: Sequence[Mapping] = ()) -> Callable[[GenerationRequest], str]:
-    """extraction(고정 출력)이 있으면 그것, 아니면 order가 있으면 입력 기준 다음 문항(slots가 있으면 발화의 값 포함), 둘 다 없으면 FAKE_EXTRACTION."""
+    """LoRA-A 응답기는 extraction(고정 출력)이 있으면 그것, 아니면 order가 있으면 입력 기준 다음 문항(slots가 있으면 발화의 값 포함), 둘 다 없으면 FAKE_EXTRACTION.
+    LoRA-B 응답기는 FAKE_RESPONSE_TEXT."""
     fixed = json.dumps(extraction, ensure_ascii=False) if extraction is not None else None
 
-    def respond(req: GenerationRequest) -> str:
-        if req.role != "LORA_A":
-            return FAKE_RESPONSE_TEXT
+    def extract(req: GenerationRequest) -> str:   # LoRA-A 가짜: 자기 입력(ActionExtractionInput)의 문항만 읽는다
         if fixed is not None:
             return fixed
         inp = req.input or {}
@@ -221,7 +225,10 @@ def make_default_responder(order: Sequence[str] | None = None, extraction: Mappi
             utt = inp.get("user_utterance")
             return json.dumps(fake_extraction_for(qid, order, utt if isinstance(utt, str) else None, slots, skips, corrections, reasks), ensure_ascii=False)
         return json.dumps(FAKE_EXTRACTION, ensure_ascii=False)
-    return respond
+
+    def respond(req: GenerationRequest) -> str:   # LoRA-B 가짜: 입력을 읽지 않는다
+        return FAKE_RESPONSE_TEXT
+    return route_by_adapter({"LORA_A": extract, "LORA_B": respond})
 
 
 _default_responder = make_default_responder()

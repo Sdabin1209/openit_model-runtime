@@ -385,8 +385,7 @@ class Relax(unittest.TestCase):
 
     def test_text_role_has_no_constraint_schema(self):
         _, _, s = make()
-        self.assertIsNone(s._schemas.model_output_schema("LORA_B"))
-        self.assertEqual(s._constraint["LORA_B"], (None, ()))
+        self.assertEqual(s._roles["LORA_B"].constraint, (None, ()))
 
     def test_oneof_const_becomes_enum(self):
         r, removed = mr.relax({"oneOf": [{"const": "A"}, {"const": "B"}]}, ["enum"])

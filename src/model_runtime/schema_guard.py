@@ -22,7 +22,6 @@ RELAX_POLICY_VERSION = "relax-3"
 
 INPUT_CONTRACT = {"LORA_A": "ActionExtractionInput", "LORA_B": "ResponseRequest"}
 OUTPUT_CONTRACT = {"LORA_A": "ActionExtraction", "LORA_B": "ResponseText"}
-JSON_OUTPUT_ROLES = ("LORA_A",)   # JSON을 내는 역할. LORA_B는 문장 그대로의 텍스트다(제약 디코딩 없음)
 
 
 def violations_of(errors: Iterable[jsonschema.ValidationError]) -> list[tuple[str, str]]:
@@ -71,11 +70,10 @@ class SchemaSet:
                 f"문진 스키마 버전 {self.contract_version}은 지원하지 않는다 (지원: {SUPPORTED_RUNTIME_CONTRACT_VERSION})"
             )
         self._validators = {name: _strict_pattern_validator(validator(name)) for name in [*INPUT_CONTRACT.values(), *OUTPUT_CONTRACT.values()]}
-        self._model_schemas = {role: _strip_comments(load_schema(OUTPUT_CONTRACT[role])) for role in JSON_OUTPUT_ROLES}
 
-    def model_output_schema(self, role: str) -> dict | None:
-        """제약 디코딩에 쓸 출력 스키마(완화 전). 텍스트를 내는 역할(LORA_B)은 None."""
-        return copy.deepcopy(self._model_schemas[role]) if role in self._model_schemas else None
+    def model_output_schema(self, role: str) -> dict:
+        """제약 디코딩에 쓸 출력 스키마(완화 전). 제약을 쓸지는 역할이 정한다(이 클래스는 역할 종류를 가리지 않는다, MR-01)."""
+        return _strip_comments(load_schema(OUTPUT_CONTRACT[role]))
 
     def validate_input(self, role: str, value: Any) -> None:
         name = INPUT_CONTRACT[role]

@@ -82,7 +82,7 @@ def run(data_dir: Path, splits, limit, sys_prompts):
                         if got == exp:
                             S["render_match"] += 1
                         else:
-                            gu = prompts._USER["prompt-4"](role, obj)
+                            gu = prompts._USER["prompt-4"][role](obj)
                             c = "user_serialization" if gu != user else "template"
                             causes[c] += 1; samples[c].append((sp, i, first_diff(got, exp)))
                     except mr.ContractViolation as e:

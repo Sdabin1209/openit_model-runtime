@@ -53,15 +53,18 @@ def _qwen3_nothink(system: str, user: str) -> str:
             "<|im_start|>assistant\n<think>\n\n</think>\n\n")
 
 
-def _user_prompt4(role: str, input: Mapping) -> str:
-    """학습 데이터와 같은 글자: json.dumps(ensure_ascii=False). A는 최상위만 정렬, B는 전 수준 정렬."""
-    if role == "LORA_B":
-        return json.dumps(dict(input), ensure_ascii=False, sort_keys=True)
+def serialize_extract_input_4(input: Mapping) -> str:
+    """LoRA-A 입력 직렬화(prompt-4): 학습 데이터와 같은 글자 json.dumps(ensure_ascii=False). 최상위 키만 사전순, 아래는 호출자 순서 그대로."""
     return json.dumps({k: input[k] for k in sorted(input)}, ensure_ascii=False)
 
 
-# 버전 -> 사용자 메시지 직렬화. 채팅 형식은 모두 같다.
-_USER = {"prompt-4": _user_prompt4}
+def serialize_respond_input_4(input: Mapping) -> str:
+    """LoRA-B 입력 직렬화(prompt-4): 모든 수준의 키를 사전순으로 정렬한다(학습 데이터가 그렇다). 배열 원소 순서는 그대로."""
+    return json.dumps(dict(input), ensure_ascii=False, sort_keys=True)
+
+
+# 버전 -> 역할 이름 -> 사용자 메시지 직렬화. 역할 이름은 어댑터 이름이며 조회 키일 뿐이다(분기가 아니다). 채팅 형식은 모두 같다.
+_USER = {"prompt-4": {"LORA_A": serialize_extract_input_4, "LORA_B": serialize_respond_input_4}}
 TEMPLATES = {v: _qwen3_nothink for v in _USER}
 SUPPORTED_TEMPLATE_VERSIONS = frozenset(TEMPLATES)
 DEFAULT_TEMPLATE_VERSION = "prompt-4"
@@ -85,5 +88,5 @@ def render_prompt(role: str, input: Mapping, *, serving_config: Mapping, system_
         raise ContractViolation("system_prompt는 비어 있지 않은 문자열이어야 한다")
     s = schemas or _schemas_for(str(schema_dir))
     s.validate_input(role, input)
-    user = _USER[version](role, neutralize_special_tokens(input))   # 검증 뒤, 직렬화 전(서버와 직접 호출자가 같은 프롬프트를 만든다)
+    user = _USER[version][role](neutralize_special_tokens(input))   # 검증 뒤, 직렬화 전(서버와 직접 호출자가 같은 프롬프트를 만든다)
     return TEMPLATES[version](system_prompt, user)

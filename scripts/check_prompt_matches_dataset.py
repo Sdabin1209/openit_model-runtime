@@ -55,7 +55,7 @@ def check_row(row: dict, role_opt: str, shuffle: bool, rnd: random.Random):
     role = role_opt if role_opt != "auto" else detect_role(obj)
     probe = shuffled(obj, role, rnd) if shuffle else obj
     problems = []
-    got_user = prompts._USER["prompt-4"](role, probe)
+    got_user = prompts._USER["prompt-4"][role](probe)
     if got_user != user:
         problems.append(("user", first_diff(got_user, user)))
     expect = prompts._qwen3_nothink(system, user)
