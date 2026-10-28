@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 0.8.0 — 2026-10-29 (계약 2.2.0 단계 B: 인증 실패 401, 호출별 시간 상한)
+0.x 규칙에 따라 호환이 깨지는 변경이라 MINOR를 올린다(헤드 지시 wo7). 계약 pin(boundary-contracts v2.1.1)은 이 변경에서 그대로다. 코드는 wo5(커밋 `82ddb56`, `43b6884`)에서 바뀌었고 이 버전 올림은 버전 표기와 문서만이다.
+- **호환 깨짐 1: 환경 변수 `MODEL_RUNTIME_REQUEST_DEADLINE_S`(3.5초 하나) 제거.** 설정되어 있으면 서버가 시작을 거부한다. 대신 `MODEL_RUNTIME_EXTRACT_DEADLINE_S`(기본 3.0), `MODEL_RUNTIME_RESPOND_DEADLINE_S`(기본 2.0)를 쓴다. 출력 재시도는 남은 호출 예산이 직전 시도 시간 이상일 때만 한다(ADR 0020, 계약 CONVENTIONS '시간 상한 사슬' 2.2.0). 이 배분값은 측정하지 않았다.
+- **호환 깨짐 2: 토큰이 없거나 틀리면 403이 아니라 401 + `WWW-Authenticate: Bearer`.** 권한 없음(`PUT_ROLES` 밖, `loader`의 추론)만 403. 오류 본문 `code`는 둘 다 `PERMISSION_DENIED`, 클라이언트 변경 없음(계약 CONVENTIONS 6절, D106; ADR 0012 갱신).
+- **호환 깨짐 3: 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 서버와 같아야 하므로(`server.py`), 0.7.x로 만든 릴리스는 0.8.0 서버에서 `UNSUPPORTED_VERSION`으로 거부된다.** 릴리스를 0.8.x로 다시 만들어야 한다.
+- 문서: ADR 0019(근거 없는 값의 출처 분류), ADR 0020(호출별 상한), design.md의 `gpu-12g` 설명 정정(Qwen3-1.7B).
+
 ## 0.7.7 — 2026-10-28 (역할 컴포넌트 분리, 특수 토큰 한 곳, 모방 백엔드)
 공개 API(I9 서버, `ModelSession`, `load`, `render_prompt`)와 `serving_config`·해시는 그대로다. 버전은 0.7.7로 올렸다(헤드가 병합 때 정했다). 계약 v2.1.1 pin은 그대로다.
 - MR-02: `neutralize_special_tokens`를 서버에서 `prompts.py`로 옮기고 `render_prompt`가 적용한다(검증 뒤, 직렬화 전). 직접 호출자도 서비스와 같은 프롬프트를 만든다. `server.neutralize_special_tokens`는 없어졌다.
