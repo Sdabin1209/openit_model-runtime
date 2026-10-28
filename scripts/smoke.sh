@@ -18,7 +18,7 @@ else
     || { echo "boundary-contracts 태그 $BOUNDARY_TAG를 형제 폴더에서도 GitHub에서도 꺼내지 못했다" >&2; exit 1; }
 fi
 docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
-  --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" --build-arg MODEL_RUNTIME_VERSION="$MR_VERSION" \
+  --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" --build-arg MODEL_RUNTIME_VERSION="v$MR_VERSION" \
   --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
 docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
   "$TAG" >/dev/null
@@ -50,7 +50,7 @@ echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" ||
 echo "$LABELS" | # 기대값은 서로 독립인 두 출처다: (1) pyproject의 version(빌드 인자로 넘긴 값과 같은 파일이지만 라벨이 실제로 채워졌는지 본다) (2) 이미지에 설치된 패키지의 RUNTIME_VERSION
 INST_VERSION="$(docker exec "$NAME" python -c 'import model_runtime as m;print(m.RUNTIME_VERSION)')"
 [ "$INST_VERSION" = "$MR_VERSION" ] || { echo "설치된 RUNTIME_VERSION($INST_VERSION)이 pyproject version($MR_VERSION)과 다르다" >&2; exit 1; }
-echo "$LABELS" | grep -q "\"io.openit.model-runtime\":\"$INST_VERSION\"" || { echo "라벨의 model-runtime 버전이 설치된 RUNTIME_VERSION($INST_VERSION)과 다르다" >&2; exit 1; }
+echo "$LABELS" | grep -q "\"io.openit.model-runtime\":\"v$INST_VERSION\"" || { echo "라벨의 model-runtime 버전이 설치된 RUNTIME_VERSION($INST_VERSION)과 다르다" >&2; exit 1; }
 # 기본은 닫힘(MR-1): 토큰 없이는, 그리고 ALLOW_FAKE 없이 fake로는 시작하지 않는다.
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 "$TAG" >/dev/null 2>&1 || { echo "토큰 없이 시작되면 안 된다" >&2; exit 1; }
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_TOKENS=survey=smoke-token "$TAG" >/dev/null 2>&1 || { echo "ALLOW_FAKE 없이 fake로 시작되면 안 된다" >&2; exit 1; }

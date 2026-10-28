@@ -3,7 +3,8 @@
 ## 0.8.1 — 2026-10-29 (계약 v2.2.0 핀, 의존 핀만)
 PATCH: 의존 핀만 바꾸고 코드 동작은 바꾸지 않는다(헤드 지시 wo-bc220). ADR 0010의 `check_action_extraction` 연결(CR-007)은 다음 단위다.
 - 계약 핀 boundary-contracts v2.1.1 → **v2.2.0**(정본: `Dockerfile`의 `ARG BOUNDARY_VERSION`, `setup-env.sh`·`smoke.sh`·`gpu_check.sh`가 여기서 읽는다). 이 영역 서버의 401/403과 호출별 시간 상한(0.8.0)은 2.2.0 문서가 확정한 규칙이다.
-- turn-engine 시험 의존의 기본 태그 → **v0.4.3**(`scripts/setup-env.sh --with-turn-engine`, `tests/helpers.py`의 `TURN_ENGINE_TAG_DEFAULT`). 이 버전 올림 시점에 v0.4.3 태그가 로컬에 없어 turn-engine 설치는 확인하지 않았다.
+- turn-engine 시험 의존의 기본 태그 → **v0.4.3**(`scripts/setup-env.sh --with-turn-engine`, `tests/helpers.py`의 `TURN_ENGINE_TAG_DEFAULT`). v0.4.3 태그(커밋 `a60f77e`)를 venv에 설치해 전체 시험을 돌렸다.
+- 이미지 라벨을 계약 v2.2.0 `ImageLabels`(D108)에 맞춘다: `Dockerfile`의 `SURVEY_SCHEMA_VERSION`·`TURN_ENGINE_VERSION` 기본값 `unknown`·`none` → `n/a`, `scripts/smoke.sh`가 넘기는 `io.openit.model-runtime` 값에 `v` 접두사(`v0.8.1`). 시험 `tests/test_image_labels.py`가 Dockerfile ARG·LABEL과 smoke.sh 빌드 인자로 라벨을 만들어 계약 검증기로 본다(수정 전 2건 실패를 확인). 서버 동작은 그대로다. **배포 쪽 호환 주의:** 이 이미지를 직접 빌드하는 쪽은 `MODEL_RUNTIME_VERSION`에 `v`를 붙여 넘겨야 한다.
 
 ## 0.8.0 — 2026-10-29 (계약 2.2.0 단계 B: 인증 실패 401, 호출별 시간 상한)
 0.x 규칙에 따라 호환이 깨지는 변경이라 MINOR를 올린다(헤드 지시 wo7). 계약 pin(boundary-contracts v2.1.1)은 이 변경에서 그대로다. 코드는 wo5(커밋 `82ddb56`, `43b6884`)에서 바뀌었고 이 버전 올림은 버전 표기와 문서만이다.
