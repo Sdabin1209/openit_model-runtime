@@ -19,8 +19,8 @@ if ! install; then
 fi
 # 왜 선택 설치인가: turn-engine은 시험 전용이고 이 리포가 버전을 핀하지 않는다(U15). 모방 컴포넌트 시험(tests/test_mimic.py)은 turn-engine의 validate_extraction으로
 # 출력을 확인해야 하므로 --with-turn-engine로 설치한다(시험도 없으면 스스로 설치한다, tests/helpers.py require_turn_engine). 태그는 TURN_ENGINE_TAG로 정한다.
-# 기본값은 워크스페이스 기준 태그(v0.4.2)다. 워크스페이스 기준표는 deploy/scripts/lib.sh이며 다르면 TURN_ENGINE_TAG를 그 값으로 준다.
+# 기본값은 워크스페이스 기준 태그(v0.4.3)다. 워크스페이스 기준표는 deploy/scripts/lib.sh이며 다르면 TURN_ENGINE_TAG를 그 값으로 준다.
 if [ "${1:-}" = "--with-turn-engine" ]; then
-  .venv/bin/python -m pip install -q --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@${TURN_ENGINE_TAG:-v0.4.2}"
+  .venv/bin/python -m pip install -q --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@${TURN_ENGINE_TAG:-v0.4.3}"
 fi
 echo "setup-env: 완료 (boundary-contracts ${TAG}). 시험: .venv/bin/python -m pytest -q -rs"

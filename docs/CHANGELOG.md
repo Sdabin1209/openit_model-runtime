@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 0.8.1 — 2026-10-29 (계약 v2.2.0 핀, 의존 핀만)
+PATCH: 의존 핀만 바꾸고 코드 동작은 바꾸지 않는다(헤드 지시 wo-bc220). ADR 0010의 `check_action_extraction` 연결(CR-007)은 다음 단위다.
+- 계약 핀 boundary-contracts v2.1.1 → **v2.2.0**(정본: `Dockerfile`의 `ARG BOUNDARY_VERSION`, `setup-env.sh`·`smoke.sh`·`gpu_check.sh`가 여기서 읽는다). 이 영역 서버의 401/403과 호출별 시간 상한(0.8.0)은 2.2.0 문서가 확정한 규칙이다.
+- turn-engine 시험 의존의 기본 태그 → **v0.4.3**(`scripts/setup-env.sh --with-turn-engine`, `tests/helpers.py`의 `TURN_ENGINE_TAG_DEFAULT`). 이 버전 올림 시점에 v0.4.3 태그가 로컬에 없어 turn-engine 설치는 확인하지 않았다.
+
 ## 0.8.0 — 2026-10-29 (계약 2.2.0 단계 B: 인증 실패 401, 호출별 시간 상한)
 0.x 규칙에 따라 호환이 깨지는 변경이라 MINOR를 올린다(헤드 지시 wo7). 계약 pin(boundary-contracts v2.1.1)은 이 변경에서 그대로다. 코드는 wo5(커밋 `82ddb56`, `43b6884`)에서 바뀌었고 이 버전 올림은 버전 표기와 문서만이다.
 - **호환 깨짐 1: 환경 변수 `MODEL_RUNTIME_REQUEST_DEADLINE_S`(3.5초 하나) 제거.** 설정되어 있으면 서버가 시작을 거부한다. 대신 `MODEL_RUNTIME_EXTRACT_DEADLINE_S`(기본 3.0), `MODEL_RUNTIME_RESPOND_DEADLINE_S`(기본 2.0)를 쓴다. 출력 재시도는 남은 호출 예산이 직전 시도 시간 이상일 때만 한다(ADR 0020, 계약 CONVENTIONS '시간 상한 사슬' 2.2.0). 이 배분값은 측정하지 않았다.

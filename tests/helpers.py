@@ -49,7 +49,7 @@ def wait_until(pred, timeout=5.0):
     return pred()
 
 
-TURN_ENGINE_TAG_DEFAULT = "v0.4.1"   # README가 마지막으로 시험한 태그. 기준표(deploy/scripts/lib.sh)와 다르면 환경 변수 TURN_ENGINE_TAG로 준다
+TURN_ENGINE_TAG_DEFAULT = "v0.4.3"   # 워크스페이스 기준 태그(계약 v2.2.0 열차). 기준표(deploy/scripts/lib.sh)와 다르면 환경 변수 TURN_ENGINE_TAG로 준다
 
 
 def require_turn_engine():
