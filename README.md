@@ -70,8 +70,8 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 - 위 새 clone 기준(216/6)은 `pod_setup` 단계 시험 8개(`tests/test_gpu_session.py`)를 더하기 전 값이다. 더한 뒤 이 리포의 기존 `.venv`(turn-engine 설치됨)에서 `python -m pytest -q -rs`: **233 통과, 7 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1, `tests/test_server_e2e.py`의 'boundary-contracts 참조 서버가 없다' 5; ADR 0015·0016 시험 추가 후. 이전 측정 232/2에서 e2e 5건이 건너뛰어진 원인은 이번에 조사하지 않았다: 이웃 폴더 상태에 따른 환경 차이로 추정, 미확인). 새 venv 기준 값은 다시 재지 않았다.
 - 가짜 A의 `reasks` 설정(CHANGELOG 0.7.5)과 시험 4개(`FakeReask`)를 더한 뒤 같은 기존 `.venv`에서 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(건너뜀 7건은 참조 서버·xgrammar·참조 데이터 경로 없음 등 환경 항목이며 전체 사유는 `-rs` 출력으로 확인, 이 줄에는 옮겨 적지 않았다). 새 venv 기준 값은 다시 재지 않았다.
   - 0.7.5(계약 v2.1.0 정렬 릴리스): 기존 `.venv`에 boundary-contracts v2.1.0과 turn-engine v0.4.1을 `git+file`로 설치한 뒤 `python -m pytest -q -rs`: **242 통과, 2 건너뜀**(건너뜀: xgrammar 없음 1, 참조 데이터 경로 없음 1; 계약 v2.1.0 설치로 참조 서버 시험 5건도 돈다). 위 237/7 줄은 그 이전 기록이다. `scripts/smoke.sh`(라벨 기대값 0.7.5)와 이미지 빌드는 이 릴리스 준비에서 돌리지 않았다.
-  - 의존을 더하면: turn-engine 0.4.0(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
-  - `scripts/smoke.sh`와 이미지 라벨(`io.openit.model-runtime`)은 이번에 다시 돌리지 않았다. 23차(0.7.3)의 기록은 docs/STATUS.md 23차.
+  - 의존을 더하면: turn-engine(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
+  - 스모크·이미지 라벨: **실행 확인 안 함**(Docker 빌드가 필요해 이번 점검에서 돌리지 않았다. 마지막 실행 기록은 docs/STATUS.md 23차, 0.7.3). **정적으로 확인한 것**: `scripts/smoke.sh`의 라벨 기대값은 pyproject의 version과 이미지에 설치된 `RUNTIME_VERSION` 두 출처이고(`bash -n` 통과), Dockerfile은 `MODEL_RUNTIME_VERSION` 인자가 비면 빌드를 실패시킨다. 이 구분의 정본은 이 절이며 다른 문서는 여기를 가리킨다.
 - 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
@@ -118,7 +118,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | --- | --- |
 | docs/brief.md | 영역의 목적, 경계, 수용 기준, GPU 호스트 규칙 |
 | docs/boundary.md | 제공 API(I9), 소비 계약, 호출자가 지킬 것, 장애 영향 |
-| docs/design.md | 내부 설계, 출력 보장 방식(O14), GPU 시험 기록(§11) |
+| docs/design.md | 현행 API 요약. v1 설계와 GPU 시험 기록(§11)은 docs/history/design-v1.md |
 | docs/runbook.md | 환경 변수, 이미지, 컴포즈, LoRA 교체, 증상별 확인 |
 | docs/STATUS.md | 차수별 한 일, 확인한 것과 못 한 것 |
 | docs/rules.md | 출력 보호 규칙 |

@@ -57,7 +57,7 @@ def main():
     be = type("B", (), {"name": "vllm", "version": vllm.__version__, "supported_features": frozenset(feats)})()
     cfgs = mr.fake_serving_configs(be)
     for r, c in cfgs.items():
-        c["decoding"]["retry_temperature"] = 0.7   # 재시도는 온도를 올린다(design.md 2.3)
+        c["decoding"]["retry_temperature"] = 0.7   # 재시도는 온도를 올린다(history/design-v1.md 2.3)
     cfgs["LORA_B"]["decoding"]["constraint_mode"] = "none"   # LoRA-B 출력은 JSON이 아니라 문장이다
     files = {r: {f.name: f.read_bytes() for f in Path(f"{a.adapters_root}/adapters/{r}").iterdir() if f.is_file()} for r in cfgs}
     ex = json.loads((root / "vendor" / "boundary-contracts" / "examples" / "ReleaseManifest.json").read_text())

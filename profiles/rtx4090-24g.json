@@ -3,7 +3,7 @@
   "status": {
     "loadable": "unverified",
     "two_adapters_loaded_together": "unverified",
-    "note": "이 하드웨어(24GB)와 Qwen3-8B에서 적재해 본 적이 없다. 스테이션에서 design.md 11-R '큰 스테이션에서 재확인'을 먼저 돌린다."
+    "note": "이 하드웨어(24GB)와 Qwen3-8B에서 적재해 본 적이 없다. 스테이션에서 history/design-v1.md 11-R '큰 스테이션에서 재확인'을 먼저 돌린다."
   },
   "base_model": "Qwen/Qwen3-8B",
   "engine": {

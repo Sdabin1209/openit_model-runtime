@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# design.md §11 GPU 시험을 gpu-dev에서 돌린다 (D47 규칙: docs/brief.md 끝). 사용: scripts/gpu_check.sh [preflight|sync|setup|run|serve|fetch|all]
+# history/design-v1.md §11 GPU 시험을 gpu-dev에서 돌린다 (D47 규칙: docs/brief.md 끝). 사용: scripts/gpu_check.sh [preflight|sync|setup|run|serve|fetch|all]
 # 종료 코드: 0 성공, 3 호스트에 pip 없음(사용자가 python3-pip python3-venv 설치 필요), 4 호스트 불가(SSH 실패 2회), 1 시험 실패.
 set -u
 HOST=gpu-dev
@@ -39,7 +39,7 @@ sync_code() {   # 루트 통째 rsync 금지: 폴더별로 보낸다. 비밀 값
   "${RSYNC[@]}" "$HERE/pyproject.toml" "$HERE/requirements-gpu.lock" "$HOST:openit-gpu/model-runtime/" || exit 1
   # 읽기 전용 입력의 사본(비밀 아님): 해시 구현과 문진 스키마. 호스트는 GitHub에 접속하지 않는다.
   # 계약은 태그 기준이다. 형제 폴더의 작업 트리가 아니라 태그를 git archive로 꺼내 보낸다. 태그를 꺼내지 못하면 보내지 않는다.
-  BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.0}"
+  BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.1}"
   BDIR="$(mktemp -d)"
   git -C "$WS/boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ] \
     || { rm -rf "$BDIR"; echo "boundary-contracts에서 태그 $BOUNDARY_TAG를 꺼내지 못했다. 보내지 않는다" >&2; exit 1; }

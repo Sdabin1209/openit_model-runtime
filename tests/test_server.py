@@ -365,7 +365,7 @@ class RuntimeDirs(unittest.TestCase):
                                                      "ENV CC=gcc", "\nUSER 10001"))
         self.assertLess(pip, apt); self.assertLess(apt, env); self.assertLess(env, user)   # apt는 무거운 pip 레이어 뒤, USER 앞
         # 커밋·버전마다 바뀌는 ARG/LABEL은 무거운 레이어(pip, apt)와 모든 COPY·RUN보다 뒤에 있어야 빌드 캐시가 재사용된다
-        last_layer = max(df.rindex(x) for x in ("\nRUN ", "\nCOPY "))
+        last_layer = max(df.rindex(x) for x in ("\nRUN pip", "\nCOPY ", "\nRUN if"))   # 라벨 인자 가드 RUN(test -n)은 가벼워 제외
         for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "ARG TURN_ENGINE_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
             self.assertGreater(df.index(x), last_layer, x)
         self.assertLess(df.index("ARG VARIANT"), df.index("COPY requirements-"))   # 잠금 파일 선택에 쓰이므로 앞

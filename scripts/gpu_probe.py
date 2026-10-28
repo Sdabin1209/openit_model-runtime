@@ -1,4 +1,4 @@
-"""design.md §11 GPU 시험 본체(호스트의 venv에서, flock 아래에서 돌린다). 결과는 --out/<tag>.json.
+"""history/design-v1.md §11 GPU 시험 본체(호스트의 venv에서, flock 아래에서 돌린다). 결과는 --out/<tag>.json.
 각 점검은 따로 try/except로 감싸 하나가 실패해도 나머지를 계속한다. 출력 원문(발화)을 로그에 남기지 않는다(시험 입력은 가짜)."""
 import argparse
 import copy

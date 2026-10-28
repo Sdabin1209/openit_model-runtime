@@ -1,5 +1,9 @@
 # 변경 이력
 
+## 0.7.6 — 2026-10-28 (계약 v2.1.1 정렬)
+
+계약 v2.1.1 정렬. 0.7.5는 계약 v2.1.0 pin이라 새 열차와 맞지 않아 0.7.6으로 대체한다(0.7.5 태그를 이미지·배포 기준으로 쓰지 않는다). 계약 pin을 `pyproject.toml` 주석, `Dockerfile`, `scripts/smoke.sh`, `scripts/gpu_check.sh`에서 v2.1.1로 올렸다. 버전 정본은 `pyproject.toml`의 version이고 `RUNTIME_VERSION`과 같다(`tests/test_version_source.py`). 같은 열차에서 문서의 복사된 버전을 정본 가리킴으로 바꾸고 `docs/design.md`의 v1 서술을 `docs/history/design-v1.md`로 옮겼다. 스모크 라벨 검사는 pyproject와 설치된 `RUNTIME_VERSION` 두 출처와 비교하고, Dockerfile은 `MODEL_RUNTIME_VERSION` 빌드 인자가 비면 실패한다. 동작 변경은 없다.
+
 ## 0.7.5 — 2026-10-28 (가짜 A 되묻기, GPU 세션 키트, 계약 v2.1.0 정렬)
 **0.7.4는 계약 v2.0.2 pin이라 정렬되지 않아 폐기하고 0.7.5로 대체한다.** 0.7.4 태그가 원격에 올라갔으나 이미지·배포의 기준으로 쓰지 않는다. 0.7.5는 0.7.4의 내용에 더해 boundary-contracts 의존을 `v2.0.2`에서 `v2.1.0`으로 올렸다(`Dockerfile`의 `BOUNDARY_VERSION`, `scripts/gpu_check.sh`, 설치 예시 문서). 이 리포는 turn-engine 버전을 핀하지 않는다(U15). 열차 순서: boundary v2.1.0 -> turn-engine v0.4.1 -> model-runtime v0.7.5 -> 영역(D80).
 아래는 0.7.4로 쓴 내용 그대로다(버전 표기만 0.7.5).

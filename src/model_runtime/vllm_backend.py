@@ -1,7 +1,7 @@
-"""첫 실제 백엔드: vLLM(프로세스 안 엔진) + 구조화 출력(JSON 스키마) + LoRA 요청 (design.md §2.1).
+"""첫 실제 백엔드: vLLM(프로세스 안 엔진) + 구조화 출력(JSON 스키마) + LoRA 요청 (history/design-v1.md §2.1).
 
 vLLM은 선택 의존(`pip install .[vllm]`)이고 생성할 때 import한다. 없으면 BackendNotAvailable이다.
-상태: 요청 조립은 단위 시험(vLLM 모킹)으로 확인했다. 실제 vLLM에서의 동작은 GPU 시험(scripts/gpu_check.sh, design.md §11)
+상태: 요청 조립은 단위 시험(vLLM 모킹)으로 확인했다. 실제 vLLM에서의 동작은 GPU 시험(scripts/gpu_check.sh, history/design-v1.md §11)
 전에는 확인되지 않았다. 12GB 같은 환경별 값은 코드에 두지 않고 프로파일(profiles/*.json)로 받는다."""
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any, Mapping
 from .backends import GenerationRequest
 from .errors import BackendNotAvailable, ContractViolation, UnsupportedServingConfig
 
-# gpu-dev 시험(vLLM 0.31.0 + xgrammar 0.2.7, 2026-10-15, design.md §11)으로 제약이 지켜지는 것을 확인한 키워드.
+# gpu-dev 시험(vLLM 0.31.0 + xgrammar 0.2.7, 2026-10-15, history/design-v1.md §11)으로 제약이 지켜지는 것을 확인한 키워드.
 # relax-2(0.6.4, D82): pattern·minItems 추가. 2026-10-27 컨테이너 안 직접 시험에서 xgrammar 0.2.7이 pattern을 강제하는 것을 헤드가 확인했다(minItems는 같은 시험에서 확인되었는지 이 리포는 모른다).
 # relax-3(0.6.5, D83): maxItems 추가(allOf를 anyOf로 펼칠 때 REDIRECT의 values 빈 목록 규칙에 쓰인다). CPU에서 xgrammar 0.2.7로 강제되는 것을 확인했다(scripts/xgrammar_check.py). 실제 vLLM에서는 미확인.
 # 넣지 않은 것: oneOf(const 열거는 enum으로 바꿔 쓴다. 객체 가지는 표본이 적어 anyOf로 넓힌다), allOf·if/then/not(조용히 무시됨),

@@ -53,6 +53,7 @@
 | 모델 내려받기/백엔드 기동 실패(GPU 모드) | `/readyz` 503(사유는 예외 이름), `MODEL_RUNTIME_BACKEND_RETRY_S`(기본 30s)마다 다시 시도해 성공하면 자동 복구. 실제 vLLM의 부분 기동 실패 후 재시도에서 GPU 메모리가 정리되는지는 확인하지 못했다(미확인) |
 
 ## 인증·입력 한도 (0.7.3, 감사 MR-1/2/3/4/10, 근거는 docs/adr/0012)
+- **비밀 파일 이름(D84, deploy compose와 같다)**: `MODEL_RUNTIME_TOKENS_FILE`(역할별 토큰), `MODEL_RUNTIME_RELEASE_TOKEN_FILE`(I4 릴리스 게이트 읽기 토큰). 값은 이미지·설정·로그에 넣지 않고 파일 경로만 환경 변수로 받는다. 환경 변수 `MODEL_RUNTIME_TOKENS`/`MODEL_RUNTIME_RELEASE_TOKEN`은 개발·시험용 호환이다.
 - **인증은 기본 닫힘.** `MODEL_RUNTIME_TOKENS(_FILE)`가 없으면 시작을 거부한다(개발용 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`만 예외). 빈 역할·빈 토큰·중복 토큰도 거부. `/v1/*`는 Bearer 토큰, 토큰은 상수 시간 비교. 역할 `loader`는 적재 PUT만, 그 밖의 역할은 PUT(`MODEL_RUNTIME_PUT_ROLES`로 제한 가능)·GET·extract·respond. survey-service가 404에서 PUT으로 다시 적재하므로(spec 5절) 기본은 인증된 모든 역할이 PUT 가능하다.
 - **`/readyz`와 `/healthz`의 구분.** `/healthz`는 프로세스가 살아 있으면 의존과 무관하게 200(FAULT_POLICY 5). `/readyz`는 백엔드·엔진 정지·엔진 예외·release 서버 도달성을 반영해 503이고, **사유는 인증된 호출에만** 준다(비인증은 `{"status":"not ready"}`만, 내부 주소·예외 이름 비노출). 엔진이 영영 멈추면 `/healthz`가 200이라 재시작이 일어나지 않으므로 밖이 `/readyz` 503 지속을 본다.
 - **입력 길이.** JSON 직렬화한 입력이 2500자(`MODEL_RUNTIME_MAX_INPUT_CHARS`)를 넘으면 400. 엔진이 입력을 거부(`ValueError`)해도 400이며 `/readyz`는 그대로다. 엔진 사망(그 밖의 예외)은 503과 `/readyz` 503. 호출자는 상한을 넘는 발화를 보내지 않는다(survey-service 쪽 처리는 해당 영역 몫). 계약 스키마에 `maxLength`가 없는 점은 변경 요청 대상이다(`docs/change-requests/`).

@@ -1,7 +1,7 @@
 # model-runtime 추론 서버 이미지. 서빙 목표: RTX 4090 24GB(GPU 변형), 같은 이미지의 CPU 변형은 가짜 백엔드 스모크용.
 #   GPU: docker build --build-arg VARIANT=gpu --build-context boundary=../boundary-contracts -t model-runtime:gpu .
 #   CPU: docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .
-# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드는 형제 폴더를 읽기 전용 빌드 컨텍스트로 쓰며, 그 내용은 태그 BOUNDARY_VERSION의 소스여야 한다(scripts/smoke.sh가 형제 폴더에서 `git archive <태그>`로 꺼내 컨텍스트로 쓴다. 작업 트리 상태에는 의존하지 않는다).
+# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드는 형제 폴더를 읽기 전용 빌드 컨텍스트로 쓰며, 그 내용은 BOUNDARY_VERSION 태그의 소스여야 한다(scripts/smoke.sh가 형제 폴더에서 `git archive <태그>`로 꺼내 컨텍스트로 쓴다. 작업 트리 상태에는 의존하지 않는다).
 # 의존은 잠금 파일(requirements-*.lock)로 고정한다. 비밀 값은 넣지 않는다.
 # 문진 스키마를 이미지에 넣는 선택 옵션: --build-context schema=<.../survey-service/schema>(없으면 빈 스테이지라 아무것도 안 들어간다).
 # 넣으면 MODEL_RUNTIME_SCHEMA_DIR 없이 /opt/survey-schema/schemas를 쓴다. 라벨 io.openit.contracts.survey-schema에 정수 버전을 밝힌다.
@@ -33,8 +33,8 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
     && chown -R 10001 /var/lib/model-runtime
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
-ARG BOUNDARY_VERSION=v2.1.0
-ARG MODEL_RUNTIME_VERSION=unknown   # 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). scripts/smoke.sh가 pyproject에서 읽어 넘긴다
+ARG BOUNDARY_VERSION=v2.1.1
+ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). scripts/smoke.sh가 pyproject에서 읽어 넘긴다
 ARG SURVEY_SCHEMA_VERSION=unknown
 ARG TURN_ENGINE_VERSION=none
 LABEL io.openit.service="model-runtime" \
@@ -44,6 +44,8 @@ LABEL io.openit.service="model-runtime" \
       io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
       io.openit.model-runtime="${MODEL_RUNTIME_VERSION}"
 USER 10001
+# 라벨 인자 가드(가벼운 레이어라 캐시에 영향 없음): 인자가 비면 unknown 같은 거짓 라벨 대신 빌드를 실패시킨다
+RUN test -n "${MODEL_RUNTIME_VERSION}" || { echo "빌드 인자 MODEL_RUNTIME_VERSION이 비었다(D50 라벨). pyproject.toml의 version을 넘긴다" >&2; exit 1; }
 # 이 디렉터리들은 serving-data 볼륨을 /var/lib/model-runtime에 마운트하면 가려진다. 그래서 서버가 시작할 때 mkdir -p로 다시 보장하고 쓸 수 없으면 /readyz 503 reason을 낸다.
 # 번들 캐시 디렉터리는 10001 소유로 만들어 둔다(새 이름 있는 볼륨은 이 소유권을 물려받는다). 바인드 마운트라면 호스트에서 소유자를 맞춘다.
 # 설정은 환경 변수로만 받는다(src/model_runtime/server.py 머리말). 스키마 디렉터리(MODEL_RUNTIME_SCHEMA_DIR)와 어댑터는 읽기 전용으로 마운트한다.

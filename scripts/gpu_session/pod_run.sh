@@ -21,7 +21,7 @@ echo "보낼 것: 키트 코드(tar.gz) / 어댑터 $AD_A, $AD_B ($(du -shc "$AD
 S() { ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 $SSHOPT "$@"; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 step() { echo "[pod_run $(date +%H:%M:%S)] $*"; }
-# 키트: boundary-contracts 2.0.2(deploy 기준)가 설치된 파이썬으로 만든다. 다른 버전이면 make_kit.sh가 거부한다
+# 키트: boundary-contracts가 설치된 파이썬(--python)으로 만든다. make_kit.sh는 그 패키지의 버전(BC_VER)을 읽어 키트에 기록할 뿐 특정 버전을 강제하지 않는다. 기준 태그는 deploy/scripts/lib.sh의 BOUNDARY_TAG
 bash "$HERE/make_kit.sh" "$T/mr-kit.tgz" --python "$PYC" >/dev/null || { echo "키트 생성 실패" >&2; exit 1; }
 step "키트 $(tar -xzOf "$T/mr-kit.tgz" mr-kit/KIT_MANIFEST.txt 2>/dev/null | sed -n 's/^commit: /커밋 /p' | head -1)"
 step "파드 연결과 전송"

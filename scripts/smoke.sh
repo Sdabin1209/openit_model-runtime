@@ -3,7 +3,7 @@
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.0}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
+BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.1}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
 # 기대 라벨 값의 정본은 pyproject.toml의 version이다(RUNTIME_VERSION과 같아야 하며 tests가 확인한다)
 MR_VERSION="$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/pyproject.toml")"
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
@@ -42,7 +42,10 @@ code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz"
 echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 ] || { echo "root로 실행됨" >&2; exit 1; }
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
-echo "$LABELS" | grep -q "\"io.openit.model-runtime\":\"$MR_VERSION\"" || { echo "라벨의 model-runtime 버전이 $MR_VERSION이 아니다" >&2; exit 1; }
+echo "$LABELS" | # 기대값은 서로 독립인 두 출처다: (1) pyproject의 version(빌드 인자로 넘긴 값과 같은 파일이지만 라벨이 실제로 채워졌는지 본다) (2) 이미지에 설치된 패키지의 RUNTIME_VERSION
+INST_VERSION="$(docker exec "$NAME" python -c 'import model_runtime as m;print(m.RUNTIME_VERSION)')"
+[ "$INST_VERSION" = "$MR_VERSION" ] || { echo "설치된 RUNTIME_VERSION($INST_VERSION)이 pyproject version($MR_VERSION)과 다르다" >&2; exit 1; }
+echo "$LABELS" | grep -q "\"io.openit.model-runtime\":\"$INST_VERSION\"" || { echo "라벨의 model-runtime 버전이 설치된 RUNTIME_VERSION($INST_VERSION)과 다르다" >&2; exit 1; }
 # 기본은 닫힘(MR-1): 토큰 없이는, 그리고 ALLOW_FAKE 없이 fake로는 시작하지 않는다.
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 "$TAG" >/dev/null 2>&1 || { echo "토큰 없이 시작되면 안 된다" >&2; exit 1; }
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_TOKENS=survey=smoke-token "$TAG" >/dev/null 2>&1 || { echo "ALLOW_FAKE 없이 fake로 시작되면 안 된다" >&2; exit 1; }
