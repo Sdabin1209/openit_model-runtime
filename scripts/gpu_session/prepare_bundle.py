@@ -15,6 +15,7 @@ import hashlib
 import json
 import re
 import shutil
+import struct
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -71,7 +72,56 @@ def check_adapter(src: Path, role: str, base_model: str, max_rank: int, rewrite_
             raise SystemExit(f"{role}: adapter_config의 base_model_name_or_path({cfg.get('base_model_name_or_path')!r})가 프로파일의 기반 모델({base_model!r})과 다르다. "
                              "서버가 412로 거부한다. 같은 모델이 확실하면 --rewrite-base-name으로 복사본의 이름만 바꾼다(원본은 건드리지 않고 보고서에 남긴다)")
         info["rewritten_base_model"] = True
+    for k in ("use_dora", "modules_to_save"):   # vLLM이 지원하지 않는 형태(적재 때 거부). 파드에서 알게 되면 늦다
+        if cfg.get(k):
+            raise SystemExit(f"{role}: adapter_config의 {k}={cfg.get(k)!r}는 vLLM LoRA가 지원하지 않는다")
+    if cfg.get("rank_pattern") or cfg.get("alpha_pattern"):
+        raise SystemExit(f"{role}: rank_pattern/alpha_pattern이 있는 어댑터는 vLLM이 모듈별 rank를 다르게 적재하지 못한다")
+    info["safetensors"] = check_safetensors_header(src / "adapter_model.safetensors", role, cfg["r"], cfg.get("target_modules"))
     return info
+
+
+LORA_TENSOR_RE = re.compile(r"(?:^|\.)([A-Za-z0-9_]+)\.lora_([AB])\.weight$")
+
+
+def check_safetensors_header(path: Path, role: str, r: int, target_modules: list) -> dict:
+    """safetensors 헤더(앞 8바이트 길이 + JSON)만 읽어 vLLM LoRA 적재 조건을 정적으로 대조한다. 텐서 데이터는 읽지 않는다.
+    왜: 파드에서 적재가 실패해서야 알면 임대 시간이 든다. 헤더만으로 알 수 있는 것(rank 일치, lora_A/B 쌍, 대상 모듈, 파일 크기)은 지금 거른다.
+    vLLM이 거부하는 어댑터 형태(LoRA 가중치가 아닌 텐서 = modules_to_save/임베딩 학습)도 여기서 막는다."""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        head = f.read(8)
+        if len(head) < 8:
+            raise SystemExit(f"{role}: {path.name}이 safetensors가 아니다(8바이트 미만)")
+        n = struct.unpack("<Q", head)[0]
+        if n > 100 * 1024 * 1024 or 8 + n > size:
+            raise SystemExit(f"{role}: {path.name} 헤더 길이({n})가 비정상이다. safetensors가 아니거나 잘렸다")
+        try:
+            h = json.loads(f.read(n))
+        except ValueError:
+            raise SystemExit(f"{role}: {path.name} 헤더가 JSON이 아니다") from None
+    h.pop("__metadata__", None)
+    mods, pairs, dtypes, end = set(), {}, set(), 0
+    for name, t in h.items():
+        m = LORA_TENSOR_RE.search(name)
+        if not m:
+            raise SystemExit(f"{role}: LoRA 가중치가 아닌 텐서 {name!r}. vLLM은 modules_to_save/학습된 임베딩이 있는 어댑터를 적재하지 못한다")
+        mods.add(m.group(1)); dtypes.add(t["dtype"]); end = max(end, t["data_offsets"][1])
+        key = name[: m.start()] if m.start() else name.rsplit(".lora_", 1)[0]
+        shp = t["shape"]
+        want_rank = shp[0] if m.group(2) == "A" else shp[-1]
+        if len(shp) != 2 or want_rank != r:
+            raise SystemExit(f"{role}: 텐서 {name} shape {shp}의 rank가 adapter_config r={r}와 다르다")
+        pairs.setdefault(key + "." + m.group(1), set()).add(m.group(2))
+    lone = [k for k, v in pairs.items() if v != {"A", "B"}]
+    if not h or lone:
+        raise SystemExit(f"{role}: lora_A/lora_B 쌍이 맞지 않는다({lone[:3]}) 또는 텐서가 없다")
+    if 8 + n + end != size:
+        raise SystemExit(f"{role}: 파일 크기 {size}가 헤더가 말하는 크기 {8 + n + end}와 다르다(잘린 파일 의심)")
+    extra = sorted(mods - set(target_modules or []))
+    if extra:
+        raise SystemExit(f"{role}: 텐서의 모듈 {extra}가 adapter_config target_modules에 없다")
+    return {"tensors": len(h), "lora_modules": sorted(mods), "dtypes": sorted(dtypes), "data_bytes": end}
 
 
 RELEASE_ID_RE = re.compile(r"[A-Za-z0-9._-]+")

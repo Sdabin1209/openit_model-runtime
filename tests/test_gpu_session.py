@@ -87,7 +87,10 @@ def write_c1(path, role, n, system="SYS"):
 def make_adapter(d, base="Qwen/Qwen3-8B", r=16):
     d.mkdir(parents=True)
     (d / "adapter_config.json").write_text(json.dumps({"r": r, "base_model_name_or_path": base, "target_modules": ["q_proj"], "lora_alpha": 32}))
-    (d / "adapter_model.safetensors").write_bytes(b"\0" * 64)
+    hdr = {"base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight": {"dtype": "F32", "shape": [r, 8], "data_offsets": [0, r * 8 * 4]},
+           "base_model.model.model.layers.0.self_attn.q_proj.lora_B.weight": {"dtype": "F32", "shape": [8, r], "data_offsets": [r * 8 * 4, r * 8 * 8]}}
+    hb = json.dumps(hdr).encode()   # 실제 safetensors와 같은 구조: 8바이트 길이 + JSON 헤더 + 데이터
+    (d / "adapter_model.safetensors").write_bytes(len(hb).to_bytes(8, "little") + hb + b"\0" * (r * 8 * 8))
     (d / "README.md").write_text("not copied")
 
 
@@ -326,3 +329,19 @@ def test_pod_run_refuses_without_upload_confirmation(tmp_path):   # 데이터 �
     r = subprocess.run(["bash", str(KIT / "pod_run.sh"), "--ssh", "-p 1 nobody@127.0.0.1", "--adapter-a", str(ad), "--adapter-b", str(ad), "--c1-dir", str(c1)],
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 3 and "아무것도 보내지 않았다" in r.stdout
+
+
+def test_prepare_bundle_rejects_bad_safetensors_header(tmp_path):   # 헤더만 읽는 정적 검사: 잘림, rank 불일치, LoRA 아닌 텐서
+    setup_inputs(tmp_path)
+    p = tmp_path / "aa" / "adapter_model.safetensors"
+    good = p.read_bytes()
+    p.write_bytes(good[:-5])
+    r = run_prepare(tmp_path)
+    assert r.returncode != 0 and "잘린" in (r.stderr + r.stdout)
+    p.write_bytes(good)
+    (tmp_path / "aa" / "adapter_config.json").write_text(json.dumps({"r": 8, "base_model_name_or_path": "Qwen/Qwen3-8B", "target_modules": ["q_proj"]}))
+    r = run_prepare(tmp_path)
+    assert r.returncode != 0 and "rank" in (r.stderr + r.stdout)
+    (tmp_path / "aa" / "adapter_config.json").write_text(json.dumps({"r": 16, "base_model_name_or_path": "Qwen/Qwen3-8B", "target_modules": ["q_proj"], "use_dora": True}))
+    r = run_prepare(tmp_path)
+    assert r.returncode != 0 and "use_dora" in (r.stderr + r.stdout)

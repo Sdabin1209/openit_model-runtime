@@ -31,11 +31,18 @@ curl -sS -m 10 -o /dev/null -I https://huggingface.co || stop "Hugging Face에 �
 # 4) 파이썬 3.12 venv (잠금 파일이 3.12용인지는 gpu-dev 환경 기준. 다르면 중단)
 PYBIN="$(command -v python3.12 || true)"; [ -n "$PYBIN" ] || stop "python3.12가 없다. 'uv python install 3.12' 또는 python3.12가 있는 템플릿을 쓴다(sudo 없이 uv로 가능)"
 [ -x "$VENV/bin/python" ] || "$PYBIN" -m venv "$VENV" || stop "venv를 만들지 못했다(python3.12-venv 없음이면 uv venv --python 3.12 $VENV 를 쓴다)"
+# 4b) Triton(vLLM의 LoRA·샘플링 커널)은 첫 실행 때 C 컴파일러와 Python.h로 런처를 빌드한다. 없으면 설치·모델 내려받기를 다 마친 뒤 서버 기동에서야 실패하므로(임대 시간) 여기서 먼저 막는다.
+#   표준 요건: Triton 문서/소스(runtime/build.py)가 cc(gcc)와 Python 헤더를 쓴다. PC에서는 '있음' 경로(gcc, Python.h 존재)만 확인했다. '없음' 중단 경로와 GPU 행렬곱은 파드에서만 실행된다.
+{ command -v gcc >/dev/null || command -v cc >/dev/null; } || stop "C 컴파일러(gcc/cc)가 없다. Triton이 커널 런처를 빌드하지 못한다. gcc가 있는 템플릿을 쓴다(RunPod pytorch 템플릿은 보통 있다)"
+PYINC="$("$VENV/bin/python" -c 'import sysconfig;print(sysconfig.get_paths()["include"])')"
+[ -f "$PYINC/Python.h" ] || stop "Python.h가 없다($PYINC). Triton이 빌드하지 못한다. python3.12-dev가 있는 템플릿을 쓰거나 'uv venv --python 3.12'(독립 파이썬은 헤더를 포함)로 venv를 만든다"
 step "잠금 파일 설치(수 GB, 수 분)"
 [ -f "$KIT/requirements-gpu.lock" ] || stop "$KIT/requirements-gpu.lock 이 없다(키트에 포함되어야 한다)"
 "$VENV/bin/pip" install -q --no-cache-dir --no-deps -r "$KIT/requirements-gpu.lock" || stop "pip 설치 실패"
 "$VENV/bin/python" -c "import vllm,jsonschema,torch;print('vllm',vllm.__version__,'torch',torch.__version__,'cuda_available',torch.cuda.is_available())"
 "$VENV/bin/python" -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 1)" || stop "torch가 GPU를 못 본다"
+# GPU에서 실제 커널 하나가 도는지(이 GPU 아키텍처용 코드가 휠에 있는지). 수 초. 실패하면 vLLM도 못 뜬다
+"$VENV/bin/python" -c "import torch;x=torch.randn(256,256,device='cuda',dtype=torch.bfloat16);print('gpu matmul ok',(x@x).float().abs().mean().item()>0, torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))" || stop "GPU에서 bf16 행렬곱이 실패했다(드라이버·아키텍처 불일치)"
 [ "$("$VENV/bin/python" -c 'import vllm;print(vllm.__version__)')" = "0.31.0" ] || stop "vllm 버전이 키트 기준(0.31.0)과 다르다"
 # 5) 기반 모델 내려받기(공개 모델이라 토큰 불필요). 이후 run_session은 HF_HUB_OFFLINE=1로 읽기만 한다
 step "기반 모델 내려받기: $MODEL"
