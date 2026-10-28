@@ -12,7 +12,9 @@ from boundary_contracts import load_schema
 import model_runtime as mr
 from model_runtime.schema_guard import MAX_VARIANTS, relax
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "boundary-contracts" / "examples"
+# 왜: 예제는 설치된 계약 패키지(태그)의 conformance/examples를 쓴다. 형제 폴더 없이도 같은 태그의 예제로 돈다(새 머신).
+import conformance
+EXAMPLES = Path(conformance.__file__).resolve().parent / "examples"
 FEATS = frozenset(mr.DEFAULT_SUPPORTED_FEATURES)
 ORIG = load_schema("ActionExtraction")
 V = lambda s: jsonschema.Draft202012Validator(s)

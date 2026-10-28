@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 BC = Path(__file__).resolve().parents[2] / "boundary-contracts"
 sys.path.append(str(BC))   # 뒤에 붙인다: boundary_contracts는 설치된 태그 패키지가 우선이고, conformance만 형제 폴더에서 온다
 try:
+    import conformance
     from conformance.servers import ReferenceServer, adapter_digest, ref_of, sealed
     HAVE = True
 except ImportError:
@@ -31,7 +32,7 @@ PROMPTS = {"LORA_A": "시험용 LoRA-A 시스템 프롬프트".encode(), "LORA_B
 
 
 def make_release(rid, tamper=False):
-    ex = json.loads((BC / "examples" / "ReleaseManifest.json").read_text())
+    ex = json.loads((Path(conformance.__file__).resolve().parent / "examples" / "ReleaseManifest.json").read_text())   # 설치된 태그 패키지의 예제(형제 폴더 불필요)
     ex["release_id"] = rid
     ex["model_runtime_version"] = mr.RUNTIME_VERSION
     ex["runtime_contract_version"] = 1
@@ -64,6 +65,7 @@ class E2E(unittest.TestCase):
             pass
         return svc, f"http://127.0.0.1:{srv.server_address[1]}"
 
+    @unittest.skipUnless((BC / "pyproject.toml").exists(), "형제 boundary-contracts 작업 트리가 없다(새 머신에서는 정상, 이 시험은 형제 폴더와 설치본의 일치만 본다)")
     def test_reference_checkout_is_the_installed_tag(self):
         """적합성 시험이 읽는 형제 폴더와 설치된 패키지가 같은 계약 버전이다."""
         import boundary_contracts

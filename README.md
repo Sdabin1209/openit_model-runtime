@@ -57,7 +57,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-`setup-env.sh`는 turn-engine·xgrammar를 설치하지 않는다. turn-engine은 버전 표를 여러 곳에 두지 않으려고 이 리포가 핀하지 않는 시험 전용 **선택 설치**이고(docs/runbook.md), xgrammar도 무거운 선택 의존이라, 그 둘이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다. 또 형제 `../boundary-contracts`가 없으면 참조 서버 적합성 시험(`tests/test_server_e2e.py`, `tests/test_anyof_constraint.py`)도 건너뛴다. 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
+`setup-env.sh`는 turn-engine·xgrammar를 설치하지 않는다. turn-engine은 버전 표를 여러 곳에 두지 않으려고 이 리포가 핀하지 않는 시험 전용 **선택 설치**이고(docs/runbook.md), xgrammar도 무거운 선택 의존이라, 그 둘이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다. 또 형제 `../boundary-contracts`가 없으면 `test_reference_checkout_is_the_installed_tag` 1건이 건너뛰어진다(참조 서버·예제는 설치된 태그 패키지에서 읽는다). 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
 
 이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 "현재 상태" 절), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
