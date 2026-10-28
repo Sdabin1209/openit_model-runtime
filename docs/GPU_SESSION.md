@@ -108,6 +108,7 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 | `pod_setup.sh` 1 GPU | `nvidia-smi` 있고 CUDA Version >= 13 | 중단 메시지, 종료 2 | cu13 휠이 안 뜬다 |
 | 〃 2 디스크 | `--base`가 있는 파일시스템의 남은 용량 >= 40GB | 중단 | 아래 '디스크 40GB의 근거'. RunPod에서 $HOME(container disk)이 아니라 볼륨을 검사하려고 `--base`로 모았다 |
 | 〃 3 인터넷 | PyPI·github.com·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
+| 〃 모델 이름 출처 (ADR 0015) | `pod_setup.sh`가 받을 모델을 `--profile`(기본 `rtx4090-24g.json`, `pod_run.sh`가 세션에 쓰는 것과 같은 프로파일)의 `base_model`에서 읽는다. `--model`이 프로파일과 다르면 시작 전에 종료 64로 중단, 프로파일이나 `base_model`이 없어도 중단 | 받은 모델과 서버가 읽을 모델이 어긋나면 `HF_HUB_OFFLINE=1`에서 `LocalEntryNotFoundError`로 기동 실패(gpu-dev에서 겪음). 파드 시간을 쓰기 전에 막는다. 다른 모델이 필요하면 프로파일을 바꾼다(우회 옵션 없음) |
 | 〃 3b 스스로 준비 | gcc·libc6-dev·curl·ca-certificates는 없으면 root일 때 apt-get으로 설치(root 아니면 이름을 말하고 중단). uv 0.13.6(sha256 고정)과 uv 독립 파이썬 3.12 확보, venv 생성, `Python.h`를 include한 C 파일 컴파일 시험 | 중단 | 이미지가 조금 달라도 키트가 돈다(ADR 0014). 시스템 파이썬은 쓰지도 바꾸지도 않는다 |
 | 〃 4 설치·확인 | lock 설치(`uv pip`), `torch.cuda.is_available()`, bf16 행렬곱, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
 | 〃 5 모델 | `snapshot_download` 성공 | 중단 | 이후 `HF_HUB_OFFLINE=1`로 읽기만 한다 |

@@ -31,7 +31,7 @@ cp "$AD_A/adapter_config.json" "$AD_A/adapter_model.safetensors" "$T/up/adapters
 cp "$C1/lora_a_val.jsonl" "$C1/lora_b_val.jsonl" "$T/up/c1/"
 S "cd $BASE && rm -rf mr-kit && tar -xzf -" < "$T/mr-kit.tgz" || { echo "키트 전송 실패" >&2; exit 1; }
 tar -C "$T/up" -czf - . | S "cd $BASE && tar -xzf -" || { echo "데이터 전송 실패" >&2; exit 1; }
-if [ "$SETUP" -eq 1 ]; then step "파드 설정(없으면 설치)"; S "bash $BASE/mr-kit/scripts/gpu_session/pod_setup.sh --base $BASE" || { echo "파드 설정 실패: 임대를 끝내고 원인을 본다" >&2; exit 2; }; fi
+if [ "$SETUP" -eq 1 ]; then step "파드 설정(없으면 설치)"; S "bash $BASE/mr-kit/scripts/gpu_session/pod_setup.sh --base $BASE --profile $BASE/mr-kit/profiles/$PROFILE" || { echo "파드 설정 실패: 임대를 끝내고 원인을 본다" >&2; exit 2; }; fi
 step "세션 실행(행 수 A=$NA B=$NB, 동시 $CONC)"
 S "bash $BASE/mr-kit/scripts/gpu_session/run_session.sh --base $BASE --python $BASE/venv/bin/python --adapter-a $BASE/adapters/LORA_A --adapter-b $BASE/adapters/LORA_B --c1-dir $BASE/c1 --profile $BASE/mr-kit/profiles/$PROFILE --margin-mib 0 --budget-min $BUDGET --n-a $NA --n-b $NB --concurrency $CONC ${EXTRA[*]:-}"
 RC=$?

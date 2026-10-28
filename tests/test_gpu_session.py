@@ -398,3 +398,34 @@ def test_pod_setup_pins_uv_version_and_hashes():
     assert re.search(r'^UV_VERSION="\d+\.\d+\.\d+"', s, re.M)
     assert len(re.findall(r'^UV_SHA256_(?:x86_64|aarch64)="[0-9a-f]{64}"', s, re.M)) == 2
     assert "sudo " not in s.replace("sudo는", "").replace("sudo 없이", "")  # sudo 사용 금지
+
+
+# ---- 모델 이름의 출처는 프로파일 하나 (ADR 0015) ----
+def test_pod_setup_rejects_model_different_from_profile(tmp_path):
+    r = pod_setup("--base", str(tmp_path / "b"), "--stage", "model", "--model", "Qwen/Qwen3-1.7B")
+    assert r.returncode == 64 and "base_model(Qwen/Qwen3-8B)" in r.stderr and "LocalEntryNotFoundError" in r.stderr
+    assert not (tmp_path / "b").exists()   # 아무것도 만들기 전에 중단
+
+
+def test_pod_setup_reads_model_from_profile_and_accepts_same_model(tmp_path):
+    prof = tmp_path / "p.json"; prof.write_text('{\n  "base_model": "Org/Tiny-1B",\n  "x": 1\n}\n')
+    # model 단계는 venv가 없으면 멈추지만, 그 전의 프로파일 검사는 통과해야 한다(같은 --model은 허용)
+    for extra in ([], ["--model", "Org/Tiny-1B"]):
+        r = pod_setup("--base", str(tmp_path / "b"), "--stage", "model", "--profile", str(prof), *extra)
+        assert r.returncode == 1 and "venv가 없다" in r.stderr
+    r = pod_setup("--base", str(tmp_path / "b"), "--stage", "model", "--profile", str(prof), "--model", "Qwen/Qwen3-8B")
+    assert r.returncode == 64 and "Org/Tiny-1B" in r.stderr
+
+
+def test_pod_setup_stops_without_profile_or_base_model(tmp_path):
+    r = pod_setup("--base", str(tmp_path / "b"), "--profile", str(tmp_path / "none.json"))
+    assert r.returncode == 64 and "프로파일이 없다" in r.stderr
+    bad = tmp_path / "bad.json"; bad.write_text('{"x": 1}')
+    r = pod_setup("--base", str(tmp_path / "b"), "--profile", str(bad))
+    assert r.returncode == 64 and "base_model이 없다" in r.stderr
+
+
+def test_pod_setup_default_profile_is_the_one_pod_run_uses():
+    run = (KIT / "pod_run.sh").read_text()
+    assert 'PROFILE="rtx4090-24g.json"' in run and '--profile $BASE/mr-kit/profiles/$PROFILE' in run.split("pod_setup.sh")[1].split("\n")[0]
+    assert 'PROFILE="rtx4090-24g.json"' in (KIT / "pod_setup.sh").read_text()

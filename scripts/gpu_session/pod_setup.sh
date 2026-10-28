@@ -5,8 +5,10 @@
 #   - 파이썬 3.12: 항상 uv가 받는 독립 파이썬(python-build-standalone)을 쓴다. 헤더(Python.h)와 venv 모듈이 들어 있어 시스템 파이썬 상태에 기대지 않는다.
 #   - uv: 버전과 sha256을 이 파일에 고정해 GitHub 릴리스 tarball을 받아 검증한 뒤 --base 아래에 푼다. 루트 불필요.
 #   - gcc, libc6-dev(Triton 런처 빌드용), curl, ca-certificates: 없으면 root일 때만 apt-get으로 설치한다. root가 아니면 무엇이 없는지 말하고 중단한다. sudo는 쓰지 않는다.
-# 사용: bash pod_setup.sh [--base DIR(기본 $HOME/dabin; RunPod는 볼륨인 /workspace/dabin)] [--model Qwen/Qwen3-8B] [--min-disk-gb 40]
+# 사용: bash pod_setup.sh [--base DIR(기본 $HOME/dabin; RunPod는 볼륨인 /workspace/dabin)] [--profile rtx4090-24g.json|경로] [--model 프로파일의 base_model과 같은 값만] [--min-disk-gb 40]
 #                        [--stage all|gpu|prereq|install|verify|model] [--lock FILE(기본 $BASE/mr-kit/requirements-gpu.lock)]
+# 모델 이름의 출처는 프로파일의 base_model 하나다(ADR 0015). --model은 받는 모델을 고르는 옵션이 아니라 '프로파일과 같은지' 확인용이고, 다르면 시작 전에 중단한다.
+#   왜: 받은 모델과 서버가 읽을 모델이 어긋나면 run_session의 HF_HUB_OFFLINE=1에서 LocalEntryNotFoundError로 기동이 실패하고, 그때는 이미 파드 시간을 쓴 뒤다.
 # 단계(--stage, 기본 all = gpu -> prereq -> install -> verify -> model 순서로 전부):
 #   gpu     nvidia-smi와 드라이버 CUDA >= 13 점검 (GPU가 있어야만 확인 가능)
 #   prereq  디스크, 인터넷, gcc/헤더/curl 확보, uv와 파이썬 3.12 확보, venv 생성, Python.h로 C 컴파일 시험 (GPU 무관)
@@ -19,12 +21,22 @@
 #   (RunPod에서 $HOME은 작은 container disk라, 큰 것이 거기 쌓이면 볼륨이 남아도 가득 찬다).
 # 하지 않는 것: sudo, /etc 변경. 시스템 쓰기는 root일 때 apt-get으로 gcc 등을 설치하는 것뿐이고 그 밖의 모든 쓰기는 --base 아래다.
 set -eu
-BASE="$HOME/dabin"; MODEL="Qwen/Qwen3-8B"; MIN_GB=40; STAGE=all; LOCK=""
+BASE="$HOME/dabin"; MODEL_ARG=""; PROFILE="rtx4090-24g.json"; MIN_GB=40; STAGE=all; LOCK=""
 while [ $# -gt 0 ]; do case "$1" in
-  --base) BASE="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --min-disk-gb) MIN_GB="$2"; shift 2;;
+  --base) BASE="$2"; shift 2;; --model) MODEL_ARG="$2"; shift 2;; --profile) PROFILE="$2"; shift 2;; --min-disk-gb) MIN_GB="$2"; shift 2;;
   --stage) STAGE="$2"; shift 2;; --lock) LOCK="$2"; shift 2;;
   *) echo "알 수 없는 인자 $1" >&2; exit 64;; esac; done
 case "$STAGE" in all|gpu|prereq|install|verify|model) ;; *) echo "알 수 없는 --stage $STAGE (all|gpu|prereq|install|verify|model)" >&2; exit 64;; esac
+# 프로파일 해석: 이름만 주면 키트의 profiles/ 아래, 경로(/ 포함)면 그 파일. 기본값은 pod_run.sh와 docs/GPU_SESSION.md가 쓰는 rtx4090-24g.json
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$PROFILE" in */*) PROFILE_FILE="$PROFILE";; *) PROFILE_FILE="$HERE/../../profiles/$PROFILE";; esac
+[ -f "$PROFILE_FILE" ] || { echo "[pod_setup] 중단: 프로파일이 없다: $PROFILE_FILE" >&2; exit 64; }
+# JSON 파서 없이 읽는다(prereq 전에는 venv도 없고 시스템 파이썬을 가정하지 않는다): 프로파일의 "base_model" 한 줄
+MODEL="$(sed -n 's/^[[:space:]]*"base_model"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PROFILE_FILE" | head -1)"
+[ -n "$MODEL" ] || { echo "[pod_setup] 중단: $PROFILE_FILE 에 base_model이 없다" >&2; exit 64; }
+if [ -n "$MODEL_ARG" ] && [ "$MODEL_ARG" != "$MODEL" ]; then
+  echo "[pod_setup] 중단: --model $MODEL_ARG 이(가) 프로파일 $PROFILE 의 base_model($MODEL)과 다르다. 받은 모델과 서버가 읽을 모델이 어긋나면 오프라인 기동이 LocalEntryNotFoundError로 실패한다. 다른 모델이 필요하면 프로파일을 바꾸거나 맞는 프로파일을 --profile로 준다" >&2; exit 64
+fi
 step() { echo "[pod_setup $(date +%H:%M:%S)] $*"; }
 stop() { echo "[pod_setup] 중단: $*" >&2; exit 1; }
 want() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
@@ -131,7 +143,7 @@ fi
 if want model; then
 [ -x "$VENV/bin/python" ] || stop "venv가 없다. 먼저 --stage prereq 와 install"
 # 기반 모델 내려받기(공개 모델이라 토큰 불필요). 이후 run_session은 HF_HUB_OFFLINE=1로 읽기만 한다
-step "기반 모델 내려받기: $MODEL"
+step "기반 모델 내려받기: $MODEL (프로파일 $PROFILE)"
 "$VENV/bin/python" -c "from huggingface_hub import snapshot_download as s;print(s('$MODEL'))" || stop "모델 내려받기 실패"
 fi
 [ "$STAGE" != all ] || step "완료. 다음: PC에서 pod_run.sh --base $BASE ... (파드 안에서는 run_session.sh --base $BASE ...)"
