@@ -39,6 +39,7 @@ if [ -n "$MODEL_ARG" ] && [ "$MODEL_ARG" != "$MODEL" ]; then
 fi
 step() { echo "[pod_setup $(date +%H:%M:%S)] $*"; }
 stop() { echo "[pod_setup] 중단: $*" >&2; exit 1; }
+[ ! -f "$HERE/../../KIT_MANIFEST.txt" ] || step "키트 $(sed -n 's/^commit: /커밋 /p' "$HERE/../../KIT_MANIFEST.txt" | head -1)"   # 어떤 코드로 설정했는지 로그에 남긴다(make_kit.sh가 만들 때 기록)
 want() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
 mkdir -p "$BASE" || { echo "[pod_setup] 중단: $BASE 를 만들 수 없다" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd -P)"; VENV="$BASE/venv"; KIT="$BASE/mr-kit"; UVDIR="$BASE/uv"; UV="$UVDIR/uv"

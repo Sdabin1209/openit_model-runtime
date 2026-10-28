@@ -109,6 +109,7 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 | 〃 2 디스크 | `--base`가 있는 파일시스템의 남은 용량 >= 40GB | 중단 | 아래 '디스크 40GB의 근거'. RunPod에서 $HOME(container disk)이 아니라 볼륨을 검사하려고 `--base`로 모았다 |
 | 〃 3 인터넷 | PyPI·github.com·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
 | 〃 모델 이름 출처 (ADR 0015) | `pod_setup.sh`가 받을 모델을 `--profile`(기본 `rtx4090-24g.json`, `pod_run.sh`가 세션에 쓰는 것과 같은 프로파일)의 `base_model`에서 읽는다. `--model`이 프로파일과 다르면 시작 전에 종료 64로 중단, 프로파일이나 `base_model`이 없어도 중단 | 받은 모델과 서버가 읽을 모델이 어긋나면 `HF_HUB_OFFLINE=1`에서 `LocalEntryNotFoundError`로 기동 실패(gpu-dev에서 겪음). 파드 시간을 쓰기 전에 막는다. 다른 모델이 필요하면 프로파일을 바꾼다(우회 옵션 없음) |
+| 〃 기동 util 재시도·`--plan` (ADR 0016) | 서버 기동이 GPU 메모리 부족("Free memory ... less than desired GPU memory utilization", CUDA OOM)으로 실패하면 util을 0.05씩 낮춰 최대 2번 다시 띄운다. 그 밖의 실패(KV 캐시 몫 부족 포함)는 즉시 중단. `--plan "1:20,4:20"`은 한 서버 기동으로 부하 단계를 이어 돌리고 단계 사이 GPU 메모리를 `measure.json`의 `stage_gpu`에 남긴다. 결과에는 `util_attempts`, `kit_commit`도 남는다 | 재기동은 몇 분 비용이라 반복을 없앤다. gpu-dev 실기 검증: pod_run 전체(전송-설정-실행-회수-정리) 종료 0, `--plan 1:2,4:2`, `--util 0.935`에서 0.89로 재시도 성공 |
 | 〃 3b 스스로 준비 | gcc·libc6-dev·curl·ca-certificates는 없으면 root일 때 apt-get으로 설치(root 아니면 이름을 말하고 중단). uv 0.13.6(sha256 고정)과 uv 독립 파이썬 3.12 확보, venv 생성, `Python.h`를 include한 C 파일 컴파일 시험 | 중단 | 이미지가 조금 달라도 키트가 돈다(ADR 0014). 시스템 파이썬은 쓰지도 바꾸지도 않는다 |
 | 〃 4 설치·확인 | lock 설치(`uv pip`), `torch.cuda.is_available()`, bf16 행렬곱, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
 | 〃 5 모델 | `snapshot_download` 성공 | 중단 | 이후 `HF_HUB_OFFLINE=1`로 읽기만 한다 |

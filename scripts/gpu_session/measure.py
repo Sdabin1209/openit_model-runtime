@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import math
 import sys
@@ -23,6 +24,27 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 MAX_INPUT_CHARS = 2500   # docs/boundary.md의 서버 입력 상한(추정값). 보고용 비교에만 쓴다
+
+
+def gpu_mem_now() -> str | None:
+    """단계 사이 GPU 메모리(used, total MiB). nvidia-smi가 없으면 None. NVIDIA_SMI로 바꿀 수 있다(시험)."""
+    import subprocess
+    try:
+        r = subprocess.run([os.environ.get("NVIDIA_SMI", "nvidia-smi"), "--query-gpu=memory.used,memory.total", "--format=csv,noheader"], capture_output=True, text=True, timeout=10)
+        return r.stdout.splitlines()[0].strip() if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def parse_plan(text: str) -> list[tuple[int, int]]:
+    """'1:20,4:20' -> [(동시 1, 각 20건), (동시 4, 각 20건)]. 같은 동시 수를 두 번 쓰면 결과 키(kind@conc)가 겹치므로 거부한다."""
+    out = []
+    for part in text.split(","):
+        c, n = part.split(":")
+        out.append((int(c), int(n)))
+    if not out or any(c < 1 or n < 1 for c, n in out) or len({c for c, _ in out}) != len(out):
+        raise ValueError(text)
+    return out
 
 
 def load_rows(path: str, n: int, mode: str) -> list[dict]:
@@ -244,6 +266,7 @@ def main() -> int:
     ap.add_argument("--n-a", type=int, default=200)
     ap.add_argument("--n-b", type=int, default=200)
     ap.add_argument("--concurrency", default="1", help="쉼표로 구분한 동시 요청 수 목록(예: 1,4). 첫 값에서 콜드 첫 호출을 잰다")
+    ap.add_argument("--plan", help="한 번의 서버 기동으로 이어 돌릴 부하 단계 '동시:건수,...'(예: 1:20,4:20 = 동시 1에서 A·B 각 20건, 이어 동시 4에서 각 20건). 주면 --concurrency/--n-a/--n-b를 대신한다. 단계 사이 GPU 메모리를 결과(stage_gpu)에 남긴다")
     ap.add_argument("--sample", choices=("stride", "first"), default="stride")
     ap.add_argument("--token-file", help="Bearer 토큰 파일(값은 출력하지 않는다). 개발 서버(ALLOW_NO_AUTH)면 생략")
     ap.add_argument("--timeout", type=float, default=120.0, help="호출 하나의 소켓 timeout(초). 서버의 요청 상한보다 충분히 길게")
@@ -253,10 +276,14 @@ def main() -> int:
     ap.add_argument("--out", help="결과 JSON 경로(표는 같은 이름의 .txt)")
     a = ap.parse_args()
     try:
-        concs = [int(x) for x in a.concurrency.split(",")]
-        assert all(c >= 1 for c in concs)
+        if a.plan:
+            plan = parse_plan(a.plan)
+        else:
+            plan = [(int(x), None) for x in a.concurrency.split(",")]
+            assert all(c >= 1 for c, _ in plan)
     except (ValueError, AssertionError):
-        print("--concurrency는 1 이상 정수의 쉼표 목록이어야 한다", file=sys.stderr); return 2
+        print("--plan은 '동시:건수'의 쉼표 목록(동시 수 중복 없음), --concurrency는 1 이상 정수의 쉼표 목록이어야 한다", file=sys.stderr); return 2
+    concs = [c for c, _ in plan]
     token = Path(a.token_file).read_text().strip() if a.token_file else None
     base = a.url.rstrip("/")
     try:
@@ -272,23 +299,27 @@ def main() -> int:
             if a.out:
                 Path(a.out).write_text(json.dumps({"url": base, "release_id": a.release_id, "put": put}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
             print(f"적재 실패: {put}", file=sys.stderr); return 3
-    rows = {"extract": load_rows(a.c1_a, a.n_a, a.sample), "respond": load_rows(a.c1_b, a.n_b, a.sample)}
+    na = max(n for _, n in plan) if a.plan else a.n_a
+    nb = na if a.plan else a.n_b
+    rows = {"extract": load_rows(a.c1_a, na, a.sample), "respond": load_rows(a.c1_b, nb, a.sample)}
     deadline = time.monotonic() + a.max_seconds if a.max_seconds > 0 else None
     report = {"url": base, "release_id": a.release_id, "n": {k: len(v) for k, v in rows.items()}, "concurrency": concs, "sample": a.sample,
-              "started_at_unix": time.time(), "put": put, "summary": {}, "calls": [], "truncated": False}
+              "started_at_unix": time.time(), "put": put, "plan": a.plan, "stage_gpu": {"after_load": gpu_mem_now()}, "summary": {}, "calls": [], "truncated": False}
     try:
         report["info"] = json.loads(urllib.request.urlopen(base + "/v1/info", timeout=10).read())
     except Exception:   # noqa: BLE001  info는 있으면 좋은 정보
         report["info"] = None
     cold_done: set = set()
-    for conc in concs:
+    for conc, n_stage in plan:
         for kind in ("extract", "respond"):
-            recs = run_phase(base, a.release_id, kind, rows[kind], conc, token, a.timeout, deadline, cold_done)
-            if len(recs) < len(rows[kind]):
+            stage_rows = rows[kind][:n_stage] if n_stage else rows[kind]
+            recs = run_phase(base, a.release_id, kind, stage_rows, conc, token, a.timeout, deadline, cold_done)
+            if len(recs) < len(stage_rows):
                 report["truncated"] = True
             if recs:
                 report["summary"][f"{kind}@{conc}"] = summarize(recs, kind)
                 report["calls"] += [{k: v for k, v in r.items() if k != "text"} for r in recs]
+        report["stage_gpu"][f"after_concurrency_{conc}"] = gpu_mem_now()   # 단계 사이 GPU 메모리(재기동 없이 이어 돌 때 누수·증가를 보려고)
     if all(r["status"] == 0 for r in report["calls"]) and report["calls"]:
         print("모든 호출이 연결 오류다. 서버를 확인한다.", file=sys.stderr)
     text = render(report)

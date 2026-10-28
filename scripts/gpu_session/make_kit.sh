@@ -17,7 +17,7 @@ K="$TMP/mr-kit"; mkdir -p "$K/src" "$K/pylib" "$K/survey-schema" "$K/scripts"
 cp -r "$ROOT/src/model_runtime" "$K/src/"; cp -r "$BC_DIR" "$K/pylib/"; cp -r "$SCHEMA_ROOT/schemas" "$SCHEMA_ROOT/CONTRACT_VERSION" "$K/survey-schema/"
 cp -r "$ROOT/profiles" "$K/"; cp "$ROOT/requirements-gpu.lock" "$K/"; cp -r "$ROOT/scripts/gpu_session" "$K/scripts/"
 find "$K" -name __pycache__ -type d -prune -exec rm -rf {} +
-{ echo "commit: $(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"; echo "boundary-contracts: $BC_VER"; echo "survey schema CONTRACT_VERSION: $(cat "$SCHEMA_ROOT/CONTRACT_VERSION")"
+{ echo "commit: $(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)$([ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] && echo -dirty)";   # 파일에 해시를 직접 쓰지 않고 만드는 시점의 git에서 읽는다. 커밋 안 된 변경이 있으면 -dirty echo "boundary-contracts: $BC_VER"; echo "survey schema CONTRACT_VERSION: $(cat "$SCHEMA_ROOT/CONTRACT_VERSION")"
   (cd "$K" && find . -type f | sort | xargs sha256sum | sha256sum | sed 's/^/tree sha256: /'); } > "$K/KIT_MANIFEST.txt"
 tar -czf "$OUT" -C "$TMP" mr-kit
 echo "키트: $OUT ($(du -h "$OUT" | cut -f1))"; cat "$K/KIT_MANIFEST.txt"

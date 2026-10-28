@@ -15,9 +15,11 @@
 #   --profile FILE       기본 <kit>/profiles/gpu-shared-8b.json
 #   --util X             gpu_memory_utilization 덮어쓰기(기본 프로파일 값 0.30)
 #   --n-a N --n-b N      측정 행 수(기본 각 200)     --concurrency 1,4  동시 요청 수 목록(기본 1,4)
+#   --plan "1:20,4:20"   한 번의 서버 기동으로 이어 돌릴 부하 단계 '동시:건수'(재기동은 몇 분 비용이라 단계마다 다시 띄우지 않는다). --concurrency/--n-a/--n-b와 같이 못 쓴다. 단계 사이 GPU 메모리는 measure.json의 stage_gpu에 남는다
 #   --max-used-mib N     preflight 임계(기본 2048)    --margin-mib N  남은 메모리 여유(기본 4096)
 #   --production-limits  요청 상한 3.5초/대기 3.0초 기본값 그대로 측정(기본은 상한을 풀어 순수 지연을 잰다)
 #   --backend vllm|fake  fake는 리허설용(GPU 없이 파이프라인 확인; MODEL_RUNTIME_ALLOW_FAKE=1을 이 스크립트가 켠다)
+#   서버 기동이 'GPU 메모리를 요구량만큼 못 잡아서' 실패하면 util을 0.05씩 낮춰 최대 2번 자동 재시도한다(예 0.90 -> 0.85 -> 0.80). 시도 기록은 util_attempts.json과 measure.json의 util_attempts에 남는다. 다른 종류의 실패는 재시도 없이 중단한다(ADR 0016, util_retry.py)
 #   --keep-bundle        끝에 번들 복사본(어댑터 약 350MB)을 지우지 않는다    --clean-cache  끝에 캐시도 지운다
 # 종료 코드: preflight 거부 2 / nvidia-smi 불가 3 / 사용법 64 / 서버 기동·적재 실패 5 / 시간 초과 6 / 그 밖에는 measure.py의 종료 코드(0, 3, 4, 7=성공 호출 없음)
 set -u -o pipefail
@@ -26,23 +28,23 @@ KIT_DEFAULT="$(cd "$HERE/../.." && pwd)"
 WRITE_ROOT="${GPU_SESSION_WRITE_ROOT:-$HOME/dabin}"
 SMI="${NVIDIA_SMI:-nvidia-smi}"
 PY="/home/openit/miniconda3/envs/openit-llm/bin/python"
-KIT=""; WORK=""; UNTIL=""; BUDGET_MIN=40; READY_MIN=15; PROFILE=""; UTIL=""; N_A=200; N_B=200; CONC="1,4"
+KIT=""; WORK=""; UNTIL=""; BUDGET_MIN=40; READY_MIN=15; PROFILE=""; UTIL=""; N_A=200; N_B=200; CONC="1,4"; PLAN=""; CONC_SET=0; SERVER_MODULE="model_runtime.server"   # --server-module은 시험용(기동 실패 재시도 경로를 가짜 서버로 확인)
 MAX_USED=2048; MARGIN=4096; PROD=0; BACKEND=vllm; KEEP_BUNDLE=0; CLEAN_CACHE=0; AD_A=""; AD_B=""; C1=""
 
 die() { echo "[run_session] 오류: $*" >&2; exit "${2:-64}"; }
 log() { echo "[run_session $(date +%H:%M:%S)] $*"; }
 while [ $# -gt 0 ]; do
   case "$1" in   # 값이 필요한 옵션이 마지막이면 shift 2가 실패해 무한 루프가 된다(MR-3): 사용법을 내고 종료 코드 2
-    --kit|--base|--work|--python|--until|--budget-min|--ready-timeout-min|--profile|--util|--n-a|--n-b|--concurrency|--max-used-mib|--margin-mib|--adapter-a|--adapter-b|--c1-dir|--backend)
+    --kit|--base|--work|--python|--until|--budget-min|--ready-timeout-min|--profile|--util|--n-a|--n-b|--concurrency|--plan|--max-used-mib|--margin-mib|--adapter-a|--adapter-b|--c1-dir|--backend|--server-module)
       [ $# -ge 2 ] || { echo "[run_session] 오류: $1 에 값이 필요하다(--help로 사용법)" >&2; exit 2; } ;;
   esac
   case "$1" in
     --kit) KIT="${2:-}"; shift 2 ;; --base) WRITE_ROOT="${2:-}"; shift 2 ;; --work) WORK="${2:-}"; shift 2 ;; --python) PY="${2:-}"; shift 2 ;;
     --until) UNTIL="${2:-}"; shift 2 ;; --budget-min) BUDGET_MIN="${2:-}"; shift 2 ;; --ready-timeout-min) READY_MIN="${2:-}"; shift 2 ;;
-    --profile) PROFILE="${2:-}"; shift 2 ;; --util) UTIL="${2:-}"; shift 2 ;; --n-a) N_A="${2:-}"; shift 2 ;; --n-b) N_B="${2:-}"; shift 2 ;;
-    --concurrency) CONC="${2:-}"; shift 2 ;; --max-used-mib) MAX_USED="${2:-}"; shift 2 ;; --margin-mib) MARGIN="${2:-}"; shift 2 ;;
+    --profile) PROFILE="${2:-}"; shift 2 ;; --util) UTIL="${2:-}"; shift 2 ;; --n-a) N_A="${2:-}"; CONC_SET=1; shift 2 ;; --n-b) N_B="${2:-}"; CONC_SET=1; shift 2 ;; --plan) PLAN="${2:-}"; shift 2 ;;
+    --concurrency) CONC="${2:-}"; CONC_SET=1; shift 2 ;; --max-used-mib) MAX_USED="${2:-}"; shift 2 ;; --margin-mib) MARGIN="${2:-}"; shift 2 ;;
     --adapter-a) AD_A="${2:-}"; shift 2 ;; --adapter-b) AD_B="${2:-}"; shift 2 ;; --c1-dir) C1="${2:-}"; shift 2 ;;
-    --backend) BACKEND="${2:-}"; shift 2 ;; --production-limits) PROD=1; shift ;; --keep-bundle) KEEP_BUNDLE=1; shift ;; --clean-cache) CLEAN_CACHE=1; shift ;;
+    --backend) BACKEND="${2:-}"; shift 2 ;; --server-module) SERVER_MODULE="${2:-}"; shift 2 ;; --production-limits) PROD=1; shift ;; --keep-bundle) KEEP_BUNDLE=1; shift ;; --clean-cache) CLEAN_CACHE=1; shift ;;
     -h|--help) sed -n 2,28p "$0"; exit 0 ;;
     *) die "알 수 없는 인자: $1" ;;
   esac
@@ -50,6 +52,7 @@ done
 [ -n "$AD_A" ] && [ -n "$AD_B" ] && [ -n "$C1" ] || die "--adapter-a, --adapter-b, --c1-dir가 필요하다"
 [ -d "$AD_A" ] && [ -d "$AD_B" ] || die "어댑터 디렉터리가 없다"
 [ -f "$C1/lora_a_val.jsonl" ] && [ -f "$C1/lora_b_val.jsonl" ] || die "$C1 에 lora_a_val.jsonl, lora_b_val.jsonl이 없다"
+[ -z "$PLAN" ] || [ "$CONC_SET" -eq 0 ] || die "--plan은 --concurrency/--n-a/--n-b와 같이 쓰지 않는다(plan이 대신한다)"
 case "$BACKEND" in vllm|fake) ;; *) die "--backend는 vllm 또는 fake" ;; esac
 [ -x "$PY" ] || die "파이썬이 없다: $PY (--python)"
 if [ -z "$KIT" ]; then if [ -d "$WRITE_ROOT/mr-kit/src" ]; then KIT="$WRITE_ROOT/mr-kit"; else KIT="$KIT_DEFAULT"; fi; fi
@@ -158,6 +161,10 @@ echo "$(date +%H:%M:%S) 시작 전 $(gpu_mem)" >> "$RUN/logs/gpu_mem.log"
 ( while true; do echo "$(date +%H:%M:%S) $(gpu_mem) | $("$SMI" --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null | tr '\n' ';')" >> "$RUN/logs/gpu_mem.log"; sleep 15; done ) &
 SMP_PID=$!
 
+# 키트가 만들어질 때 기록된 커밋(make_kit.sh의 KIT_MANIFEST.txt). 개발 실행(리포 루트)에는 없다
+KIT_COMMIT="$(sed -n 's/^commit: //p' "$KIT/KIT_MANIFEST.txt" 2>/dev/null | head -1)"; KIT_COMMIT="${KIT_COMMIT:-없음(키트 아님)}"
+[ -f "$KIT/KIT_MANIFEST.txt" ] && cp "$KIT/KIT_MANIFEST.txt" "$RUN/logs/KIT_MANIFEST.txt"
+log "키트 커밋 $KIT_COMMIT"
 # 3) 번들 준비
 VLLM_VER="$("$PY" -I -c "import importlib.metadata as m;print(m.version('vllm'))" 2>/dev/null || true)"
 if [ "$BACKEND" = vllm ] && [ -z "$VLLM_VER" ]; then die "이 파이썬에서 vllm 버전을 읽지 못했다($PY)" 5; fi
@@ -180,35 +187,68 @@ for _ in $(seq 1 20); do [ -s "$RUN/release.port" ] && break; sleep 0.5; done
 [ -s "$RUN/release.port" ] || die "릴리스 서버가 뜨지 않았다(logs/release_server.log)" 5
 RELPORT="$(cat "$RUN/release.port")"; PORT="$(freeport)"
 if [ "$PROD" -eq 1 ]; then LIMITS=(MODEL_RUNTIME_X=1); else LIMITS=(MODEL_RUNTIME_REQUEST_DEADLINE_S=600 MODEL_RUNTIME_QUEUE_WAIT_S=600); fi
-log "추론 서버 기동 127.0.0.1:$PORT (백엔드 $BACKEND, 요청 상한 $([ "$PROD" -eq 1 ] && echo '기본 3.5s/3.0s' || echo '풀어 둠 600s'))"
-env MODEL_RUNTIME_BACKEND="$BACKEND" MODEL_RUNTIME_SCHEMA_DIR="$SCHEMA_DIR" MODEL_RUNTIME_PROFILE="$RUN_PROFILE" \
-    MODEL_RUNTIME_RELEASE_URL="http://127.0.0.1:$RELPORT" MODEL_RUNTIME_BUNDLE_DIR="$RUN/bundles" \
-    MODEL_RUNTIME_TOKENS_FILE="$RUN/tokens" MODEL_RUNTIME_PUT_WAIT_S=5 MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S=600 \
-    MODEL_RUNTIME_HOST=127.0.0.1 MODEL_RUNTIME_PORT="$PORT" MODEL_RUNTIME_BACKEND_RETRY_S=0 "${LIMITS[@]}" \
-    setsid "$PY" -m model_runtime.server > "$RUN/logs/server.log" 2>&1 &
-SERVER_PID=$!
-
-# 5) 준비 대기(상한)
-cap=$(( READY_MIN * 60 )); r=$(remaining); [ "$r" -lt "$cap" ] && cap=$r
-t0=$(date +%s); ready=0
-while [ $(( $(date +%s) - t0 )) -lt "$cap" ]; do
-  kill -0 "$SERVER_PID" 2>/dev/null || { tail -n 30 "$RUN/logs/server.log"; die "서버 프로세스가 종료됐다(logs/server.log)" 5; }
-  # 백엔드 기동이 실패하면 서버는 살아 있어도 영원히 준비되지 않는다(BACKEND_RETRY_S=0): 남은 시간을 기다리지 말고 바로 멈춘다(임대 비용)
-  if grep -aq '백엔드를 올리지 못함' "$RUN/logs/server.log" 2>/dev/null; then tail -n 30 "$RUN/logs/server.log"; die "백엔드 기동 실패(logs/server.log). 기다리지 않고 중단한다" 5; fi
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "@$RUN/auth_header" "http://127.0.0.1:$PORT/readyz" 2>/dev/null)
-  if [ "$code" = 200 ]; then ready=1; break; fi
-  sleep 3
+SERVER_ENV=(MODEL_RUNTIME_BACKEND="$BACKEND" MODEL_RUNTIME_SCHEMA_DIR="$SCHEMA_DIR" MODEL_RUNTIME_PROFILE="$RUN_PROFILE"
+    MODEL_RUNTIME_RELEASE_URL="http://127.0.0.1:$RELPORT" MODEL_RUNTIME_BUNDLE_DIR="$RUN/bundles"
+    MODEL_RUNTIME_TOKENS_FILE="$RUN/tokens" MODEL_RUNTIME_PUT_WAIT_S=5 MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S=600
+    MODEL_RUNTIME_HOST=127.0.0.1 MODEL_RUNTIME_PORT="$PORT" MODEL_RUNTIME_BACKEND_RETRY_S=0 "${LIMITS[@]}")
+stop_server() {   # 이 스크립트가 띄운 서버 그룹만 내린다(cleanup과 같은 절차). 다음 시도 전에 GPU 메모리가 풀려야 한다
+  [ -n "$SERVER_PID" ] || return 0
+  kill -TERM -- "-$SERVER_PID" 2>/dev/null
+  for _ in $(seq 1 40); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 1; done
+  kill -KILL -- "-$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; SERVER_PID=""
+}
+# 7) 기동과 준비 대기. 'GPU 메모리를 요구량만큼 못 잡음'으로 실패하면 util을 낮춰 최대 2번 다시 띄운다(ADR 0016): 파드는 시간당 과금이고, 같은 실패를 사람이 보고 다시 임대하는 것보다 싸다.
+# 그 밖의 실패는 재시도해도 같으므로 즉시 중단한다. 판별 문구는 util_retry.py 주석.
+ATT="$RUN/util_attempts.json"; ATTEMPT=0; MAX_RETRY=2; CUR_UTIL="$UTIL_EFF"
+while true; do
+  log "추론 서버 기동 127.0.0.1:$PORT (백엔드 $BACKEND, util $CUR_UTIL, 시도 $((ATTEMPT+1)), 요청 상한 $([ "$PROD" -eq 1 ] && echo '기본 3.5s/3.0s' || echo '풀어 둠 600s'))"
+  env "${SERVER_ENV[@]}" setsid "$PY" -m "$SERVER_MODULE" > "$RUN/logs/server.log" 2>&1 &
+  SERVER_PID=$!
+  cap=$(( READY_MIN * 60 )); r=$(remaining); [ "$r" -lt "$cap" ] && cap=$r
+  t0=$(date +%s); ready=0; failed_backend=0
+  while [ $(( $(date +%s) - t0 )) -lt "$cap" ]; do
+    kill -0 "$SERVER_PID" 2>/dev/null || { tail -n 30 "$RUN/logs/server.log"; "$PY" -I "$HERE/util_retry.py" record "$ATT" "$CUR_UTIL" process_exited; die "서버 프로세스가 종료됐다(logs/server.log)" 5; }
+    # 백엔드 기동이 실패하면 서버는 살아 있어도 영원히 준비되지 않는다(BACKEND_RETRY_S=0): 남은 시간을 기다리지 말고 바로 멈춘다(임대 비용)
+    if grep -aq '백엔드를 올리지 못함' "$RUN/logs/server.log" 2>/dev/null; then failed_backend=1; break; fi
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "@$RUN/auth_header" "http://127.0.0.1:$PORT/readyz" 2>/dev/null)
+    if [ "$code" = 200 ]; then ready=1; break; fi
+    sleep 3
+  done
+  if [ "$ready" -eq 1 ]; then "$PY" -I "$HERE/util_retry.py" record "$ATT" "$CUR_UTIL" ready; break; fi
+  if [ "$failed_backend" -eq 0 ]; then tail -n 30 "$RUN/logs/server.log"; "$PY" -I "$HERE/util_retry.py" record "$ATT" "$CUR_UTIL" timeout; die "서버가 ${cap}초 안에 준비되지 않았다(시간 상한)" 6; fi
+  { read -r KIND; read -r WHY; } < <("$PY" -I "$HERE/util_retry.py" classify "$RUN/logs/server.log")
+  tail -n 30 "$RUN/logs/server.log"
+  "$PY" -I "$HERE/util_retry.py" record "$ATT" "$CUR_UTIL" "backend_failed_$KIND" "$WHY"
+  [ "$KIND" = memory ] || die "백엔드 기동 실패(메모리 부족이 아닌 종류: $WHY). 재시도하지 않고 중단한다(logs/server.log)" 5
+  [ "$ATTEMPT" -lt "$MAX_RETRY" ] || die "util을 낮춰 ${MAX_RETRY}번 다시 시도했지만 메모리 부족이 계속된다(util_attempts.json). 중단한다" 5
+  stop_server; mv "$RUN/logs/server.log" "$RUN/logs/server.attempt$((ATTEMPT+1)).log"
+  CUR_UTIL="$("$PY" -I "$HERE/util_retry.py" next "$CUR_UTIL")"; ATTEMPT=$((ATTEMPT+1))
+  "$PY" -I - "$RUN_PROFILE" "$CUR_UTIL" <<'PYEOF' || die "재시도용 프로파일을 쓰지 못했다"
+import json, sys
+p = json.load(open(sys.argv[1], encoding="utf-8")); p["engine"]["gpu_memory_utilization"] = float(sys.argv[2])
+json.dump(p, open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+PYEOF
+  log "메모리 부족으로 기동 실패($WHY). util $CUR_UTIL 로 다시 시도 ($ATTEMPT/$MAX_RETRY)"
 done
-[ "$ready" -eq 1 ] || { tail -n 30 "$RUN/logs/server.log"; die "서버가 ${cap}초 안에 준비되지 않았다(시간 상한)" 6; }
-log "서버 준비됨 ($(( $(date +%s) - t0 ))초). GPU: $(gpu_mem)"
+log "서버 준비됨 ($(( $(date +%s) - t0 ))초, util $CUR_UTIL). GPU: $(gpu_mem)"
 
 # 6) 측정(적재 포함). 남은 시간에서 정리 여유 90초를 뺀 만큼만 쓴다
 left=$(( $(remaining) - 90 )); [ "$left" -lt 60 ] && die "측정할 시간이 남지 않았다(남은 ${left}초)" 6
-log "적재와 측정 시작 (측정 시간 상한 ${left}초, 행 수 A=$N_A B=$N_B, 동시 $CONC)"
+if [ -n "$PLAN" ]; then LOADARGS=(--plan "$PLAN"); else LOADARGS=(--n-a "$N_A" --n-b "$N_B" --concurrency "$CONC"); fi
+log "적재와 측정 시작 (측정 시간 상한 ${left}초, ${LOADARGS[*]})"
 "$PY" "$HERE/measure.py" --url "http://127.0.0.1:$PORT" --release-id gpu-session --c1-a "$C1/lora_a_val.jsonl" --c1-b "$C1/lora_b_val.jsonl" \
-  --n-a "$N_A" --n-b "$N_B" --concurrency "$CONC" --token-file "$RUN/token" --put-release --put-timeout 900 --max-seconds "$left" --out "$RUN/measure.json"
+  "${LOADARGS[@]}" --token-file "$RUN/token" --put-release --put-timeout 900 --max-seconds "$left" --out "$RUN/measure.json"
 MRC=$?
 echo "$(date +%H:%M:%S) 측정 후 $(gpu_mem)" >> "$RUN/logs/gpu_mem.log"
+# 어느 util로 떴는지와 시도 기록, 키트 커밋을 결과 파일에 같이 남긴다(재현: 어떤 코드로 어떤 값에서 돌았나)
+"$PY" -I - "$RUN/measure.json" "$ATT" "$UTIL_EFF" "$CUR_UTIL" "$KIT_COMMIT" <<'PYEOF' || true
+import json, sys, os
+p = sys.argv[1]
+if os.path.exists(p):
+    d = json.load(open(p, encoding="utf-8"))
+    d.update(util_start=float(sys.argv[3]), util_final=float(sys.argv[4]), util_attempts=json.load(open(sys.argv[2], encoding="utf-8")), kit_commit=sys.argv[5])
+    json.dump(d, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+PYEOF
 
 # 7) 요약(서버 종료는 trap)
 log "요약: 결과 $RUN/measure.json, 표 $RUN/measure.txt (종료 코드 $MRC)"

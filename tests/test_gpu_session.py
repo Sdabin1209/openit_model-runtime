@@ -429,3 +429,80 @@ def test_pod_setup_default_profile_is_the_one_pod_run_uses():
     run = (KIT / "pod_run.sh").read_text()
     assert 'PROFILE="rtx4090-24g.json"' in run and '--profile $BASE/mr-kit/profiles/$PROFILE' in run.split("pod_setup.sh")[1].split("\n")[0]
     assert 'PROFILE="rtx4090-24g.json"' in (KIT / "pod_setup.sh").read_text()
+
+
+# ---- util 자동 재시도와 --plan, 키트 커밋 기록 (ADR 0016) ----
+import util_retry  # noqa: E402
+
+
+def test_util_retry_classifies_only_memory_shortage_as_retryable():
+    mem1 = "ValueError: Free memory on device (5/11 GiB) on startup is less than desired GPU memory utilization (0.9, 10 GiB)."
+    mem2 = "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB"
+    kv = "ValueError: No available memory for the cache blocks. Try increasing `gpu_memory_utilization` when initializing the engine."
+    kv2 = "To serve at least one request with the max seq len (4096), (1.2 GiB KV cache is needed, which is larger than the available KV cache memory (0.5 GiB)"
+    assert util_retry.classify(mem1)[0] == "memory" and util_retry.classify(mem2)[0] == "memory"
+    assert util_retry.classify(kv)[0] == "other" and util_retry.classify(kv2)[0] == "other"   # util을 낮추면 더 나빠지는 종류
+    assert util_retry.classify("ImportError: libcuda.so")[0] == "other"
+    assert util_retry.next_util(0.9) == 0.85 and util_retry.next_util(0.85) == 0.8
+
+
+def test_measure_parse_plan():
+    assert measure.parse_plan("1:20,4:20") == [(1, 20), (4, 20)]
+    for bad in ("1:20,1:5", "0:5", "x", "1:0", ""):
+        with pytest.raises(ValueError):
+            measure.parse_plan(bad)
+
+
+def run_stub_session(tmp_path, fail, *extra):
+    setup_inputs(tmp_path)
+    c1 = tmp_path / "c1"; c1.mkdir()
+    (tmp_path / "a.jsonl").rename(c1 / "lora_a_val.jsonl"); (tmp_path / "b.jsonl").rename(c1 / "lora_b_val.jsonl")
+    root = tmp_path / "root"
+    env = {**os.environ, "NVIDIA_SMI": smi(tmp_path, 300), "PYTHONPATH": str(ROOT / "tests"), "STUB_FAIL": fail}
+    r = subprocess.run(["bash", str(KIT / "run_session.sh"), "--base", str(root), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT),
+                        "--adapter-a", str(tmp_path / "aa"), "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--server-module", "stub_oom_server",
+                        "--util", "0.9", "--ready-timeout-min", "1", "--budget-min", "5", *extra], capture_output=True, text=True, env=env, timeout=170)
+    return r, next((root / "mr-session").glob("run-*"))
+
+
+def test_run_session_retries_lower_util_on_memory_shortage(tmp_path):
+    r, run = run_stub_session(tmp_path, "memory", "--n-a", "1", "--n-b", "1")
+    att = json.loads((run / "util_attempts.json").read_text(encoding="utf-8"))
+    assert [(a["util"], a["outcome"]) for a in att] == [(0.9, "backend_failed_memory"), (0.85, "backend_failed_memory"), (0.8, "ready")]
+    assert "less than desired GPU memory utilization" in att[0]["reason"]
+    assert (run / "logs" / "server.attempt1.log").exists() and (run / "logs" / "server.attempt2.log").exists()
+    res = json.loads((run / "measure.json").read_text(encoding="utf-8"))   # 가짜 서버라 적재는 실패(종료 3)하지만 util 기록은 남는다
+    assert r.returncode == 3 and res["util_start"] == 0.9 and res["util_final"] == 0.8 and len(res["util_attempts"]) == 3
+
+
+def test_run_session_stops_at_once_on_non_memory_failure(tmp_path):
+    r, run = run_stub_session(tmp_path, "kv")
+    att = json.loads((run / "util_attempts.json").read_text(encoding="utf-8"))
+    assert r.returncode == 5 and [(a["util"], a["outcome"]) for a in att] == [(0.9, "backend_failed_other")]
+    assert "재시도하지 않고" in r.stderr and not (run / "logs" / "server.attempt1.log").exists()
+
+
+def test_run_session_plan_runs_stages_on_one_server_and_records_gpu(tmp_path):
+    setup_inputs(tmp_path)
+    c1 = tmp_path / "c1"; c1.mkdir()
+    (tmp_path / "a.jsonl").rename(c1 / "lora_a_val.jsonl"); (tmp_path / "b.jsonl").rename(c1 / "lora_b_val.jsonl")
+    root = tmp_path / "root"
+    cmd = ["bash", str(KIT / "run_session.sh"), "--base", str(root), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT),
+           "--adapter-a", str(tmp_path / "aa"), "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--budget-min", "5"]
+    env = {**os.environ, "NVIDIA_SMI": smi(tmp_path, 300)}
+    r = subprocess.run([*cmd, "--plan", "1:2,2:3"], capture_output=True, text=True, env=env, timeout=170)
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
+    run = next((root / "mr-session").glob("run-*"))
+    res = json.loads((run / "measure.json").read_text(encoding="utf-8"))
+    assert res["summary"]["extract@1"]["calls"] == 2 and res["summary"]["respond@2"]["calls"] == 3
+    assert set(res["stage_gpu"]) == {"after_load", "after_concurrency_1", "after_concurrency_2"}
+    assert (run / "logs" / "server.log").exists() and not list((run / "logs").glob("server.attempt*"))   # 서버는 한 번만 떴다
+    both = subprocess.run([*cmd, "--plan", "1:2", "--n-a", "3"], capture_output=True, text=True, env=env, timeout=60)
+    assert both.returncode == 64 and "같이 쓰지 않는다" in both.stderr
+
+
+def test_make_kit_records_commit_and_logs_carry_it():
+    mk = (KIT / "make_kit.sh").read_text(encoding="utf-8")
+    assert "rev-parse HEAD" in mk and "-dirty" in mk
+    assert "KIT_MANIFEST" in (KIT / "run_session.sh").read_text(encoding="utf-8") and "kit_commit" in (KIT / "run_session.sh").read_text(encoding="utf-8")
+    assert "KIT_MANIFEST" in (KIT / "pod_setup.sh").read_text(encoding="utf-8") and "KIT_MANIFEST" in (KIT / "pod_run.sh").read_text(encoding="utf-8")

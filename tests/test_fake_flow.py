@@ -279,5 +279,66 @@ class FakeCorrect(unittest.TestCase):
                 server.build_service({**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)})
 
 
+class FakeReask(unittest.TestCase):
+    """0.7.3: 발화 문구에 대해 REASK를 연속으로 낸다(서비스 되묻기 한도 시험용). 스키마 allOf: REASK는 reason·targets 필수, note 없음."""
+    REASKS = [{"contains": "글쎄요", "key": "Q4.answer"}, {"contains": "대충", "key": "Q8_1.days", "reason": "VAGUE_QUANTITY", "at": "Q8_1"}]
+
+    def sess(self):
+        b = mr.FakeBackend(mr.make_default_responder(V2_ORDER, None, SLOTS, SKIPS, (), self.REASKS))
+        cfgs, hashes = cfgs_and_hashes(b)
+        return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+
+    def test_consecutive_reask_and_at(self):
+        s = self.sess()
+        for _ in range(4):   # 연속 호출에서도 매번 같은 REASK(상태 없음)
+            out = s.extract({**a_input("Q4"), "user_utterance": "글쎄요"})
+            assert_valid("ActionExtraction", out)
+            self.assertEqual(out, {"action": "REASK", "next_item": "Q4", "reason": "MISSING", "targets": ["Q4.answer"],
+                                   "values": [{"key": "Q4.answer", "precision": "unspecified", "save": False, "status": "MISSING", "value": None}]})
+        self.assertEqual(s.extract({**a_input("Q8_1"), "user_utterance": "대충 그정도"})["reason"], "VAGUE_QUANTITY")
+        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "대충 그정도"})["action"], "NEXT")   # at 불일치
+        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "네"})["action"], "NEXT")   # 문구 없음: 기존 동작
+
+    def test_passes_turn_engine_validate_extraction(self):
+        pytest.importorskip("turn_engine")
+        from turn_engine.flow import DATASET_V2_FLOW
+        from turn_engine.validation import validate_extraction
+        order = list(DATASET_V2_FLOW.order)
+        b = mr.FakeBackend(mr.make_default_responder(order, None, {}, (), (), [{"contains": "글쎄요", "key": "Q4.answer"}]))
+        cfgs, hashes = cfgs_and_hashes(b)
+        s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
+        inp = {**a_input("Q4"), "user_utterance": "글쎄요"}
+        self.assertEqual(validate_extraction(inp, s.extract(inp), DATASET_V2_FLOW), [])
+
+    def test_file_format_and_errors(self):
+        with TemporaryDirectory() as t:
+            ok = Path(t) / "ok.json"
+            ok.write_text(json.dumps({"order": V2_ORDER, "reasks": self.REASKS}), encoding="utf-8")
+            self.assertEqual(mr.load_fake_reasks(str(ok)), self.REASKS)
+            lst = Path(t) / "l.json"
+            lst.write_text(json.dumps(ORDER), encoding="utf-8")
+            self.assertEqual(mr.load_fake_reasks(str(lst)), [])
+            for i, bad in enumerate(({"reasks": {}}, {"reasks": [{"key": "Q4.answer"}]}, {"reasks": [{"contains": " ", "key": "Q4.answer"}]},
+                                     {"reasks": [{"contains": "a", "key": "bad"}]}, {"reasks": [{"contains": "a", "key": "Q99.x"}]},
+                                     {"reasks": [{"contains": "a", "key": "Q4.answer", "reason": "RISK"}]})):
+                p = Path(t) / f"bad{i}.json"
+                p.write_text(json.dumps({"order": V2_ORDER, **bad}), encoding="utf-8")
+                with self.assertRaises(ValueError, msg=i):
+                    mr.load_fake_reasks(str(p))
+
+    def test_server_env_with_reasks_and_allow_fake(self):
+        base = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR)}
+        with TemporaryDirectory() as t:
+            p = Path(t) / "flow.json"
+            p.write_text(json.dumps({"order": V2_ORDER, "reasks": self.REASKS}), encoding="utf-8")
+            env = {**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)}
+            with self.assertRaises(SystemExit):   # ALLOW_FAKE 규칙 유지
+                server.build_service(env)
+            server.build_service({**env, "MODEL_RUNTIME_ALLOW_FAKE": "1"}).close()
+            p.write_text(json.dumps({"order": V2_ORDER, "reasks": [{"contains": "a", "key": "Q99.x"}]}), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                server.build_service({**env, "MODEL_RUNTIME_ALLOW_FAKE": "1"})
+
+
 if __name__ == "__main__":
     unittest.main()
