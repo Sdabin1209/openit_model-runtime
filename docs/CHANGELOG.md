@@ -1,7 +1,7 @@
 # 변경 이력
 
-## 미출시 (wo2 브랜치, 2026-10-28) — 역할 컴포넌트 분리, 특수 토큰 한 곳, 모방 백엔드
-공개 API(I9 서버, `ModelSession`, `load`, `render_prompt`)와 `serving_config`·해시는 그대로다. 버전 번호는 올리지 않았다(헤드가 병합 때 정한다).
+## 0.7.7 — 2026-10-28 (역할 컴포넌트 분리, 특수 토큰 한 곳, 모방 백엔드)
+공개 API(I9 서버, `ModelSession`, `load`, `render_prompt`)와 `serving_config`·해시는 그대로다. 버전은 0.7.7로 올렸다(헤드가 병합 때 정했다). 계약 v2.1.1 pin은 그대로다.
 - MR-02: `neutralize_special_tokens`를 서버에서 `prompts.py`로 옮기고 `render_prompt`가 적용한다(검증 뒤, 직렬화 전). 직접 호출자도 서비스와 같은 프롬프트를 만든다. `server.neutralize_special_tokens`는 없어졌다.
 - MR-01·MR-03(최소안): `roles.py`의 `ExtractRole`/`RespondRole`, 공용 `run_attempts`, 프롬프트 직렬화 함수 둘, 가짜 응답기 역할별 분리(ADR 0017). 서버 파일 분리와 `info()` 정리는 하지 않았다.
 - 모방 백엔드: `MODEL_RUNTIME_BACKEND=mimic`(`MODEL_RUNTIME_ALLOW_FAKE=1` 필요), `MimicExtractor`/`MimicResponder`, 규칙표 `data/mimic_rules.json`(ADR 0018). `/v1/info`의 backend는 `mimic`이고 매니페스트 `serving_config.constraint.backend`도 `mimic`이어야 한다.

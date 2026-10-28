@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-runtime"
-version = "0.7.6"
+version = "0.7.7"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
 # boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<태그>  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
