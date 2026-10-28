@@ -94,7 +94,7 @@
 | 기반 모델 Qwen3-8B 약 16GB | 파드가 Hugging Face에서 직접 내려받음(공개 모델, 토큰 불필요) | 업로드 불필요 |
 | 파이썬 패키지 | `requirements-gpu.lock`(torch cu13, vllm 0.31.0 등). gpu-dev의 같은 잠금 venv가 8.3GB | 업로드 불필요(PyPI) |
 `pod_run.sh`는 `--i-confirm-upload-data` 없이는 위 데이터를 **보내지 않고** 목록만 출력한다(종료 코드 3, 시험 있음).
-파드 선택 조건: **CUDA 13을 지원하는 드라이버**(잠금의 torch가 cu13 휠. gpu-dev 드라이버 591.86/CUDA 13.1에서 동작 확인), python3.12, 디스크: `--base`가 있는 볼륨 40GB 이상, 외부 인터넷(PyPI·Hugging Face), 24GB 이상 GPU 1장(`rtx4090-24g.json`; A5000도 이 파일, 아래 참고).
+파드 선택 조건: **CUDA 13을 지원하는 드라이버**(잠금의 torch가 cu13 휠. gpu-dev 드라이버 591.86/CUDA 13.1에서 동작 확인), 디스크: `--base`가 있는 볼륨 40GB 이상, 외부 인터넷(PyPI·GitHub·Hugging Face. GitHub은 uv와 독립 파이썬 출처), 24GB 이상 GPU 1장(`rtx4090-24g.json`; A5000도 이 파일, 아래 참고).
 
 ### 1. 한 명령
 ```
@@ -107,8 +107,9 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 | SSH·전송 | 접속·scp 성공 | 종료 1 | 비밀은 보내지 않는다: 전송 목록은 키트·어댑터·C1뿐 |
 | `pod_setup.sh` 1 GPU | `nvidia-smi` 있고 CUDA Version >= 13 | 중단 메시지, 종료 2 | cu13 휠이 안 뜬다 |
 | 〃 2 디스크 | `--base`가 있는 파일시스템의 남은 용량 >= 40GB | 중단 | 아래 '디스크 40GB의 근거'. RunPod에서 $HOME(container disk)이 아니라 볼륨을 검사하려고 `--base`로 모았다 |
-| 〃 3 인터넷 | PyPI·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
-| 〃 4 설치 | python3.12 venv, lock 설치, `torch.cuda.is_available()`, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
+| 〃 3 인터넷 | PyPI·github.com·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
+| 〃 3b 스스로 준비 | gcc·libc6-dev·curl·ca-certificates는 없으면 root일 때 apt-get으로 설치(root 아니면 이름을 말하고 중단). uv 0.13.6(sha256 고정)과 uv 독립 파이썬 3.12 확보, venv 생성, `Python.h`를 include한 C 파일 컴파일 시험 | 중단 | 이미지가 조금 달라도 키트가 돈다(ADR 0014). 시스템 파이썬은 쓰지도 바꾸지도 않는다 |
+| 〃 4 설치·확인 | lock 설치(`uv pip`), `torch.cuda.is_available()`, bf16 행렬곱, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
 | 〃 5 모델 | `snapshot_download` 성공 | 중단 | 이후 `HF_HUB_OFFLINE=1`로 읽기만 한다 |
 | `run_session.sh` | preflight 통과, 번들 준비, 서버 준비(백엔드 기동 실패는 **기다리지 않고 즉시 중단**), 측정 | 종료 5/6/7 | 7 = 성공 호출 0건(전엔 0으로 끝났다) |
 | 결과 회수 | `session-*.tgz` 저장(번들·토큰 제외) | 수동 회수 안내 | 파드를 끄면 결과가 사라진다 |
@@ -156,11 +157,11 @@ sudo 없이·root 양쪽: 스크립트는 sudo, apt, /etc, chown을 쓰지 않�
 | 입력 길이 / 2500자 상한 | 사전 | 서버와 같은 정의(`len(json.dumps(body))`): A p50 271 / p95 382 / max 574자, B p50 240 / p95 309 / max 394자. 2500 초과 0건. 이 데이터로는 상한 근처를 못 잰다(이미 아는 한계) |
 | 토큰 길이 vs `max_model_len 8192`, `max_tokens` | 사전 | 프롬프트 토큰 max A 765 / B 386. 정답 토큰(+EOS) max A 203 / B 86 -> `max_tokens` A 512 / B 256 이내(초과 0건), 8192 초과 0건 |
 | 키트 전체(`run_session.sh`, fake 백엔드, 실제 어댑터·C1, `--n-a 20 --n-b 20`, 동시 1과 4) | 사전 | make_kit로 만든 키트를 풀어 실행. 둘 다 종료 코드 0, LOADED, 20/20 성공. 결과·로그에 C1 발화 원문 없음(400행 발화로 검색). 새 결함 없음 |
-| `pod_setup` 환경 점검 | 사전(보강함) | C 컴파일러·`Python.h` 점검을 설치 전에, GPU bf16 행렬곱 점검을 설치 직후에 추가(Triton이 런처를 빌드한다). '있음' 경로만 PC에서 확인했다 |
+| `pod_setup` 환경 점검 | 사전(보강함) | C 컴파일러·`Python.h` 컴파일 시험을 설치 전에, GPU bf16 행렬곱 점검을 설치 직후에 둔다(Triton이 런처를 빌드한다). 준비 단계는 PC Docker 이미지 3종에서 실제로 돌렸다(아래 '스스로 준비') |
 | Qwen3-8B 내려받기 크기 | 사전 | HF API 합계 16.40GB(15.27GiB), 5 샤드, 비공개 아님/게이트 아님(토큰 불필요). 디스크 40GB 근거의 추정 16.4GB가 맞다 |
 | `requirements-gpu.lock` 이 파드(py3.12, x86_64 glibc<=2.35)에서 설치 가능한가 | 일부 | 확인한 것: 핀 `llguidance==1.7.6`은 `manylinux_2_31_x86_64` 휠만 있다(glibc 2.31 이상 파드 필요, Ubuntu 22.04는 2.35라 충족). 전체 핀의 휠 존재 확인(`pip install --dry-run --report`)은 휠을 내려받느라 400초 상한에 걸려 **끝내지 못했다**. gpu-dev에서 같은 lock이 실제로 설치된 것이 근거 |
 | 드라이버 CUDA >= 13 | GPU(파드)로만 | `pod_setup` 1단계가 설치 전에 멈춘다. RunPod 배포 화면에서 CUDA 13 필터를 거는 것이 사전 조치 |
-| python3.12·gcc·Python.h 유무 | 파드로만 | `pod_setup`이 설치 전에 중단 |
+| python3.12·gcc·Python.h 유무 | 사전(Docker 3종) | 이제 중단하지 않고 스스로 준비한다(아래 '스스로 준비'). 실제 RunPod 이미지에서는 미확인 |
 | 24GB에 util 0.9로 8B + LoRA 2개 적재, KV 캐시 크기 | GPU로만 | 추정만: 가중치 15.3GiB, util 0.9의 예산 약 21.6GiB, 토큰당 KV 144KiB(Qwen3-8B 구성에서 계산) -> 남는 KV 몇 GiB(수만 토큰). 측정 안 함. 실패하면 `--util 0.85` |
 | vLLM이 이 `adapter_config.json`(peft 0.21 필드 다수)을 읽는지, F32 가중치 적재 | GPU로만 | 지원하지 않는 형태(DoRA, modules_to_save, rank_pattern)는 사전 배제함. 나머지는 vLLM 코드를 실행해야 앎 |
 | 구조화 출력(xgrammar) 경로, 서버 기동 | GPU로만(부분) | vllm 0.31.0 + 같은 lock으로 gpu-dev(1.5B)에서 이미 한 바퀴 돎. Qwen3-8B/Ampere에서는 미실행 |
@@ -174,9 +175,18 @@ sudo 없이·root 양쪽: 스크립트는 sudo, apt, /etc, chown을 쓰지 않�
 | 1 | 파드 켜짐 ~ SSH 가능 | 호스트·포트 확인 | 켜짐 | 접속 안 되면 파드 교체 |
 | 2 | 명령 한 줄 | `scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --base /workspace/dabin --adapter-a <A> --adapter-b <B> --c1-dir <C1> --i-confirm-upload-data --n-a 20 --n-b 20 --concurrency 1` | 켜짐 | 아래 단계별 |
 | 2a | 키트 생성·전송 | 키트(약 100KB) + 어댑터 약 350MB + C1 약 12MB 전송 | 켜짐 | SSH/전송 실패 -> 종료 1 |
-| 2b | `pod_setup` | GPU/드라이버 CUDA>=13 -> 디스크>=40GB -> PyPI/HF 도달 -> python3.12 -> gcc, Python.h -> lock 설치 -> torch GPU, 행렬곱 -> vllm==0.31.0 -> Qwen3-8B 16.4GB 내려받기 | 켜짐(가장 긴 구간 후보: 내려받기·설치, **측정 안 함**) | 어느 단계든 첫 실패에서 종료 2(파드를 끄고 원인 수정) |
+| 2b | `pod_setup` | GPU/드라이버 CUDA>=13 -> 디스크>=40GB -> gcc 등 확보 -> PyPI/GitHub/HF 도달 -> uv, 파이썬 3.12, venv -> Python.h 컴파일 시험 -> lock 설치 -> torch GPU, 행렬곱 -> vllm==0.31.0 -> Qwen3-8B 16.4GB 내려받기 | 켜짐(가장 긴 구간 후보: 내려받기·설치, **측정 안 함**) | 어느 단계든 첫 실패에서 종료 2(파드를 끄고 원인 수정) |
 | 2c | `run_session.sh` 짧은 실행 | preflight(마진 0) -> 번들 준비 -> 서버 기동 -> 적재 -> 20+20건 측정 | 켜짐 | 5(기동·적재 실패, 즉시 중단) / 6(시간 초과) / 7(성공 0건). 7이면 `logs/server.log` 마지막 30줄을 보고 중지 |
 | 2d | 결과 회수 | `~/pod-results/session-*.tgz`(번들·토큰 제외) | 켜짐 | tgz가 0바이트면 파드 끄지 말고 수동 회수 |
 | 3 | 확장 실행(선택) | 짧은 실행이 성공하면 같은 파드에서 `--skip-setup`으로 `--n-a 200 --n-b 200 --concurrency 1,4`(필요시 `--production-limits` 별도 실행) | 켜짐 | 위와 같음 |
 | 4 | 끄기 | 종료 코드 0 또는 4, tgz 크기>0 확인 후 파드 중지(볼륨은 다음에 쓸 거면 유지, 아니면 삭제) | **꺼짐** | |
 회수물: `measure.txt`, `measure.json`, `profile.json`, `logs/{gpu_mem.log, server.log, prepare_bundle.log, PREPARE_REPORT.json}`(발화·모델 출력 원문 없음). 3의 소요 추정(측정 안 함, 계산): A5000 메모리 대역폭을 768GB/s로 알고 있으나 **확인하지 못했고**, 이 값과 16.4GB로 디코딩 상한 약 46토큰/초 -> 정답 길이(A p50 96토큰, B p50 48토큰)로 extract 약 2~3초, respond 약 1~2초 -> 200+200건 동시 1은 10~20분. 그래서 기본 예산 45분 안에서 확장 실행은 한 번이 안전하다. 현재 3.5초 요청 상한은 extract에서 넘길 가능성이 높다(이 값도 예측일 뿐).
+
+## 스스로 준비: 바탕 이미지 3종 확인 (ADR 0014, 2026-10-28, PC Docker)
+`pod_setup.sh --stage prereq`(디스크, gcc/curl/ca-certificates 확보, uv 고정 내려받기와 sha256 확인, 독립 파이썬 3.12, venv, `Python.h` 컴파일 시험)와 `--stage install --lock <소수 휠 lock>`(certifi, idna, MarkupSafe, numpy, PyYAML, six를 실제 lock 줄 그대로)를 root로 실행하고, prereq를 한 번 더 돌려 멱등을 확인했다. 시험용 lock은 임시 파일이고 리포에 없다. 전체 lock(8GB)은 설치하지 않았다.
+| 바탕 이미지 | 결과 | gcc 상태 | 소요(전체, 이미지 pull 제외) | `--base` 크기 |
+| --- | --- | --- | --- | --- |
+| ubuntu:22.04 | 통과, 파이썬 3.12.16, numpy 2.3.5 import | 없어서 apt로 설치 | 280초(다른 시험과 CPU를 나눠 쓴 구간) | 206MB |
+| ubuntu:24.04 | 통과, 3.12.16 | 없어서 apt로 설치 | 96초 | 206MB |
+| python:3.12-slim (Debian 12) | 통과, 3.12.16 | 없어서 apt로 설치 | 87초 | 206MB |
+한 것이 아닌 것: GPU 단계(`gpu`, `verify`), 전체 lock 설치, `model`, root가 아닌 사용자 경로, aarch64, 실제 RunPod 이미지, apt 설치 시간만 따로 잰 값(**측정 안 함**).

@@ -345,3 +345,56 @@ def test_prepare_bundle_rejects_bad_safetensors_header(tmp_path):   # 헤더만 
     (tmp_path / "aa" / "adapter_config.json").write_text(json.dumps({"r": 16, "base_model_name_or_path": "Qwen/Qwen3-8B", "target_modules": ["q_proj"], "use_dora": True}))
     r = run_prepare(tmp_path)
     assert r.returncode != 0 and "use_dora" in (r.stderr + r.stdout)
+
+
+# ---- pod_setup.sh 단계 분리·인자 처리 (ADR 0014). 네트워크·GPU 없이 확인 가능한 부분만 ----
+def pod_setup(*args, env=None):
+    return subprocess.run(["bash", str(KIT / "pod_setup.sh"), *args], capture_output=True, text=True, env={**os.environ, **(env or {})})
+
+
+def test_pod_setup_syntax_ok():
+    assert subprocess.run(["bash", "-n", str(KIT / "pod_setup.sh")]).returncode == 0
+
+
+def test_pod_setup_rejects_unknown_argument(tmp_path):
+    r = pod_setup("--base", str(tmp_path), "--nope")
+    assert r.returncode == 64 and "알 수 없는 인자" in r.stderr
+
+
+def test_pod_setup_rejects_unknown_stage_before_touching_base(tmp_path):
+    base = tmp_path / "b"
+    r = pod_setup("--base", str(base), "--stage", "bogus")
+    assert r.returncode == 64 and "--stage" in r.stderr
+    assert not base.exists()  # 인자 오류는 아무것도 만들기 전에 거부
+
+
+def test_pod_setup_gpu_stage_stops_without_nvidia_smi(tmp_path):
+    r = pod_setup("--base", str(tmp_path), "--stage", "gpu", env={"PATH": "/usr/bin:/bin"} if not Path("/usr/bin/nvidia-smi").exists() and not Path("/bin/nvidia-smi").exists() else None)
+    if r.returncode == 0:
+        pytest.skip("이 호스트에는 nvidia-smi가 있다")
+    assert r.returncode == 1 and "nvidia-smi" in r.stderr
+
+
+def test_pod_setup_install_stage_needs_prereq_first(tmp_path):
+    r = pod_setup("--base", str(tmp_path), "--stage", "install")
+    assert r.returncode == 1 and "--stage prereq" in r.stderr
+
+
+def test_pod_setup_verify_and_model_need_venv(tmp_path):
+    for st in ("verify", "model"):
+        r = pod_setup("--base", str(tmp_path), "--stage", st)
+        assert r.returncode == 1 and "venv가 없다" in r.stderr
+
+
+def test_pod_setup_prereq_stops_on_low_disk_before_installing(tmp_path):
+    r = pod_setup("--base", str(tmp_path), "--stage", "prereq", "--min-disk-gb", "99999999")
+    assert r.returncode == 1 and "남은 디스크" in r.stderr
+    assert not (tmp_path / "uv" / "uv").exists()
+
+
+def test_pod_setup_pins_uv_version_and_hashes():
+    s = (KIT / "pod_setup.sh").read_text()
+    import re
+    assert re.search(r'^UV_VERSION="\d+\.\d+\.\d+"', s, re.M)
+    assert len(re.findall(r'^UV_SHA256_(?:x86_64|aarch64)="[0-9a-f]{64}"', s, re.M)) == 2
+    assert "sudo " not in s.replace("sudo는", "").replace("sudo 없이", "")  # sudo 사용 금지

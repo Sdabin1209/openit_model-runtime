@@ -67,6 +67,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 문서 기준 버전은 0.7.3(docs/STATUS.md 23차). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
 - **시험 상태(정본, 개수는 이 한 곳)**. 기준은 위 설치 줄 그대로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
+- 위 새 clone 기준(216/6)은 `pod_setup` 단계 시험 8개(`tests/test_gpu_session.py`)를 더하기 전 값이다. 더한 뒤 이 리포의 기존 `.venv`(turn-engine 설치됨)에서 `python -m pytest -q -rs`: **228 통과, 2 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1). 새 venv 기준 값은 다시 재지 않았다.
   - 의존을 더하면: turn-engine 0.4.0(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
   - `scripts/smoke.sh`와 이미지 라벨(`io.openit.model-runtime`)은 이번에 다시 돌리지 않았다. 23차(0.7.3)의 기록은 docs/STATUS.md 23차.
 - 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.
@@ -104,6 +105,8 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0010](docs/adr/0010-stdlib-http-server.md) | 표준 라이브러리 HTTP 서버 |
 | [0011](docs/adr/0011-prompt-fixed-to-training-data.md) | 프롬프트 형식을 학습 데이터에 고정, 특수 토큰 처리 |
 | [0012](docs/adr/0012-security-and-input-defaults.md) | 보안 기본값과 입력·연결 한도 |
+| [0013](docs/adr/0013-gpu-session-kit.md) | GPU 세션 키트 |
+| [0014](docs/adr/0014-pod-self-provisioning.md) | 임대 파드가 uv(고정)로 파이썬 3.12를 받고 gcc는 root면 apt로 스스로 준비 |
 
 ## 더 자세한 문서
 
