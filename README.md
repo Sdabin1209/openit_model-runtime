@@ -105,7 +105,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0007](docs/adr/0007-retry-attempts.md) | 출력 재시도 3회 |
 | [0008](docs/adr/0008-profiles.md) | 프로파일 gpu-12g(1.7B) / rtx4090-24g(8B) |
 | [0009](docs/adr/0009-fake-backend-in-image.md) | fake 백엔드를 이미지에 두고 운영에서 차단 |
-| [0010](docs/adr/0010-stdlib-http-server.md) | 표준 라이브러리 HTTP 서버 |
+| [0010](docs/adr/0010-stdlib-http-server.md) | 표준 라이브러리 HTTP 서버 (0022가 대체) |
 | [0011](docs/adr/0011-prompt-fixed-to-training-data.md) | 프롬프트 형식을 학습 데이터에 고정, 특수 토큰 처리 |
 | [0012](docs/adr/0012-security-and-input-defaults.md) | 보안 기본값과 입력·연결 한도 |
 | [0013](docs/adr/0013-gpu-session-kit.md) | GPU 세션 키트 |
@@ -117,6 +117,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0019](docs/adr/0019-value-provenance.md) | 근거 없는 값(3.5초, 재시도 3, util 단계, 2500자, 릴리스 4개 등)의 출처 분류와 측정 계획. 값은 바꾸지 않는다 |
 | [0020](docs/adr/0020-per-call-deadline-budget.md) | 호출별 상한 extract 3.0초·respond 2.0초(계약 표), 재시도는 남은 예산이 직전 시도 이상일 때만, 인증 실패 401 |
 | [0021](docs/adr/0021-server-guarantees-action-rules.md) | LoRA-A 출력 규칙을 서버가 보증한다(계약 검사기 호출, `ExtractRequest`), turn-engine 시험 의존 제거 |
+| [0022](docs/adr/0022-wsgi-waitress.md) | 추론 서버를 WSGI 앱 + waitress로(0010 대체), 연결·timeout·본문 상한을 waitress 설정으로 |
 
 ## 더 자세한 문서
 

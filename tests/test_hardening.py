@@ -16,6 +16,7 @@ from tempfile import TemporaryDirectory
 from boundary_contracts.errors import BoundaryError
 
 from helpers import A_INPUT, B_INPUT, GOOD_EXTRACTION, SCHEMA_DIR, wait_until
+from helpers import serve_app
 from test_server import call, start
 
 import model_runtime as mr
@@ -54,18 +55,17 @@ class StartupPolicy(unittest.TestCase):   # MR-1, 운영에서 fake 차단
         seen = {}
 
         class Fake:
-            server_address = ("127.0.0.1", 0)
-            def __init__(self, addr, handler, max_conn=0): seen["addr"] = addr
-            def serve_forever(self): pass
-            def server_close(self): pass
-        orig = server.BoundedServer
-        server.BoundedServer = Fake
+            effective_port = 0
+            def run(self): pass
+            def close(self): pass
+        orig = server.make_server
+        server.make_server = lambda svc, host, port, **kw: seen.update(addr=(host, port)) or Fake()
         try:
             with TemporaryDirectory() as t:
                 server.main({**BASE, "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_TOKENS": "survey=abc", "MODEL_RUNTIME_BUNDLE_DIR": t,
                              "MODEL_RUNTIME_SHUTDOWN_GRACE_S": "0"})
         finally:
-            server.BoundedServer = orig
+            server.make_server = orig
         self.assertEqual(seen["addr"][0], "127.0.0.1")
         self.assertIn("MODEL_RUNTIME_HOST=0.0.0.0", (Path(__file__).parents[1] / "Dockerfile").read_text())   # 컨테이너는 이미지가 연다
 
@@ -103,7 +103,7 @@ class Auth(unittest.TestCase):   # MR-1 역할, MR-10 readyz 노출
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="SS")[0], 200)
         self.assertEqual(call(url, "/v1/releases/r2", method="PUT", token="OO")[0], 403)      # PUT_ROLES 밖
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="OO")[0], 200)
-        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="LL ")[0], 401)   # 토큰은 정확히 일치(틀린 토큰은 401, D106)
+        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT, token="LLx")[0], 401)   # 토큰은 정확히 일치(틀린 토큰은 401, D106). 끝 공백은 HTTP가 필드 값에 넣지 않아(RFC 9110 5.5) waitress가 떼므로 "LL "는 틀린 토큰이 아니다(ADR 0022)
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 401)   # 토큰 없음은 401(D106)
         self.assertEqual(call(url, "/v1/info", token="nope")[0], 401)
 
@@ -185,10 +185,13 @@ class Resources(unittest.TestCase):   # MR-4
         (srv, url, svc, _), host, port = self.srv()
         call(url, "/v1/releases/r1", method="PUT")
         P = "/v1/releases/r1/extract"
-        for h in ({"Content-Length": "abc"}, {"Content-Length": "-5"}, {"Content-Length": "0"}, {"Content-Length": str(server.MAX_BODY + 1)},
-                  {"Transfer-Encoding": "chunked"}):
+        for h in ({"Content-Length": "abc"}, {"Content-Length": "-5"}, {"Content-Length": "0"}, ):
             s, _ = self.raw(host, port, "POST", P, h)
             self.assertEqual(s, 400, h)
+        # waitress가 읽기 전에 거절한다: 본문 상한 초과는 413(RFC 9110 15.5.14)이고 오류 본문은 waitress의 것이다(ADR 0022: 400에서 바뀜)
+        self.assertEqual(self.raw(host, port, "POST", P, {"Content-Length": str(server.MAX_BODY + 1)})[0], 413)
+        # chunked는 waitress가 본문을 다 받은 뒤 앱이 Transfer-Encoding을 보고 400으로 거절한다(본문을 보내지 않으면 기다리므로 끝까지 보낸다)
+        self.assertEqual(self.raw(host, port, "POST", P, {"Transfer-Encoding": "chunked"}, b"0\r\n\r\n")[0], 400)
         deep = b"[" * 100000 + b"]" * 100000
         s, _ = self.raw(host, port, "POST", P, {"Content-Length": str(len(deep))}, deep)
         self.assertEqual(s, 400)
@@ -197,28 +200,31 @@ class Resources(unittest.TestCase):   # MR-4
         self.assertEqual(call(url, P, A_INPUT)[0], 200)   # 서버는 멀쩡하다
 
     def test_idle_connection_is_dropped_by_socket_timeout(self):
-        (srv, url, svc, _), host, port = self.srv(MODEL_RUNTIME_CONN_TIMEOUT_S="0.3")
+        (srv, url, svc, _), host, port = self.srv(MODEL_RUNTIME_CONN_TIMEOUT_S="1")
         s = socket.create_connection((host, port)); self.addCleanup(s.close)
         s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 헤더를 끝내지 않고 멈춘다
         s.settimeout(5)
-        self.assertEqual(s.recv(100), b"")   # 서버가 시간 초과로 연결을 닫았다(스레드 반환)
+        self.assertEqual(s.recv(100), b"")   # 서버가 시간 초과로 연결을 닫았다(스레드 반환). waitress는 정수 초만 받아 1초이고 정리 주기 1초라 최대 2초쯤 걸린다
 
-    def test_connection_cap_gives_503_without_new_thread(self):
+    def test_connection_cap_queues_extra_connection_until_a_slot_frees(self):
+        # waitress의 connection_limit은 넘는 연결을 503으로 거절하지 않고 받지 않은 채 둔다(커널 대기열). 슬롯이 돌아오면 처리한다(ADR 0022: 503에서 바뀜)
         t = TemporaryDirectory(); self.addCleanup(t.cleanup)
         svc = server.build_service({**BASE, "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_BUNDLE_DIR": t.name}, reader_factory=lambda: None)
         self.addCleanup(svc.close)
-        srv = server.BoundedServer(("127.0.0.1", 0), server.make_handler(svc), 1)
-        threading.Thread(target=srv.serve_forever, daemon=True).start(); self.addCleanup(srv.shutdown)
+        srv = serve_app(svc, max_connections=3); self.addCleanup(srv.shutdown)   # 3: 듣는 소켓과 제어 소켓이 슬롯 둘을 쓴다(waitress 내부)
         host, port = srv.server_address
         hold = socket.create_connection((host, port)); self.addCleanup(hold.close)
         hold.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 슬롯 하나를 쥔다
         time.sleep(0.2)
-        s = socket.create_connection((host, port)); self.addCleanup(s.close); s.settimeout(5)
-        self.assertTrue(s.recv(200).startswith(b"HTTP/1.1 503"))
-        hold.sendall(b"\r\n")   # 첫 연결이 끝나면 슬롯이 돌아온다
+        s = socket.create_connection((host, port)); self.addCleanup(s.close); s.settimeout(1)
+        s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+        with self.assertRaises(socket.timeout):
+            s.recv(200)   # 아직 처리되지 않는다
+        hold.sendall(b"\r\n")
         self.assertTrue(hold.recv(200).startswith(b"HTTP/1.1 200"))
         hold.close()
-        self.assertTrue(wait_until(lambda: self.raw(host, port, "GET", "/healthz", {})[0] == 200))
+        s.settimeout(5)
+        self.assertTrue(s.recv(200).startswith(b"HTTP/1.1 200"))   # 슬롯이 돌아오자 처리됐다
 
     def test_concurrent_loads_are_capped_and_failed_entries_pruned(self):
         gate = threading.Event(); self.addCleanup(gate.set)

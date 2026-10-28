@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-runtime"
-version = "0.9.0"
+version = "0.10.0"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
 # boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<태그>  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
-dependencies = ["jsonschema>=4.10", "boundary-contracts"]
+dependencies = ["jsonschema>=4.10", "waitress>=3.0", "boundary-contracts"]   # waitress: 추론 서버의 WSGI 서버(ADR 0022)
 
 [project.optional-dependencies]
 dev = ["pytest"]   # turn-engine 의존은 없다(ADR 0021). 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다

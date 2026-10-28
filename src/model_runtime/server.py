@@ -1,4 +1,4 @@
-"""model-runtime 추론 서버 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62). 표준 라이브러리 HTTP.
+"""model-runtime 추론 서버 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62). WSGI 앱 + waitress(ADR 0022).
 
 경로: PUT /v1/releases/{id}(적재 신호, 멱등) · GET /v1/releases/{id}(상태) · POST /v1/releases/{id}/extract(LoRA-A, JSON)|respond(LoRA-B, text/plain) ·
 GET /v1/info · GET /healthz · GET /readyz. 서버가 I4(HttpReleaseReader)에서 번들을 스스로 읽어 적재한다.
@@ -23,21 +23,22 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import shutil
 import signal
-import socket
 import sys
 import tempfile
 import threading
 import time
 import urllib.request
 from urllib.parse import urlsplit
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http import HTTPStatus
 from pathlib import Path
 from typing import Callable, Mapping
 
+import waitress
 from boundary_contracts import SecretError, read_secret, secret_source, validator
 from boundary_contracts.errors import BoundaryError
 
@@ -82,31 +83,6 @@ def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
     if not out and not allow_empty:
         raise ValueError("MODEL_RUNTIME_TOKENS(또는 _FILE)가 필요하다. 인증 없이 열려면 개발용으로만 MODEL_RUNTIME_ALLOW_NO_AUTH=1")
     return out
-
-
-class BoundedServer(ThreadingHTTPServer):
-    """동시 연결 상한이 있는 서버. 넘으면 새 연결에 503을 쓰고 닫는다(스레드를 만들지 않는다)."""
-    daemon_threads = True
-
-    def __init__(self, addr, handler, max_connections: int = MAX_CONNECTIONS):
-        super().__init__(addr, handler)
-        self._slots = threading.BoundedSemaphore(max_connections)
-
-    def process_request(self, request, client_address):
-        if not self._slots.acquire(blocking=False):
-            try:
-                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nRetry-After: 1\r\nConnection: close\r\n\r\n")
-            except OSError:
-                pass
-            self.shutdown_request(request)
-            return
-        super().process_request(request, client_address)
-
-    def process_request_thread(self, request, client_address):
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._slots.release()
 
 
 def to_boundary(e: Exception) -> BoundaryError:
@@ -421,115 +397,105 @@ class Service:
                 self.pending -= 1
 
 
-def make_handler(svc: Service):
-    class H(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        timeout = svc.conn_timeout_s   # 소켓 timeout: 느린·멈춘 클라이언트가 스레드를 무한히 쥐지 못한다(MR-4)
+def make_app(svc: Service):
+    """추론 서버의 WSGI 앱(PEP 3333). HTTP 구문 분석·연결 관리·스레드 풀은 waitress가 하고 이 앱은 경로, 인증, 본문 검사, 응답 모양만 안다(ADR 0022)."""
+    status_line = {c: f"{c} {HTTPStatus(c).phrase}" for c in (200, 202, 400, 401, 403, 404, 412, 422, 503)}
 
-        def log_message(self, fmt, *a):
-            log.info("%s %s", self.command, re.sub(r"/releases/[^/]+", "/releases/{id}", self.path.split("?")[0]))
+    def respond(start_response, status: int, body, headers: Mapping[str, str] | None = None):
+        """body가 str이면 text/plain(respond의 문장 그대로), 아니면 JSON."""
+        if isinstance(body, str):
+            data, ctype = body.encode("utf-8"), "text/plain; charset=utf-8"
+        else:
+            data, ctype = json.dumps(body, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
+        start_response(status_line.get(status) or f"{status} {HTTPStatus(status).phrase}",
+                       [("Content-Type", ctype), ("Content-Length", str(len(data))), *(headers or {}).items()])
+        return [data]
 
-        def _send(self, status: int, body, headers: Mapping[str, str] | None = None):
-            """body가 str이면 text/plain(respond의 문장 그대로), 아니면 JSON."""
-            if isinstance(body, str):
-                data, ctype = body.encode("utf-8"), "text/plain; charset=utf-8"
-            else:
-                data, ctype = json.dumps(body, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
-            self.send_response(status)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(data)))
-            for k, v in (headers or {}).items():
-                self.send_header(k, v)
-            self.end_headers()
-            self.wfile.write(data)
+    def err(start_response, code: str, message: str, *, status: int | None = None, headers: Mapping[str, str] | None = None):
+        return respond(start_response, status or STATUS[code], BoundaryError(code, message).to_record(), headers)
 
-        def _err(self, code: str, message: str, *, status: int | None = None, headers: Mapping[str, str] | None = None):
-            self.close_connection = True   # 본문을 읽지 않고 돌려보낸 경우 keep-alive 스트림이 어긋나지 않게 닫는다
-            self._send(status or STATUS[code], BoundaryError(code, message).to_record(), headers)
+    def role_of(environ) -> str | None:
+        """Bearer 토큰의 역할. 토큰 설정이 없으면(개발용 무인증) "dev". 모든 토큰을 상수 시간 비교한다."""
+        if not svc.tokens:
+            return "dev"
+        auth = environ.get("HTTP_AUTHORIZATION", "")
+        if not auth.startswith("Bearer "):
+            return None
+        got, found = auth[7:].encode("utf-8"), None
+        for role, tok in svc.tokens.items():
+            if hmac.compare_digest(got, tok.encode("utf-8")):
+                found = role
+        return found
 
-        def _role(self) -> str | None:
-            """Bearer 토큰의 역할. 토큰 설정이 없으면(개발용 무인증) "dev". 모든 토큰을 상수 시간 비교한다."""
-            if not svc.tokens:
-                return "dev"
-            auth = self.headers.get("Authorization", "")
-            if not auth.startswith("Bearer "):
-                return None
-            got, found = auth[7:].encode("utf-8"), None
-            for role, tok in svc.tokens.items():
-                if hmac.compare_digest(got, tok.encode("utf-8")):
-                    found = role
-            return found
+    def length_of(environ) -> int | None:
+        """Content-Length. 없으면 0. 숫자가 아니거나 음수, Transfer-Encoding이 있으면 None. (숫자가 아닌 값은 waitress가 먼저 400으로 거절한다)"""
+        if environ.get("HTTP_TRANSFER_ENCODING"):
+            return None
+        raw = (environ.get("CONTENT_LENGTH") or "0").strip() or "0"
+        return int(raw) if raw.isdigit() else None
 
-        def _length(self) -> int | None:
-            """Content-Length. 없으면 0. 숫자가 아니거나 음수, Transfer-Encoding이 있으면 None."""
-            if self.headers.get("Transfer-Encoding"):
-                return None
-            raw = self.headers.get("Content-Length", "0").strip() or "0"
-            return int(raw) if raw.isdigit() else None
-
-        def _route(self, method: str):
-            p = self.path.split("?")[0]
-            if method == "GET" and p == "/healthz":
-                return self._send(200, {"status": "ok"})
-            role = self._role()
-            if method == "GET" and p == "/readyz":
-                ok, why = svc.readiness()
-                if ok:
-                    return self._send(200, {"status": "ready"})
-                # 인증 없이 부르는 쪽(점검 스크립트, 이웃)에는 사유를 주지 않는다(내부 주소·예외 이름 노출 최소화, MR-10)
-                return self._send(503, {"status": "not ready", "reason": why} if role else {"status": "not ready"})
-            if role is None:
-                # 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer, 권한 없음만 403 (CONVENTIONS 6절, D106; RFC 9110 15.5.2·11.6.1, RFC 6750 3절). code는 둘 다 PERMISSION_DENIED
-                return self._err("PERMISSION_DENIED", "토큰이 없거나 맞지 않다", status=401, headers={"WWW-Authenticate": "Bearer"})
-            if method == "GET" and p == "/v1/info":
-                return self._send(200, svc.info())
-            m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(extract|respond))?", p)
-            if not m:
-                return self._err("NOT_FOUND", "경로가 없다")
-            rid, op = m.groups()
-            if not ID_RE.match(rid):
-                return self._err("INVALID_RECORD", "release_id 형식 위반")
-            if op is None and method == "PUT":
-                if svc.put_roles is not None and role != "dev" and role not in svc.put_roles:
-                    return self._err("PERMISSION_DENIED", "이 토큰의 역할은 적재를 할 수 없다")
-                n = self._length()
-                if n is None or n > MAX_BODY:
-                    return self._err("INVALID_RECORD", "본문 크기가 맞지 않다")
-                self.rfile.read(n)
-                return self._send(*svc.put(rid))
-            if op is None and method == "GET":
-                return self._send(200, svc.get(rid))
-            if op and method == "POST":
-                if role in INFER_DENY_ROLES:
-                    return self._err("PERMISSION_DENIED", "이 토큰의 역할은 추론을 할 수 없다")
-                n = self._length()
-                if not n or n > MAX_BODY:
-                    return self._err("INVALID_RECORD", "본문 크기가 맞지 않다")
-                try:
-                    body = json.loads(self.rfile.read(n))
-                except (ValueError, RecursionError):   # 깊게 중첩된 JSON은 RecursionError
-                    return self._err("INVALID_RECORD", "JSON이 아니다")
-                return self._send(*svc.infer(rid, op, body))
-            self._err("NOT_FOUND", "경로가 없다")
-
-        def _guarded(self, method: str):
+    def route(environ, start_response):
+        method, p = environ["REQUEST_METHOD"], environ.get("PATH_INFO", "")
+        log.info("%s %s", method, re.sub(r"/releases/[^/]+", "/releases/{id}", p))
+        if method == "GET" and p == "/healthz":
+            return respond(start_response, 200, {"status": "ok"})
+        role = role_of(environ)
+        if method == "GET" and p == "/readyz":
+            ok, why = svc.readiness()
+            if ok:
+                return respond(start_response, 200, {"status": "ready"})
+            # 인증 없이 부르는 쪽(점검 스크립트, 이웃)에는 사유를 주지 않는다(내부 주소·예외 이름 노출 최소화, MR-10)
+            return respond(start_response, 503, {"status": "not ready", "reason": why} if role else {"status": "not ready"})
+        if role is None:
+            # 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer, 권한 없음만 403 (CONVENTIONS 6절, D106; RFC 9110 15.5.2·11.6.1, RFC 6750 3절). code는 둘 다 PERMISSION_DENIED
+            return err(start_response, "PERMISSION_DENIED", "토큰이 없거나 맞지 않다", status=401, headers={"WWW-Authenticate": "Bearer"})
+        if method == "GET" and p == "/v1/info":
+            return respond(start_response, 200, svc.info())
+        m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(extract|respond))?", p)
+        if not m:
+            return err(start_response, "NOT_FOUND", "경로가 없다")
+        rid, op = m.groups()
+        if not ID_RE.match(rid):
+            return err(start_response, "INVALID_RECORD", "release_id 형식 위반")
+        if op is None and method == "PUT":
+            if svc.put_roles is not None and role != "dev" and role not in svc.put_roles:
+                return err(start_response, "PERMISSION_DENIED", "이 토큰의 역할은 적재를 할 수 없다")
+            n = length_of(environ)
+            if n is None or n > MAX_BODY:
+                return err(start_response, "INVALID_RECORD", "본문 크기가 맞지 않다")
+            return respond(start_response, *svc.put(rid))
+        if op is None and method == "GET":
+            return respond(start_response, 200, svc.get(rid))
+        if op and method == "POST":
+            if role in INFER_DENY_ROLES:
+                return err(start_response, "PERMISSION_DENIED", "이 토큰의 역할은 추론을 할 수 없다")
+            n = length_of(environ)
+            if not n or n > MAX_BODY:
+                return err(start_response, "INVALID_RECORD", "본문 크기가 맞지 않다")
             try:
-                self._route(method)
-            except (socket.timeout, ConnectionError):
-                self.close_connection = True
-            except Exception as e:   # noqa: BLE001  처리하지 못한 예외도 내부 정보 없이 끝낸다
-                log.error("요청 처리 실패 %s", type(e).__name__)
-                self.close_connection = True
-                try:
-                    self._send(503, BoundaryError("UNAVAILABLE", "요청을 처리하지 못했다").to_record())
-                except OSError:
-                    pass
+                body = json.loads(environ["wsgi.input"].read(n))
+            except (ValueError, RecursionError):   # 깊게 중첩된 JSON은 RecursionError
+                return err(start_response, "INVALID_RECORD", "JSON이 아니다")
+            return respond(start_response, *svc.infer(rid, op, body))
+        return err(start_response, "NOT_FOUND", "경로가 없다")
 
-        def do_GET(self): self._guarded("GET")
-        def do_PUT(self): self._guarded("PUT")
-        def do_POST(self): self._guarded("POST")
+    def app(environ, start_response):
+        try:
+            return route(environ, start_response)
+        except Exception as e:   # noqa: BLE001  처리하지 못한 예외도 내부 정보 없이 끝낸다
+            log.error("요청 처리 실패 %s", type(e).__name__)
+            return respond(start_response, 503, BoundaryError("UNAVAILABLE", "요청을 처리하지 못했다").to_record())
+    return app
 
-    return H
+
+def make_server(svc: Service, host: str, port: int, *, max_connections: int = MAX_CONNECTIONS):
+    """waitress 서버(아직 시작 전). 값의 출처는 ADR 0022.
+    threads=max_connections: 추론 요청 하나가 엔진 직렬화 락을 기다리며 스레드를 최대 호출 상한(3.0초)까지 쥐므로, 스레드가 연결 수보다 적으면 /healthz가 그 뒤에 줄 선다.
+    channel_timeout: 헤더를 끝내지 않거나 유휴인 연결을 닫는다(waitress는 정수 초만 받는다). cleanup_interval 1초: 기본 30초면 실제로 닫히는 시각이 timeout보다 최대 30초 늦다.
+    max_request_body_size=MAX_BODY: 이 크기를 넘는 본문은 waitress가 413으로 거절한다(읽기 전에)."""
+    return waitress.create_server(make_app(svc), host=host, port=port, threads=max_connections, connection_limit=max_connections,
+                                  channel_timeout=max(1, math.ceil(svc.conn_timeout_s)), cleanup_interval=1, max_request_body_size=MAX_BODY,
+                                  ident="model-runtime")
 
 
 def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None) -> Service:
@@ -615,17 +581,17 @@ def main(env: Mapping[str, str] | None = None) -> None:
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     svc = build_service(env)
     host, port = env.get("MODEL_RUNTIME_HOST", "127.0.0.1"), int(env.get("MODEL_RUNTIME_PORT", "8080"))   # 기본은 루프백. 컨테이너 이미지가 0.0.0.0을 준다
-    srv = BoundedServer((host, port), make_handler(svc), int(env.get("MODEL_RUNTIME_MAX_CONNECTIONS", str(MAX_CONNECTIONS))))
-    log.info("대기 %s:%s backend=%s", host, srv.server_address[1], svc.backend_name)
+    srv = make_server(svc, host, port, max_connections=int(env.get("MODEL_RUNTIME_MAX_CONNECTIONS", str(MAX_CONNECTIONS))))
+    log.info("대기 %s:%s backend=%s", host, srv.effective_port, svc.backend_name)
 
-    def stop(*_):   # 우아한 종료: 새 연결을 그만 받고(serve_forever 반환), 진행 중인 요청이 끝나길 잠시 기다린 뒤 엔진을 내린다
-        threading.Thread(target=srv.shutdown, daemon=True).start()
+    def stop(*_):   # 우아한 종료: waitress의 run()이 SystemExit을 받으면 새 연결을 그만 받고 진행 중인 요청을 마칠 때까지 기다린 뒤 돌아온다
+        raise SystemExit(0)
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        srv.serve_forever()
+        srv.run()
     finally:
-        srv.server_close()
+        srv.close()
         end = time.monotonic() + float(env.get("MODEL_RUNTIME_SHUTDOWN_GRACE_S", "5"))
         while svc.pending > 0 and time.monotonic() < end:
             time.sleep(0.05)

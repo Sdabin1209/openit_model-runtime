@@ -22,7 +22,7 @@ except ImportError:
 from boundary_contracts import BoundaryError
 from boundary_contracts.canonical import sha256_hash
 from boundary_contracts.clients import HttpModelRuntime, is_output_invalid
-from helpers import A_INPUT, B_INPUT, B_START, SCHEMA_DIR, assert_valid
+from helpers import A_INPUT, B_INPUT, B_START, SCHEMA_DIR, assert_valid, serve_app
 from test_server import call
 
 import model_runtime as mr
@@ -59,8 +59,7 @@ class E2E(unittest.TestCase):
         env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "10",
                "MODEL_RUNTIME_RELEASE_URL": i4.url, "MODEL_RUNTIME_RELEASE_TOKEN": "tok", "MODEL_RUNTIME_BUNDLE_DIR": tmp, **extra}
         svc = server.build_service(env)
-        srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
-        threading.Thread(target=srv.serve_forever, daemon=True).start(); self.addCleanup(srv.shutdown)
+        srv = serve_app(svc); self.addCleanup(srv.shutdown)
         while not svc.ready:
             pass
         return svc, f"http://127.0.0.1:{srv.server_address[1]}"

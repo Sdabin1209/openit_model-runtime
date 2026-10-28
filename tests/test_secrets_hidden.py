@@ -38,7 +38,7 @@ class SecretsHidden(unittest.TestCase):
             url = self._serve(MODEL_RUNTIME_TOKENS_FILE=self.f)
             bodies = [call(url, "/readyz"), call(url, "/healthz"), call(url, "/v1/info", token=SECRET),
                       call(url, "/v1/info", token="wrong"), call(url, "/v1/info"), call(url, "/v1/releases/r1", token="wrong")]
-        blob = json.dumps(bodies, ensure_ascii=False) + "\n".join(cm.output)
+        blob = json.dumps([(s, b, dict(h)) for s, b, h in bodies], ensure_ascii=False) + "\n".join(cm.output)
         self.assertNotIn(SECRET, blob)
         self.assertTrue(any("출처" in m and "file" in m for m in cm.output))   # 출처만 로그에 있다
 

@@ -1,7 +1,7 @@
 # ADR 0010: HTTP 서버는 표준 라이브러리(ThreadingHTTPServer)
 
 ## 상태
-채택(0.5~, 변경 요청 003). 선택 당시의 비교는 '근거 기록 없음'.
+대체됨(0.10.0, [ADR 0022](0022-wsgi-waitress.md)). 채택(0.5~, 변경 요청 003). 선택 당시의 비교는 '근거 기록 없음'.
 
 ## 맥락
 I9의 서버 경로는 몇 개뿐이다(PUT/GET 릴리스, extract, respond, info, healthz, readyz). 이 서버는 엔진 직렬 호출이 병목이고 입력이 작다.

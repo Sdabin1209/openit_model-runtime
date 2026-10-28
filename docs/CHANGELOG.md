@@ -1,5 +1,12 @@
 # 변경 이력
 
+## 0.10.0 — 2026-10-29 (추론 서버를 WSGI + waitress로, 단위 4a, D111)
+MINOR(서버 구현 교체). I9 경로·인증·본문·오류 본문·헤더는 그대로이고 엔진 직렬화 락과 호출별 시간 예산(extract 3.0/respond 2.0)도 그대로다. ADR 0022(0010 대체).
+- 지운 것: `BoundedServer`(연결 상한 직접 구현), `make_handler`(`BaseHTTPRequestHandler` 서브클래스), `ThreadingHTTPServer` 사용. 대신 `make_app(svc)`(WSGI, PEP 3333)와 `make_server(...)`(waitress 설정)가 있다.
+- 새 의존: `waitress==3.0.2`(두 잠금 파일에 고정). 계약 핀 v2.2.1 → **v2.2.2**(`Dockerfile`): 계약 CONVENTIONS 9절이 waitress가 앱 전에 내는 413/414/431을 전송 계층 한도로 정의하고 계약 클라이언트가 INVALID_RECORD(재시도 안 함)로 읽는다.
+- **관측되는 동작 변화 4가지(waitress가 하는 일이라 앱이 바꿀 수 없다)**: (1) 연결 상한을 넘은 새 연결은 503이 아니라 받지 않은 채 대기하다 슬롯이 돌아오면 처리된다. (2) 본문 상한(4MiB) 초과는 400 INVALID_RECORD가 아니라 413이고 오류 본문은 waitress의 것이다. (3) 숫자가 아닌/음수 Content-Length는 waitress가 400으로 거절한다(오류 본문은 waitress의 것). chunked 요청은 본문을 다 받은 뒤 앱이 400으로 거절한다. (4) 토큰 끝 공백은 HTTP 필드 값에 포함되지 않으므로(RFC 9110 5.5) 떼어진다. 응답 헤더 이름은 waitress가 대문자로 내보낸다.
+- `MODEL_RUNTIME_CONN_TIMEOUT_S`는 waitress가 정수 초만 받아 올림한다(최소 1).
+
 ## 0.9.1 미정 — 매니페스트 turn_engine_version 표지 (D109)
 `make_neutral_package.py`와 `gpu_session/prepare_bundle.py`가 매니페스트에 하드코딩 `"none"` 대신 표지를 쓴다. 값은 `--turn-engine-version` > 환경 변수 `MODEL_RUNTIME_TURN_ENGINE_MARKER` > `model_runtime.TURN_ENGINE_MARKER_VERSION`(`"0.4.3"`, session.py 한 곳) 순이다. 형식(v 접두사 없음)은 같은 매니페스트의 `model_runtime_version`과 맞춘 것이고, 받는 쪽이 어떤 형식으로 비교하는지는 읽지 못해 **미확인**이다. 버전 번호는 올리지 않았다(헤드가 정한다).
 

@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from boundary_contracts.errors import BoundaryError
 from boundary_contracts.sdk import ReleaseBundle
 from boundary_contracts.canonical import file_hash
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, wait_until
+from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, serve_app, wait_until
 
 import model_runtime as mr
 from model_runtime import server
@@ -49,8 +49,7 @@ def start(tmp, plan=None, tokens=None, **kw):
         env["MODEL_RUNTIME_TOKENS"] = tokens
     rd = StubReader(tmp, plan)
     svc = server.build_service(env, reader_factory=lambda: rd)
-    srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    srv = serve_app(svc)
     wait_until(lambda: svc.ready)
     return srv, f"http://127.0.0.1:{srv.server_address[1]}", svc, rd
 
@@ -65,9 +64,9 @@ def call(url, path, body=None, token=None, method=None):
                                  headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
         with urllib.request.urlopen(req) as r:
-            return r.status, _body(r), dict(r.headers)
+            return r.status, _body(r), r.headers   # 헤더 이름은 대소문자를 구분하지 않는다(RFC 9110 5.1). waitress는 이름을 대문자화해 내보낸다
     except urllib.error.HTTPError as e:
-        return e.code, _body(e), dict(e.headers)
+        return e.code, _body(e), e.headers
 
 
 class Server(unittest.TestCase):
@@ -277,8 +276,7 @@ class Location(unittest.TestCase):
     def _serve(self, env):
         svc = server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
                                     "MODEL_RUNTIME_BUNDLE_DIR": str(Path(self._t.name) / "b"), "MODEL_RUNTIME_READY_PROBE_TTL_S": "0", **env})
-        srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(svc))
-        threading.Thread(target=srv.serve_forever, daemon=True).start(); self.addCleanup(srv.shutdown)
+        srv = serve_app(svc); self.addCleanup(srv.shutdown)
         wait_until(lambda: svc.ready)
         return f"http://127.0.0.1:{srv.server_address[1]}"
 

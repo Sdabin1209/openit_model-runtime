@@ -82,3 +82,21 @@ def rule_violations(inp, out, flow):
 def skips_of(flow):
     """QuestionFlowTable의 skips를 fake 응답기가 받는 모양(slot, op, value, skip_item 사전)으로 돌려준다."""
     return [dict(x) for x in flow["skips"]]
+
+
+class Served:
+    """시험용: waitress 서버를 스레드에서 돌리고 예전 서버 객체와 같은 server_address, shutdown을 준다(제품 코드가 아니다)."""
+    def __init__(self, srv):
+        import threading
+        self._srv = srv
+        self.server_address = ("127.0.0.1", srv.effective_port)
+        self._th = threading.Thread(target=srv.run, daemon=True); self._th.start()
+
+    def shutdown(self):
+        self._srv.close()
+
+
+def serve_app(svc, **kw):
+    """svc를 실제 진입점과 같은 설정(server.make_server)으로 띄운다. 포트는 운영체제가 배정한다."""
+    from model_runtime import server
+    return Served(server.make_server(svc, "127.0.0.1", 0, **kw))

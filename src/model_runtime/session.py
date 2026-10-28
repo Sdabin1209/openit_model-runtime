@@ -19,7 +19,7 @@ from .roles import ROLE_TYPES, build_roles
 from .schema_guard import INPUT_CONTRACT, RELAX_POLICY_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet
 from .serving_config import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.9.0"
+RUNTIME_VERSION = "0.10.0"
 # 매니페스트 turn_engine_version에 쓰는 고정 표지. 왜: 계약 2.x에서 이 필드는 필수이고(INTERFACES I9: MAJOR.MINOR 비교) turn-engine 코드 의존은 없앴지만(ADR 0021) 값은 v0.4.3으로 고정한다(헤드 D109).
 # 형식은 model_runtime_version처럼 v 없는 "MAJOR.MINOR.PATCH"로 썼다. 계약 LibraryVersion은 비어 있지 않은 문자열이라는 것만 정하고, 값을 받아 비교하는 쪽이 어떤 형식(v 접두사 여부)으로 비교하는지는 이 영역이 읽을 수 없어 미확인이다.
 TURN_ENGINE_MARKER_VERSION = "0.4.3"

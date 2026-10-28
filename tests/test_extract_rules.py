@@ -112,7 +112,7 @@ class RealFlowTable(unittest.TestCase):
 
 
 class ParityWithReferenceServer(unittest.TestCase):
-    """계약 v2.2.1의 기준 서버(RuntimeReferenceServer)와 같은 입력에 같은 (상태, 사유)를 낸다."""
+    """계약 기준 서버(RuntimeReferenceServer)와 같은 입력에 같은 (상태, 사유)를 낸다."""
     CASES = [("규칙 위반 + flow", lambda: {"input": INPUT, "flow": FLOW}, SKIPPED_ASKED),
              ("정상 + flow", lambda: {"input": INPUT, "flow": FLOW}, GOOD),
              ("옛 본문, 위반 출력", lambda: INPUT, SKIPPED_ASKED),

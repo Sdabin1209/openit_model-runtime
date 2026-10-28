@@ -14,7 +14,7 @@ class Auth401(unittest.TestCase):
 
     def test_missing_or_wrong_token_is_401_with_www_authenticate(self):
         for path, body, method, token in [("/v1/info", None, None, None), ("/v1/info", None, None, "nope"),
-                                          ("/v1/releases/r1", None, "PUT", None), ("/v1/releases/r1", None, None, "LL "),
+                                          ("/v1/releases/r1", None, "PUT", None), ("/v1/releases/r1", None, None, "LLx"),
                                           ("/v1/releases/r1/extract", A_INPUT, None, None), ("/v1/releases/r1/extract", A_INPUT, None, "nope")]:
             s, b, h = call(self.url, path, body, token=token, method=method)
             self.assertEqual((s, b["code"], h.get("WWW-Authenticate")), (401, "PERMISSION_DENIED", "Bearer"), (path, token))
