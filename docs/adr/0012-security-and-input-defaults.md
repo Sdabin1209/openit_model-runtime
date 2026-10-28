@@ -27,3 +27,6 @@
 
 ## 되돌리는 조건
 실측으로 2500이 너무 작거나 크면 조정한다. 연결·적재 한도는 부하 측정(OPEN_GAPS H4) 뒤에 조정한다.
+
+## 갱신 (2026-10-29, 계약 CONVENTIONS 6절, D106)
+토큰이 없거나 틀리면 **401 + `WWW-Authenticate: Bearer`**, 토큰은 맞지만 권한이 없을 때(`PUT_ROLES` 밖, `loader`의 추론)만 403이다. 오류 본문 `code`는 둘 다 `PERMISSION_DENIED`이고 클라이언트(`boundary_contracts.clients`)는 바뀌지 않는다. 표준: RFC 9110 15.5.2(401은 인증 자격 부족, 응답에 챌린지를 싣는다)·11.6.1(`WWW-Authenticate`), RFC 6750 3절(Bearer 챌린지). `/healthz`·`/readyz`는 인증이 없다. 이전에는 토큰 없음·틀림도 403이었다.
