@@ -174,15 +174,18 @@ def test_judge_a_compares_with_gold():
     assert (same_keys["m_action"], same_keys["m_next_item"], same_keys["m_value_keys"], same_keys["m_exact"]) == (True, False, True, False)
 
 
-def test_run_session_with_fake_backend_end_to_end(tmp_path):
+@pytest.mark.parametrize("via_base", [False, True])
+def test_run_session_with_fake_backend_end_to_end(tmp_path, via_base):   # via_base: 환경 변수 대신 --base로 쓰기 뿌리를 주는 경로(RunPod /workspace/dabin)
     """preflight -> 번들 -> 릴리스 서버 -> 추론 서버(fake) -> 적재 -> 측정 -> 정리까지 한 바퀴. GPU와 vLLM 없이."""
     setup_inputs(tmp_path)
     c1 = tmp_path / "c1"; c1.mkdir()
     (tmp_path / "a.jsonl").rename(c1 / "lora_a_val.jsonl"); (tmp_path / "b.jsonl").rename(c1 / "lora_b_val.jsonl")
     smi_cmd = smi(tmp_path, 300)
     root = tmp_path / "write_root"
-    env = {**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi_cmd}
-    r = subprocess.run(["bash", str(KIT / "run_session.sh"), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
+    env = {**os.environ, "NVIDIA_SMI": smi_cmd}
+    if not via_base:
+        env["GPU_SESSION_WRITE_ROOT"] = str(root)
+    r = subprocess.run(["bash", str(KIT / "run_session.sh"), *(["--base", str(root)] if via_base else []), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
                         "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--n-a", "3", "--n-b", "3", "--concurrency", "1,2", "--budget-min", "5"],
                        capture_output=True, text=True, env=env, timeout=180)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]

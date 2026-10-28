@@ -94,7 +94,7 @@
 | 기반 모델 Qwen3-8B 약 16GB | 파드가 Hugging Face에서 직접 내려받음(공개 모델, 토큰 불필요) | 업로드 불필요 |
 | 파이썬 패키지 | `requirements-gpu.lock`(torch cu13, vllm 0.31.0 등). gpu-dev의 같은 잠금 venv가 8.3GB | 업로드 불필요(PyPI) |
 `pod_run.sh`는 `--i-confirm-upload-data` 없이는 위 데이터를 **보내지 않고** 목록만 출력한다(종료 코드 3, 시험 있음).
-파드 선택 조건: **CUDA 13을 지원하는 드라이버**(잠금의 torch가 cu13 휠. gpu-dev 드라이버 591.86/CUDA 13.1에서 동작 확인), python3.12, 디스크 80GB 이상, 외부 인터넷(PyPI·Hugging Face), 24GB 이상 GPU 1장(운영 목표 4090급이면 `rtx4090-24g.json`).
+파드 선택 조건: **CUDA 13을 지원하는 드라이버**(잠금의 torch가 cu13 휠. gpu-dev 드라이버 591.86/CUDA 13.1에서 동작 확인), python3.12, 디스크: `--base`가 있는 볼륨 40GB 이상, 외부 인터넷(PyPI·Hugging Face), 24GB 이상 GPU 1장(`rtx4090-24g.json`; A5000도 이 파일, 아래 참고).
 
 ### 1. 한 명령
 ```
@@ -106,7 +106,7 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 | 키트 생성(PC) | `make_kit.sh`가 boundary-contracts 설치본을 읽음 | 종료 1 | 버전이 다른 계약으로 서버를 띄우면 측정이 무의미 |
 | SSH·전송 | 접속·scp 성공 | 종료 1 | 비밀은 보내지 않는다: 전송 목록은 키트·어댑터·C1뿐 |
 | `pod_setup.sh` 1 GPU | `nvidia-smi` 있고 CUDA Version >= 13 | 중단 메시지, 종료 2 | cu13 휠이 안 뜬다 |
-| 〃 2 디스크 | 홈 남은 용량 >= 80GB | 중단 | 8B(16GB)+venv(8GB)+캐시. 80은 **합산 추정(측정 안 함)** |
+| 〃 2 디스크 | `--base`가 있는 파일시스템의 남은 용량 >= 40GB | 중단 | 아래 '디스크 40GB의 근거'. RunPod에서 $HOME(container disk)이 아니라 볼륨을 검사하려고 `--base`로 모았다 |
 | 〃 3 인터넷 | PyPI·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
 | 〃 4 설치 | python3.12 venv, lock 설치, `torch.cuda.is_available()`, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
 | 〃 5 모델 | `snapshot_download` 성공 | 중단 | 이후 `HF_HUB_OFFLINE=1`로 읽기만 한다 |
@@ -114,6 +114,7 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 | 결과 회수 | `session-*.tgz` 저장(번들·토큰 제외) | 수동 회수 안내 | 파드를 끄면 결과가 사라진다 |
 **파드를 끄기 전**: 종료 코드가 0 또는 4이고 `~/pod-results/session-*.tgz`가 0바이트가 아닌지 본다.
 소요 예상: **측정 안 함**(전송 + 설치 수 분 + 8B 내려받기 + 적재). 위 표의 단계별 시각이 `[pod_run HH:MM:SS]`로 찍히므로 첫 실행 뒤 이 줄을 실측으로 바꾼다. `--skip-setup`으로 같은 파드에서 재실행하면 설치를 건너뛴다.
+**RunPod 예(container 30GB + volume 50GB, /workspace, 1x RTX A5000 24GB, CUDA 13.0, 기본 사용자 root)**: `--base /workspace/dabin`을 `pod_run.sh`에 준다. venv, 키트, HF 모델, pip 임시 파일, 작업 폴더가 모두 이 아래라 container disk는 거의 쓰이지 않는다.
 24GB 파드에서는 GPU를 단독으로 쓰므로 `--margin-mib 0`과 `rtx4090-24g.json`(util 0.9)을 쓴다(기본 여유 4096MiB를 쓰면 0.9x24GB+4GB가 전체를 넘어 preflight가 항상 거부한다).
 
 ### gpu-dev 한 바퀴에서 찾아 고친 결함 (모두 GPU 외 결함)
@@ -123,3 +124,19 @@ scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --a
 4. `make_kit.sh`가 `requirements-gpu.lock`을 키트에 넣지 않았다(파드에서 설치할 수 없음). 추가.
 5. 기본 파이썬 경로가 openit 서버 고정이라 다른 호스트는 `--python`이 필수(`pod_run.sh`가 지정).
 미해결: `deploy/test/import-v2`의 jsonl에는 의도적 불량 줄이 있어 C1 대용으로 못 쓴다(필터가 필요). `prepare_bundle`은 불량 줄을 파일:줄 번호 메시지로 거부한다(수정함). 이번 한 바퀴는 무작위 어댑터라 attempts 2~3과 A 일치율 0이 나왔고, 이는 어댑터 때문이지 키트 결함이라는 근거는 아니다. 콜드 첫 extract 12.3초는 1.5B/12GB 값이며 8B/24GB에는 적용할 수 없다.
+
+### 디스크 40GB의 근거 (측정/추정 구분)
+| 항목 | GB | 구분 |
+| --- | --- | --- |
+| Qwen3-8B 가중치 | 16.4 | 추정(8.2B 파라미터 x 2바이트). 내려받은 실제 크기는 측정 안 함 |
+| venv(`requirements-gpu.lock`) | 8.3 | **측정**(gpu-dev에서 `pod_setup.sh` 실제 실행 후 `du`) |
+| pip 휠(설치 중 임시) | 3.7 | **측정**(같은 실행의 pip 캐시 크기. `--no-cache-dir`라 설치 뒤 남지 않는다) |
+| 어댑터 2개 | 0.35 | 기존 기록(문서의 약 350MB), 파드에서 측정 안 함 |
+| 실행 캐시(vLLM/torch/triton) | 2 | 1.5B에서 **측정 52MB**, 8B는 값을 모르므로 넉넉히 잡은 추정 |
+| 합계 | 30.8 | 위 합 |
+| 기본 최소값 | 40 | 합계에 약 30% 여유(근거 없는 안전 계수, 첫 파드 실행 뒤 실측으로 바꾼다) |
+50GB 볼륨의 파일시스템 오버헤드로 가용이 50보다 작아도 40은 통과한다(통과 여부는 파드에서 확인 전). 설치 시간 2분 12초는 gpu-dev 네트워크 값이고 RunPod에서는 다르다.
+
+### RTX A5000 프로파일
+별도 파일을 만들지 않고 `rtx4090-24g.json`을 쓴다. 이유: 이 프로파일의 engine 값(max_model_len, util, max_num_seqs, LoRA 슬롯)은 VRAM 24GB와 bf16에서 계산한 것이라 아키텍처에 의존하지 않고, A5000(Ampere, 24GB)도 bf16을 지원한다. 같은 내용의 파일을 이름만 바꿔 두면 두 곳을 같이 고쳐야 한다. 달라지는 것은 지연이다(메모리 대역폭이 4090보다 낮을 것으로 알고 있으나 **스펙 값은 확인하지 못했다**). **util 0.9에서 8B와 LoRA 2개가 적재되는지는 미확인**이다(`status.loadable: unverified`). 파드 GPU의 가용 메모리가 24564MiB보다 작으면 `--util 0.85`로 낮춘다.
+sudo 없이·root 양쪽: 스크립트는 sudo, apt, /etc, chown을 쓰지 않고 `--base` 아래에만 쓴다(정적 확인: 해당 문자열 검색 결과 없음). root로 도는지는 파드에서 확인 전.

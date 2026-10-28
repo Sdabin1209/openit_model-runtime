@@ -6,6 +6,7 @@
 # 필수: --adapter-a DIR --adapter-b DIR --c1-dir DIR(lora_a_val.jsonl, lora_b_val.jsonl이 있는 폴더)
 # 선택:
 #   --kit DIR            키트 루트(src/, pylib/, survey-schema/, profiles/, scripts/가 있는 폴더). 기본: ~/dabin/mr-kit가 있으면 그것, 없으면 이 스크립트 기준 리포 루트(개발)
+#   --base DIR           모든 쓰기의 뿌리(= 쓰기 허용 폴더, 기본 $HOME/dabin). RunPod는 볼륨의 /workspace/dabin. 키트 기본 위치 $BASE/mr-kit, 작업 폴더 $BASE/mr-session, HF 캐시 $BASE/hf(있으면)
 #   --work DIR           작업 폴더(기본 $WRITE_ROOT/mr-session). 실행마다 하위 run-<시각> 폴더를 만든다
 #   --python PATH        파이썬(기본 /home/openit/miniconda3/envs/openit-llm/bin/python)
 #   --until HH:MM        서버 시각 기준 사용 상한. 지나면 시작을 거부하고, 측정 시간 상한도 이 시각에서 역산한다
@@ -32,11 +33,11 @@ die() { echo "[run_session] 오류: $*" >&2; exit "${2:-64}"; }
 log() { echo "[run_session $(date +%H:%M:%S)] $*"; }
 while [ $# -gt 0 ]; do
   case "$1" in   # 값이 필요한 옵션이 마지막이면 shift 2가 실패해 무한 루프가 된다(MR-3): 사용법을 내고 종료 코드 2
-    --kit|--work|--python|--until|--budget-min|--ready-timeout-min|--profile|--util|--n-a|--n-b|--concurrency|--max-used-mib|--margin-mib|--adapter-a|--adapter-b|--c1-dir|--backend)
+    --kit|--base|--work|--python|--until|--budget-min|--ready-timeout-min|--profile|--util|--n-a|--n-b|--concurrency|--max-used-mib|--margin-mib|--adapter-a|--adapter-b|--c1-dir|--backend)
       [ $# -ge 2 ] || { echo "[run_session] 오류: $1 에 값이 필요하다(--help로 사용법)" >&2; exit 2; } ;;
   esac
   case "$1" in
-    --kit) KIT="${2:-}"; shift 2 ;; --work) WORK="${2:-}"; shift 2 ;; --python) PY="${2:-}"; shift 2 ;;
+    --kit) KIT="${2:-}"; shift 2 ;; --base) WRITE_ROOT="${2:-}"; shift 2 ;; --work) WORK="${2:-}"; shift 2 ;; --python) PY="${2:-}"; shift 2 ;;
     --until) UNTIL="${2:-}"; shift 2 ;; --budget-min) BUDGET_MIN="${2:-}"; shift 2 ;; --ready-timeout-min) READY_MIN="${2:-}"; shift 2 ;;
     --profile) PROFILE="${2:-}"; shift 2 ;; --util) UTIL="${2:-}"; shift 2 ;; --n-a) N_A="${2:-}"; shift 2 ;; --n-b) N_B="${2:-}"; shift 2 ;;
     --concurrency) CONC="${2:-}"; shift 2 ;; --max-used-mib) MAX_USED="${2:-}"; shift 2 ;; --margin-mib) MARGIN="${2:-}"; shift 2 ;;
@@ -51,7 +52,7 @@ done
 [ -f "$C1/lora_a_val.jsonl" ] && [ -f "$C1/lora_b_val.jsonl" ] || die "$C1 에 lora_a_val.jsonl, lora_b_val.jsonl이 없다"
 case "$BACKEND" in vllm|fake) ;; *) die "--backend는 vllm 또는 fake" ;; esac
 [ -x "$PY" ] || die "파이썬이 없다: $PY (--python)"
-if [ -z "$KIT" ]; then if [ -d "$HOME/dabin/mr-kit/src" ]; then KIT="$HOME/dabin/mr-kit"; else KIT="$KIT_DEFAULT"; fi; fi
+if [ -z "$KIT" ]; then if [ -d "$WRITE_ROOT/mr-kit/src" ]; then KIT="$WRITE_ROOT/mr-kit"; else KIT="$KIT_DEFAULT"; fi; fi
 [ -z "$WORK" ] && WORK="$WRITE_ROOT/mr-session"
 [ -z "$PROFILE" ] && PROFILE="$KIT/profiles/gpu-shared-8b.json"
 [ -f "$PROFILE" ] || die "프로파일이 없다: $PROFILE"
@@ -113,6 +114,7 @@ NVIDIA_SMI="$SMI" bash "${PF[@]}" | tee "$RUN/logs/preflight.log"; rc=${PIPESTAT
 mkdir -p "$C/vllm" "$C/xdg" "$C/inductor" "$C/triton" "$C/flashinfer" "$C/cuda" "$C/numba" "$C/mpl" "$C/vllm-config" "$C/torch-ext"
 # HF 캐시(모델 가중치)는 XDG_CACHE_HOME 아래가 기본이라 아래에서 XDG를 옮기면 이미 받아 둔 모델이 안 보인다(gpu-dev 실행에서 LocalEntryNotFoundError로 확인).
 # 그래서 XDG를 옮기기 전에 원래 위치를 HF_HOME으로 고정한다. 읽기만 한다(오프라인 모드).
+if [ -z "${HF_HOME:-}" ] && [ -d "$ROOT_REAL/hf" ]; then HF_HOME="$ROOT_REAL/hf"; fi   # pod_setup.sh가 모델을 받아 둔 곳(--base 아래)
 export HF_HOME="${HF_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/huggingface}"
 export VLLM_CACHE_ROOT="$C/vllm" XDG_CACHE_HOME="$C/xdg" TORCHINDUCTOR_CACHE_DIR="$C/inductor" TRITON_CACHE_DIR="$C/triton" \
        FLASHINFER_WORKSPACE_BASE="$C/flashinfer" CUDA_CACHE_PATH="$C/cuda" NUMBA_CACHE_DIR="$C/numba" MPLCONFIGDIR="$C/mpl" \
