@@ -1,0 +1,38 @@
+{
+  "service": "model-runtime",
+  "runtime_version": "0.7.6",
+  "supported_contract_versions": [
+    1
+  ],
+  "loaded": [],
+  "serving_config_hash": {},
+  "system_prompt_sha256": {},
+  "serving_config_expectation": {
+    "constraint": {
+      "backend": "fake",
+      "backend_version": "1",
+      "supported_features": [
+        "$defs",
+        "$ref",
+        "additionalProperties",
+        "anyOf",
+        "enum",
+        "items",
+        "properties",
+        "required",
+        "type"
+      ],
+      "relax_policy_version": "relax-3"
+    },
+    "prompt_template_versions": [
+      "prompt-4"
+    ],
+    "prompt_template_version_default": "prompt-4",
+    "deprecated_prompt_template_versions": [],
+    "protection_policy_versions": [
+      "protect-2"
+    ],
+    "output_contract": 1
+  },
+  "test_hooks": {}
+}

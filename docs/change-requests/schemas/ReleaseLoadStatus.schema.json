@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openit.local/boundary-contracts/ReleaseLoadStatus.schema.json",
+  "title": "ReleaseLoadStatus",
+  "description": "초안(CR-006). PUT/GET /v1/releases/{id}의 적재 상태 본문(HTTP.md I9 표에만 있고 JSON Schema가 없다). model-runtime이 만들고 survey-service(HttpModelRuntime 클라이언트)와 deploy가 읽는다. error는 state가 FAILED일 때 BoundaryError(계약 스키마) 레코드, 아니면 null. 모르는 키는 거부한다: 이 본문은 작고 닫힌 상태 표시라 키가 늘면 계약을 고쳐야 한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release_id", "state", "error"],
+  "properties": {
+    "release_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "state": {"enum": ["ABSENT", "LOADING", "LOADED", "FAILED"]},
+    "error": {"type": ["object", "null"], "description": "FAILED면 BoundaryError 레코드. 객체 안은 boundary_contracts의 BoundaryError 검증기로 따로 확인한다."}
+  },
+  "allOf": [
+    {"if": {"properties": {"state": {"const": "FAILED"}}, "required": ["state"]}, "then": {"properties": {"error": {"type": "object"}}}, "else": {"properties": {"error": {"type": "null"}}}}
+  ]
+}

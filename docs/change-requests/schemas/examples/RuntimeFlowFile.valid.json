@@ -1,0 +1,73 @@
+{
+  "order": [
+    "Q1.D01",
+    "Q1.D02",
+    "Q1.D03",
+    "Q1.D04",
+    "Q4",
+    "Q4_1",
+    "Q5",
+    "Q8_1",
+    "Q8_2",
+    "Q9_1"
+  ],
+  "slots": {
+    "Q1.D03": [
+      {
+        "key": "Q1.D03.diagnosed",
+        "type": "boolean"
+      },
+      {
+        "key": "Q1.D03.on_medication",
+        "type": "boolean"
+      }
+    ],
+    "Q4": [
+      {
+        "key": "Q4.answer",
+        "type": "boolean"
+      }
+    ],
+    "Q8_1": [
+      {
+        "key": "Q8_1.days",
+        "type": "integer"
+      }
+    ]
+  },
+  "skips": [
+    {
+      "slot": "Q4.answer",
+      "op": "==",
+      "value": false,
+      "skip_item": "Q4_1"
+    },
+    {
+      "slot": "Q8_1.days",
+      "op": "==",
+      "value": 0,
+      "skip_item": "Q8_2"
+    }
+  ],
+  "corrections": [
+    {
+      "contains": "아까 말",
+      "key": "Q4.answer",
+      "value": false,
+      "at": "Q5"
+    },
+    {
+      "contains": "사실은 하루",
+      "key": "Q8_1.days",
+      "value": 1
+    }
+  ],
+  "reasks": [
+    {
+      "contains": "소리가 안 들",
+      "key": "Q4.answer",
+      "reason": "MISSING",
+      "at": "Q4"
+    }
+  ]
+}

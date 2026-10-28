@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openit.local/boundary-contracts/RuntimeInfo.schema.json",
+  "title": "RuntimeInfo",
+  "description": "초안(CR-006). GET /v1/info의 응답 본문. model-runtime이 만들고 deploy·model-lab·survey-service가 읽는다. HTTP.md I9는 앞 6개 필드(service, runtime_version, supported_contract_versions, backend, loaded, serving_config_hash)만 정하고, 나머지 3개(system_prompt_sha256, serving_config_expectation, test_hooks)는 이 영역이 더한 것이다. 최상위는 모르는 키를 허용한다(읽는 쪽은 무시): 내는 쪽이 필드를 더해도 읽는 쪽이 깨지지 않게 하려는 것이다. serving_config_expectation 안은 닫는다: deploy·model-lab이 이 값에 맞춰 설정을 만들기 때문에 키 이름이 틀리면 조용히 어긋난다.",
+  "type": "object",
+  "required": ["service", "runtime_version", "supported_contract_versions", "backend", "loaded", "serving_config_hash", "system_prompt_sha256", "serving_config_expectation", "test_hooks"],
+  "properties": {
+    "service": {"const": "model-runtime"},
+    "runtime_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "supported_contract_versions": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1},
+    "backend": {"type": "string", "minLength": 1, "description": "서버가 고른 백엔드 이름: vllm | fake | mimic."},
+    "loaded": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "적재 완료(LOADED)된 릴리스 ID."},
+    "serving_config_hash": {"$ref": "#/$defs/hashByRole", "description": "가장 최근에 적재한 릴리스의 역할별 해시. 적재된 릴리스가 없으면 빈 객체."},
+    "system_prompt_sha256": {"$ref": "#/$defs/hashByRole", "description": "가장 최근에 적재한 릴리스의 패키지 시스템 프롬프트 해시. 없으면 빈 객체."},
+    "serving_config_expectation": {
+      "description": "매니페스트의 serving_config가 맞춰야 하는 값. 백엔드가 아직 안 떴으면 null.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["constraint", "prompt_template_versions", "prompt_template_version_default", "deprecated_prompt_template_versions", "protection_policy_versions", "output_contract"],
+          "properties": {
+            "constraint": {
+              "type": "object", "additionalProperties": false,
+              "required": ["backend", "backend_version", "supported_features", "relax_policy_version"],
+              "properties": {
+                "backend": {"type": "string", "minLength": 1}, "backend_version": {"type": "string", "minLength": 1},
+                "supported_features": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+                "relax_policy_version": {"type": "string", "minLength": 1}
+              }
+            },
+            "prompt_template_versions": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+            "prompt_template_version_default": {"type": "string", "minLength": 1},
+            "deprecated_prompt_template_versions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "protection_policy_versions": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+            "output_contract": {"type": "integer", "minimum": 1}
+          }
+        }
+      ]
+    },
+    "test_hooks": {"type": "object", "description": "시험용 훅. 운영에서는 빈 객체."}
+  },
+  "$defs": {
+    "hashByRole": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "maxProperties": 0},
+        {"type": "object", "additionalProperties": false, "required": ["LORA_A", "LORA_B"],
+         "properties": {"LORA_A": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "LORA_B": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
+      ]
+    }
+  }
+}

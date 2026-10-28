@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openit.local/boundary-contracts/RuntimeProfile.schema.json",
+  "title": "RuntimeProfile",
+  "description": "초안(CR-006). 하드웨어별 서빙 프로파일(profiles/*.json, MODEL_RUNTIME_PROFILE). deploy가 어느 파일을 쓸지 고르고 model-runtime(vLLM 백엔드)이 읽는다. 알려진 키만 허용하고 모르는 키는 거부한다: 지금 코드(load_profile)는 engine의 모르는 키는 거부하지만 최상위의 모르는 키는 주석으로 무시한다. 오타가 조용히 무시되지 않도록 최상위도 닫는 것이 제안이며 코드보다 엄격하다. 주석은 `_`로 시작하는 키로 쓴다(현재 파일의 `_comment`).",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {"^_": {}},
+  "properties": {
+    "status": {"type": "object", "description": "측정 상태 기록(loadable, two_adapters_loaded_together, for, note). 서버는 읽지 않는 사람용 기록.", "additionalProperties": {"type": "string"}},
+    "base_model": {"type": "string", "minLength": 1},
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {"type": "string", "minLength": 1},
+        "max_model_len": {"type": "integer", "minimum": 1},
+        "gpu_memory_utilization": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "max_num_seqs": {"type": "integer", "minimum": 1},
+        "max_loras": {"type": "integer", "minimum": 1},
+        "max_lora_rank": {"type": "integer", "minimum": 1},
+        "enforce_eager": {"type": "boolean"},
+        "quantization": {"type": "string", "minLength": 1},
+        "guided_decoding_backend": {"type": "string", "minLength": 1},
+        "structured_outputs_backend": {"type": "string", "minLength": 1},
+        "disable_log_stats": {"type": "boolean"},
+        "tensor_parallel_size": {"type": "integer", "minimum": 1}
+      }
+    },
+    "env": {"type": "object", "description": "엔진용 환경 변수. 값은 문자열. `_`로 시작하는 키는 주석이라 서버가 환경에 쓰지 않는다.",
+            "patternProperties": {"^[A-Z][A-Z0-9_]*$": {"type": "string"}, "^_": {"type": "string"}}, "additionalProperties": false}
+  }
+}
