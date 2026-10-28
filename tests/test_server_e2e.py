@@ -1,5 +1,5 @@
 """실제 HttpReleaseReader로 boundary-contracts의 참조 I4 서버에서 번들을 받아 적재하고, 계약의 클라이언트(HttpModelRuntime)로
-이 서버를 부르는 한 바퀴(적합성 시험). boundary-contracts는 형제 폴더를 읽기 전용으로 참조한다(태그 v2.0.2과 같은 내용이어야 한다)."""
+이 서버를 부르는 한 바퀴(적합성 시험). boundary-contracts는 형제 폴더를 읽기 전용으로 참조한다(설치된 boundary-contracts와 같은 내용이어야 한다. 아래 시험이 확인한다)."""
 import copy
 import json
 import re

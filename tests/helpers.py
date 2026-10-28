@@ -6,7 +6,7 @@ from boundary_contracts import validator
 
 SCHEMA_DIR = Path(__file__).parent / "fixtures" / "schema" / "schemas"
 
-# 계약 2.0.0의 예시(boundary-contracts/examples)와 같은 모양의 시험 입력. 모두 test_runtime의 Samples가 패키지 스키마로 검증한다.
+# 현행 계약의 예시(boundary-contracts/examples)와 같은 모양의 시험 입력. 모두 test_runtime의 Samples가 패키지 스키마로 검증한다.
 A_INPUT = {"question_id": "Q1.D03", "current_question": "다음은 고혈압입니다. 진단받은 적이 있으신지, 지금 약을 드시는지 알려 주세요.",
            "user_utterance": "십 년 전에 고혈압 진단을 받았어요.",
            "state": {"Q1.D02.diagnosed": {"value": False, "status": "ANSWERED"}}}

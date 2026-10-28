@@ -221,7 +221,7 @@ class Server(unittest.TestCase):
         _, url, _, _ = self.srv()
         self.assertEqual(call(url, "/v1/extract", A_INPUT)[0], 404)
         call(url, "/v1/releases/r1", method="PUT")
-        for old in ("parse", "generate"):   # 1.x 경로는 2.0.0에서 없어졌다
+        for old in ("parse", "generate"):   # v1 경로는 없어졌다(CHANGELOG 참조)
             self.assertEqual(call(url, f"/v1/releases/r1/{old}", A_INPUT)[0], 404)
 
 
@@ -255,7 +255,7 @@ class Cr17(unittest.TestCase):
         self.assertEqual(call(url, "/readyz")[0], 200); self.assertTrue(d.is_dir())
 
     def test_removed_fake_risk_phrase_switch_is_refused_loudly(self):
-        """v2 출력에는 위험 신호 표현이 없어(계약 2.0.0) 스위치를 없앴다. 설정이 남아 있으면 조용히 무시하지 않고 시작을 거부한다."""
+        """v2 출력에는 위험 신호 표현이 없어(현행 계약) 스위치를 없앴다. 설정이 남아 있으면 조용히 무시하지 않고 시작을 거부한다."""
         for backend in ("fake", "vllm"):
             with self.assertRaises(SystemExit) as cm:
                 server.build_service({"MODEL_RUNTIME_BACKEND": backend, "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),

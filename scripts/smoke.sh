@@ -4,6 +4,8 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.0}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
+# 기대 라벨 값의 정본은 pyproject.toml의 version이다(RUNTIME_VERSION과 같아야 하며 tests가 확인한다)
+MR_VERSION="$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/pyproject.toml")"
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 BDIR="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
@@ -11,7 +13,7 @@ trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null
 git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ] \
   || { echo "../boundary-contracts에서 태그 $BOUNDARY_TAG를 꺼내지 못했다(폴더가 없거나 태그가 없다)" >&2; exit 1; }
 docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
-  --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" \
+  --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" --build-arg MODEL_RUNTIME_VERSION="$MR_VERSION" \
   --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
 docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
   "$TAG" >/dev/null
@@ -40,7 +42,7 @@ code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz"
 echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 ] || { echo "root로 실행됨" >&2; exit 1; }
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
-echo "$LABELS" | grep -q '"io.openit.model-runtime":"0.7.5"' || { echo "라벨의 model-runtime 버전이 0.7.5가 아니다" >&2; exit 1; }
+echo "$LABELS" | grep -q "\"io.openit.model-runtime\":\"$MR_VERSION\"" || { echo "라벨의 model-runtime 버전이 $MR_VERSION이 아니다" >&2; exit 1; }
 # 기본은 닫힘(MR-1): 토큰 없이는, 그리고 ALLOW_FAKE 없이 fake로는 시작하지 않는다.
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 "$TAG" >/dev/null 2>&1 || { echo "토큰 없이 시작되면 안 된다" >&2; exit 1; }
 ! docker run --rm -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_TOKENS=survey=smoke-token "$TAG" >/dev/null 2>&1 || { echo "ALLOW_FAKE 없이 fake로 시작되면 안 된다" >&2; exit 1; }

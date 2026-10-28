@@ -43,7 +43,7 @@ class Prompt4(unittest.TestCase):
         self.assertEqual(render("LORA_A", A_INPUT), (GOLD / "lora_a.prompt-4.txt").read_text(encoding="utf-8"))
         self.assertEqual(render("LORA_B", B_INPUT), (GOLD / "lora_b.prompt-4.txt").read_text(encoding="utf-8"))
 
-    def test_prompt3_removed(self):   # 0.7.0(G10): prompt-3은 거부된다
+    def test_prompt3_removed(self):   # prompt-3은 제거되어 거부된다(CHANGELOG 참조)
         with self.assertRaises(mr.UnsupportedServingConfig):
             render("LORA_A", A_INPUT, "prompt-3")
 

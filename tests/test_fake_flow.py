@@ -186,7 +186,7 @@ class FakeValues(unittest.TestCase):
             p.write_text(json.dumps({"order": ORDER, "slots": SLOTS, "skips": SKIPS}), encoding="utf-8")
             server.build_service({**base, "MODEL_RUNTIME_FAKE_FLOW_FILE": str(p)}).close()
 
-    def test_serving_config_hash_unchanged(self):   # 가짜 응답 규칙은 serving_config에 들어가지 않는다(0.7.1에서 해시가 바뀌지 않음)
+    def test_serving_config_hash_unchanged(self):   # 가짜 응답 규칙은 serving_config에 들어가지 않는다(CHANGELOG의 해당 항목 참조: 해시가 바뀌지 않음)
         h = lambda r: mr.serving_config_hash(r)
         a = mr.FakeBackend(mr.make_default_responder(ORDER))
         b = mr.FakeBackend(mr.make_default_responder(ORDER, None, SLOTS, SKIPS))
@@ -205,7 +205,7 @@ def corr_session():
 
 
 class FakeCorrect(unittest.TestCase):
-    """0.7.2: 정정(CORRECT). 앞서 한 답을 고치는 발화에서 CORRECTION 값을 낸다. 스키마(v2.0.2)의 action 열거에 CORRECT가 있고
+    """정정(CORRECT). 앞서 한 답을 고치는 발화에서 CORRECTION 값을 낸다. 설치된 계약 스키마의 action 열거에 CORRECT가 있고
     NEXT와 같이 reason·targets·note를 갖지 않는다."""
     def test_correct_rule_table(self):
         s = corr_session()
@@ -280,7 +280,7 @@ class FakeCorrect(unittest.TestCase):
 
 
 class FakeReask(unittest.TestCase):
-    """0.7.5: 발화 문구에 대해 REASK를 연속으로 낸다(서비스 되묻기 한도 시험용). 스키마 allOf: REASK는 reason·targets 필수, note 없음."""
+    """발화 문구에 대해 REASK를 연속으로 낸다(서비스 되묻기 한도 시험용). 스키마 allOf: REASK는 reason·targets 필수, note 없음."""
     REASKS = [{"contains": "글쎄요", "key": "Q4.answer"}, {"contains": "대충", "key": "Q8_1.days", "reason": "VAGUE_QUANTITY", "at": "Q8_1"}]
 
     def sess(self):

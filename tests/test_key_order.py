@@ -1,4 +1,4 @@
-"""키 순서(계약 v2.0.1): xgrammar는 properties 순서대로 키를 내도록 강제한다. 순서의 정본은 계약이고 relax는 순서를 바꾸지 않는다."""
+"""키 순서(계약): xgrammar는 properties 순서대로 키를 내도록 강제한다. 순서의 정본은 계약이고 relax는 순서를 바꾸지 않는다."""
 import json
 import unittest
 

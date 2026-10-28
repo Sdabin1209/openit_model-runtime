@@ -406,7 +406,7 @@ class Prompt(unittest.TestCase):
         self.assertTrue(a.endswith("<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"))   # enable_thinking=False
         self.assertIn("십 년 전에 고혈압 진단을 받았어요.", a)   # ensure_ascii=False
         self.assertIn(json.dumps(dict(sorted(A_INPUT.items())), ensure_ascii=False), a)   # prompt-4: 학습 글자(D77)
-        with self.assertRaises(mr.UnsupportedServingConfig):   # prompt-3은 0.7.0에서 제거
+        with self.assertRaises(mr.UnsupportedServingConfig):   # prompt-3은 제거됨(CHANGELOG 참조)
             mr.render_prompt("LORA_A", A_INPUT, **{**kw, "serving_config": mr.fake_serving_config(prompt_template_version="prompt-3")})
 
     def test_errors(self):

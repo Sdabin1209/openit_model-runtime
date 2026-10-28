@@ -48,7 +48,7 @@ class Profiles(unittest.TestCase):
         """D74·D81: 기반 모델은 프로파일로 고른다. 12GB급은 Qwen3-1.7B(파이프라인 데모용), 24GB급은 Qwen3-8B. 적재 가능 여부와 A·B 동시 적재는 측정 전이라 미확인이다."""
         a, b = mr.load_profile(ROOT / "profiles" / "gpu-12g.json"), mr.load_profile(ROOT / "profiles" / "rtx4090-24g.json")
         self.assertEqual((a["base_model"], b["base_model"]), ("Qwen/Qwen3-1.7B", "Qwen/Qwen3-8B"))
-        # gpu-12g는 2026-10-27 gpu-dev에서 적재를 측정했다(U01, 0.7.1). A·B 동시 적재는 간접 확인뿐이라 unverified로 둔다
+        # gpu-12g는 2026-10-27 gpu-dev에서 적재를 측정했다(U01, CHANGELOG 참조). A·B 동시 적재는 간접 확인뿐이라 unverified로 둔다
         self.assertEqual((a["status"]["loadable"], a["status"]["two_adapters_loaded_together"]), ("measured", "unverified"))
         self.assertEqual((b["status"]["loadable"], b["status"]["two_adapters_loaded_together"]), ("unverified", "unverified"))
         for p in (a, b):
