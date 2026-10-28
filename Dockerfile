@@ -33,7 +33,7 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
     && chown -R 10001 /var/lib/model-runtime
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
-ARG BOUNDARY_VERSION=v2.0.2
+ARG BOUNDARY_VERSION=v2.1.0
 ARG SURVEY_SCHEMA_VERSION=unknown
 ARG TURN_ENGINE_VERSION=none
 LABEL io.openit.service="model-runtime" \
@@ -41,7 +41,7 @@ LABEL io.openit.service="model-runtime" \
       io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
       io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
       io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
-      io.openit.model-runtime="0.7.4"
+      io.openit.model-runtime="0.7.5"
 USER 10001
 # 이 디렉터리들은 serving-data 볼륨을 /var/lib/model-runtime에 마운트하면 가려진다. 그래서 서버가 시작할 때 mkdir -p로 다시 보장하고 쓸 수 없으면 /readyz 503 reason을 낸다.
 # 번들 캐시 디렉터리는 10001 소유로 만들어 둔다(새 이름 있는 볼륨은 이 소유권을 물려받는다). 바인드 마운트라면 호스트에서 소유자를 맞춘다.

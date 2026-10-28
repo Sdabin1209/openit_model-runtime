@@ -1,11 +1,13 @@
 # 변경 이력
 
-## 0.7.4 — 2026-10-28 (가짜 A 되묻기, GPU 세션 키트)
+## 0.7.5 — 2026-10-28 (가짜 A 되묻기, GPU 세션 키트, 계약 v2.1.0 정렬)
+**0.7.4는 계약 v2.0.2 pin이라 정렬되지 않아 폐기하고 0.7.5로 대체한다.** 0.7.4 태그가 원격에 올라갔으나 이미지·배포의 기준으로 쓰지 않는다. 0.7.5는 0.7.4의 내용에 더해 boundary-contracts 의존을 `v2.0.2`에서 `v2.1.0`으로 올렸다(`Dockerfile`의 `BOUNDARY_VERSION`, `scripts/gpu_check.sh`, 설치 예시 문서). 이 리포는 turn-engine 버전을 핀하지 않는다(U15). 열차 순서: boundary v2.1.0 -> turn-engine v0.4.1 -> model-runtime v0.7.5 -> 영역(D80).
+아래는 0.7.4로 쓴 내용 그대로다(버전 표기만 0.7.5).
 v0.7.3 이후 쌓인 변경의 정식 릴리스. HTTP 경로·계약 스키마·`serving_config`와 해시는 그대로이고, 운영(vLLM) 경로의 서버 동작은 바뀌지 않았다. 바뀐 서버 쪽 코드는 가짜 백엔드의 `reasks`뿐이다. 버전 표기(`pyproject.toml`, `RUNTIME_VERSION`, 이미지 라벨 `io.openit.model-runtime`, `scripts/smoke.sh`)를 0.7.4로 올렸다.
 - 가짜 A `reasks`(아래 첫 항목): deploy E2E 5n-reask와 survey-service 되묻기 한도(REASK_LIMIT) 통합 시험용.
 - GPU 세션 키트(`scripts/gpu_session`, ADR 0013~0016): `pod_setup.sh`(파드 이미지 차이를 스스로 준비: uv 고정 + 독립 파이썬, gcc는 root면 apt, 단계 분리, 모델 이름은 프로파일 base_model 한 곳), `pod_run.sh`, `util_retry.py`(GPU 사용률 자동 재시도), `run_session.sh --plan`(다단계 부하), 키트 커밋 기록, `--base` 한 곳에 설치·캐시 모으기, 실제 어댑터·C1 사전 점검. 모두 가짜 백엔드와 로컬 시험으로만 확인했고 **실제 GPU 한 바퀴를 새로 돌려 확인한 것은 아니다**.
 - 실제 데이터 대조 도구 `scripts/check_reference_data.py`(OPEN_GAPS U03).
-아래 세 절은 0.7.4에 들어간 변경의 상세다(당시 제목은 "0.7.3 이후").
+아래 세 절은 0.7.5에 들어간 변경의 상세다(당시 제목은 "0.7.3 이후").
 
 ### 2026-10-28 가짜 A의 되묻기(REASK) 설정
 가짜 백엔드 전용, 운영(vLLM) 경로 무변경. 흐름 파일(`MODEL_RUNTIME_FAKE_FLOW_FILE`)의 선택 항목 `reasks`: `[{"contains","key","reason"(선택, 기본 MISSING),"at"(선택)}]`. 문구가 발화에 있으면 매번 REASK(next_item=입력 question_id, targets=[key], 그 칸은 MISSING)를 낸다. survey-service의 되묻기 한도(REASK_LIMIT)를 통합으로 시험하려고 더했다. `load_fake_reasks`를 내보낸다. 시험 `FakeReask`(tests/test_fake_flow.py).

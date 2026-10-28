@@ -123,7 +123,7 @@ _REASK_REASONS = ("MISSING", "OUT_OF_RANGE", "UNKNOWN_UNIT", "VAGUE_QUANTITY", "
 
 
 def load_fake_reasks(path: str) -> list:
-    """문항 흐름 파일(객체 형식)의 선택 항목 `reasks`를 읽는다(0.7.4). 목록 형식이거나 항목이 없으면 [].
+    """문항 흐름 파일(객체 형식)의 선택 항목 `reasks`를 읽는다(0.7.5). 목록 형식이거나 항목이 없으면 [].
     `reasks`: [{"contains": "발화에 들어 있는 문구", "key": "Q4.answer", "reason": "MISSING"(선택, 기본 MISSING), "at": "Q4"(선택: 이 question_id일 때만)}].
     문구가 발화에 있으면 매번(연속으로도) REASK를 낸다. 서비스의 되묻기 한도(REASK_LIMIT) 시험용이다. 형식이 틀리면 ValueError."""
     with open(path, encoding="utf-8") as f:
@@ -181,7 +181,7 @@ def fake_extraction_for(question_id: str, order: Sequence[str], utterance: str |
     문항에 칸 정의(slots)가 있고 발화에서 값을 정할 수 있으면 첫 칸에 ANSWERED 값을 내고, 그 값에 건너뛰기(skips)를 적용한 다음 문항으로 간다."""
     order = list(order)
     i = order.index(question_id) + 1 if question_id in order else len(order)
-    # 되묻기(0.7.4): reasks 항목의 문구가 발화에 있으면 REASK. next_item은 입력 question_id(계약), targets는 key 하나, 그 칸은 MISSING으로 values에 둔다.
+    # 되묻기(0.7.5): reasks 항목의 문구가 발화에 있으면 REASK. next_item은 입력 question_id(계약), targets는 key 하나, 그 칸은 MISSING으로 values에 둔다.
     for r in reasks:
         if utterance and r["contains"] in utterance and r.get("at") in (None, question_id):
             return {"action": "REASK", "next_item": question_id, "reason": r.get("reason", "MISSING"), "targets": [r["key"]],

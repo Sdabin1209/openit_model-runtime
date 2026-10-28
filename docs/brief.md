@@ -1,6 +1,6 @@
 # 영역 브리프: model-runtime (공유 라이브러리)
 
-> **계약 상태.** 이 영역은 문진 스키마(정수 버전)와 `boundary-contracts` 태그 v2.0.2(`Dockerfile`·`pyproject.toml` 기준)를 소비한다. I9의 HTTP 서버와 입출력 스키마는 계약 패키지에 들어 있다.
+> **계약 상태.** 이 영역은 문진 스키마(정수 버전)와 `boundary-contracts` 태그 v2.1.0(`Dockerfile`·`pyproject.toml` 기준)를 소비한다. I9의 HTTP 서버와 입출력 스키마는 계약 패키지에 들어 있다.
 > **읽기.** `../survey-service/schema`는 문진 서비스의 데이터 스키마(스키마만 남긴 최소 구성)다. 구현이 가져가는 계약은 `schemas/<계약명>.json`(JSON Schema Draft 2020-12), 컴포넌트별 입력·출력 대응은 `COMPONENTS.yaml`, 정수 버전은 `CONTRACT_VERSION`이다. 읽기 전용이다.
 > **버전(D14, D19).** 문진 스키마 정수 버전(`CONTRACT_VERSION`)에 정확히 일치해야 한다.
 

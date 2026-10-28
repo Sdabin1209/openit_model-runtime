@@ -280,7 +280,7 @@ class FakeCorrect(unittest.TestCase):
 
 
 class FakeReask(unittest.TestCase):
-    """0.7.4: 발화 문구에 대해 REASK를 연속으로 낸다(서비스 되묻기 한도 시험용). 스키마 allOf: REASK는 reason·targets 필수, note 없음."""
+    """0.7.5: 발화 문구에 대해 REASK를 연속으로 낸다(서비스 되묻기 한도 시험용). 스키마 allOf: REASK는 reason·targets 필수, note 없음."""
     REASKS = [{"contains": "글쎄요", "key": "Q4.answer"}, {"contains": "대충", "key": "Q8_1.days", "reason": "VAGUE_QUANTITY", "at": "Q8_1"}]
 
     def sess(self):
