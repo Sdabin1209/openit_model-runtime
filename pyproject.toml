@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-runtime"
-version = "0.8.1"
+version = "0.9.0"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
 # boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<태그>  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
 dependencies = ["jsonschema>=4.10", "boundary-contracts"]
 
 [project.optional-dependencies]
-dev = ["pytest"]   # turn-engine은 핀하지 않는다(버전 표 중복 방지, U15). 필요한 시험은 없으면 건너뛴다. 설치: docs/runbook.md
+dev = ["pytest"]   # turn-engine 의존은 없다(ADR 0021). 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다
 vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU 시험 뒤에 고정한다(scripts/gpu_check.sh가 설치 버전을 기록).
 
 [tool.setuptools.packages.find]

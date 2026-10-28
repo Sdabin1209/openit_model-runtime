@@ -20,6 +20,7 @@ from .fallback import fallback_text
 from .prompts import render_prompt
 from .results import CallInfo, RawResult, ResponseResult
 from .schema_guard import SchemaSet, relax
+from boundary_contracts.action_rules import check_action_extraction
 
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
@@ -106,14 +107,23 @@ class ExtractRole(_RoleBase):
         except (ValueError, TypeError):
             return None, ["json"]
 
-    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Attempts:
+    def _rule_violations(self, value: Any, input: Mapping, flow: Mapping) -> list[str]:
+        """스키마 위반이 없을 때만 의미 규칙(계약의 기준 검사기)을 본다. 위반은 "rule:<코드>:<경로>"이며 값은 싣지 않는다.
+        왜 여기서: 통과한 값은 호출자가 다시 검사하지 않는다(R7, 계약 ADR 0010). 규칙 본문은 계약의 데이터라 이 영역에 복사하지 않는다."""
+        errs = self._violations(value)
+        if errs or flow is None:
+            return errs
+        return [f"rule:{v.code}:{v.path}" for v in check_action_extraction(dict(input), value, dict(flow))]
+
+    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None, flow: Mapping | None = None) -> Attempts:
         constrained = self._cfg["decoding"]["constraint_mode"] == "constrained"
         return run_attempts(backend, role=self.name, prompt=self._prompt(input), constraint_schema=self.constraint[0] if constrained else None,
-                            cfg=self._cfg, input=input, parse=self._parse, check=self._violations, deadline=deadline)
+                            cfg=self._cfg, input=input, parse=self._parse, check=lambda v: self._rule_violations(v, input, flow), deadline=deadline)
 
-    def call(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Outcome:
-        """항상 ActionExtraction을 지키는 값을 낸다. 재시도 후에도 못 지키면 값을 지어내지 않고 ModelOutputInvalid."""
-        a = self._attempt(backend, input, deadline)
+    def call(self, backend: ConstraintBackend, input: Mapping, flow: Mapping | None = None, deadline: float | None = None) -> Outcome:
+        """항상 ActionExtraction을 지키는 값을 낸다. flow(QuestionFlowTable)가 있으면 의미 규칙도 지킨다.
+        재시도 후에도 못 지키면 값을 지어내지 않고 ModelOutputInvalid."""
+        a = self._attempt(backend, input, deadline, flow)
         removed = self.constraint[1]
         if a.errors:
             log.warning("role=%s 출력이 형식을 지키지 못함 attempts=%s", self.name, a.attempts)

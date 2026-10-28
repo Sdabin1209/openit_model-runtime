@@ -19,7 +19,7 @@ from .roles import ROLE_TYPES, build_roles
 from .schema_guard import INPUT_CONTRACT, RELAX_POLICY_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet
 from .serving_config import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.8.1"
+RUNTIME_VERSION = "0.9.0"
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
 # FakeModelSession이 시스템 프롬프트를 따로 받지 않을 때 쓰는 시험용 문장. 학습과 짝인 프롬프트가 아니다.
@@ -76,15 +76,16 @@ class _Session:
         raw, self.last_call_info = self._roles["LORA_B"].raw(self._backend, input)
         return raw
 
-    def extract(self, input: Mapping, *, deadline: float | None = None) -> dict:
-        o = self._roles["LORA_A"].call(self._backend, input, deadline)
+    def extract(self, input: Mapping, flow: Mapping | None = None, *, deadline: float | None = None) -> dict:
+        """flow(QuestionFlowTable)가 있으면 출력이 계약의 LoRA-A 출력 규칙도 지킨다(2.x 동안 없으면 스키마만, HTTP.md I9)."""
+        o = self._roles["LORA_A"].call(self._backend, input, flow, deadline)
         self.last_call_info = o.info
         if o.error is not None:
             raise o.error
         return o.result
 
     def respond(self, input: Mapping, *, deadline: float | None = None) -> ResponseResult:
-        o = self._roles["LORA_B"].call(self._backend, input, deadline)
+        o = self._roles["LORA_B"].call(self._backend, input, deadline=deadline)
         self.last_call_info = o.info
         return o.result
 

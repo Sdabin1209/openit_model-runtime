@@ -31,6 +31,7 @@
 - 역할별 설정이 달라도 `constraint`(백엔드 이름·버전·지원 기능)는 두 역할이 같아야 한다.
 - `prompt_template_version`은 `prompt-4`(권장·기본, D77), `protection_policy_version`은 `protect-2`(v1의 `prompt-2`/`protect-1`은 거부). `prompt-3`(JCS 직렬화)은 0.7.0에서 **제거**했다(G10). 이 값의 `serving_config`는 `UnsupportedServingConfig`로 거부된다. 서버에서 학습한 어댑터(dataset_10_14)에는 `prompt-4`를 쓴다.
 - **입력 객체의 키 순서는 호출자의 책임이다(prompt-4).** 서비스는 `json.dumps(obj, ensure_ascii=False)`(기본 구분자)로 직렬화하며 학습 글자와 한 글자도 달라서는 안 된다. 호출자가 준 순서를 보존하되 다음만 이 서버가 정렬한다: LORA_A는 **최상위 키**(current_question, question_id, state, user_utterance 순), LORA_B는 **모든 수준**의 키. 따라서 survey-service는 LORA_A의 `state` 안(키와 그 아래)을 **학습 때의 삽입 순서**로 만들어 넘겨야 한다(서버가 바꾸지 않는다). 근거: 최상위 순서는 의미가 없고 호출자마다 달라지기 쉬워 서버가 강제하고, `state` 순서는 스키마로 복원할 수 없어 호출자만 안다. B는 학습 데이터가 전 수준 정렬이고 객체 키 순서에 의미가 없다.
+- **extract 본문(0.9.0, ADR 0021):** 계약 `ExtractRequest{input, flow}`를 받고, `flow`가 있으면 출력이 계약 `check_action_extraction` 규칙까지 지키는 값만 낸다(위반은 재시도 후 503 OUTPUT_INVALID, `details.violations`에 `rule:<코드>:<경로>`). 옛 본문(`ActionExtractionInput` 그대로)은 2.x 동안 받지만 규칙 보증이 없다. 형식은 스키마로 판정하고 둘 다 아니면 400. 호출자는 통과한 값을 다시 검사하지 않는다(R7). 라이브러리는 `ModelSession.extract(input, flow=None)`.
 - **extract의 503 OUTPUT_INVALID는 호출자가 한 번 다시 보내고, 그래도 안 되면 턴을 실패 신호로 처리한다(INTERFACES I9 '서비스가 지키는 것').**
 - 학습 데이터 변환은 `render_prompt(..., system_prompt=<패키지의 프롬프트>, serving_config=...)`를 쓴다.
 

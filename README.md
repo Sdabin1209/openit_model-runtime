@@ -58,7 +58,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-`setup-env.sh`는 turn-engine·xgrammar를 설치하지 않는다. turn-engine은 버전 표를 여러 곳에 두지 않으려고 이 리포가 핀하지 않는 시험 전용 **선택 설치**이고(docs/runbook.md), xgrammar도 무거운 선택 의존이라, 그 둘이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다. 또 형제 `../boundary-contracts`가 없으면 `test_reference_checkout_is_the_installed_tag` 1건이 건너뛰어진다(참조 서버·예제는 설치된 태그 패키지에서 읽는다). 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
+`setup-env.sh`는 xgrammar를 설치하지 않는다(무거운 선택 의존이라 그것이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다). turn-engine 의존은 0.9.0에서 없앴다(ADR 0021, 아래 개수는 그 이전 값이라 turn-engine 설치 여부가 섞여 있다). 문항 흐름표는 문진 스키마에서 읽는다(docs/runbook.md). 또 형제 `../boundary-contracts`가 없으면 `test_reference_checkout_is_the_installed_tag` 1건이 건너뛰어진다(참조 서버·예제는 설치된 태그 패키지에서 읽는다). 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
 
 이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 "현재 상태" 절), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
@@ -116,6 +116,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0018](docs/adr/0018-mimic-components.md) | 데모용 모방 컴포넌트와 규칙표 데이터 파일 |
 | [0019](docs/adr/0019-value-provenance.md) | 근거 없는 값(3.5초, 재시도 3, util 단계, 2500자, 릴리스 4개 등)의 출처 분류와 측정 계획. 값은 바꾸지 않는다 |
 | [0020](docs/adr/0020-per-call-deadline-budget.md) | 호출별 상한 extract 3.0초·respond 2.0초(계약 표), 재시도는 남은 예산이 직전 시도 이상일 때만, 인증 실패 401 |
+| [0021](docs/adr/0021-server-guarantees-action-rules.md) | LoRA-A 출력 규칙을 서버가 보증한다(계약 검사기 호출, `ExtractRequest`), turn-engine 시험 의존 제거 |
 
 ## 더 자세한 문서
 

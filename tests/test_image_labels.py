@@ -1,4 +1,4 @@
-"""이미지 라벨이 계약 v2.2.0의 ImageLabels(D108)를 지키는지. Docker 없이 Dockerfile의 ARG 기본값·LABEL과
+"""이미지 라벨이 계약 v2.2.0 이후의 ImageLabels(D108)를 지키는지. Docker 없이 Dockerfile의 ARG 기본값·LABEL과
 scripts/smoke.sh가 넘기는 빌드 인자를 읽어 라벨 값을 만들고 계약 검증기로 본다. 실제 이미지 라벨은 smoke.sh가 docker image inspect로 본다."""
 import re
 import tomllib

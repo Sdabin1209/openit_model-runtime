@@ -1,5 +1,4 @@
-"""fake 백엔드가 입력 문항에 맞는 유효한 ActionExtraction을 낸다(0.6.2). survey-service가 쓰는 turn-engine의 validate_extraction으로 직접 확인한다.
-turn-engine은 시험 전용이며 pyproject에 핀하지 않는다(설치 방법: docs/runbook.md). 없으면 이 시험의 해당 부분은 건너뛴다."""
+"""fake 백엔드가 입력 문항에 맞는 유효한 ActionExtraction을 낸다(0.6.2). 계약의 기준 검사기(check_action_extraction)와 문진 스키마의 흐름표로 직접 확인한다. 흐름표를 못 찾으면 해당 시험은 건너뛴다."""
 import copy
 import json
 import unittest
@@ -8,17 +7,14 @@ import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes
+from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of
 
 import model_runtime as mr
 from model_runtime import server
 
-def _turn_engine():
-    """turn-engine은 설치하지 않았으면 건너뛴다(pyproject는 버전을 핀하지 않는다. 어떤 태그를 쓸지는 docs/runbook.md)."""
-    pytest.importorskip("turn_engine")
-    from turn_engine.flow import DATASET_V2_FLOW
-    from turn_engine.validation import validate_extraction
-    return DATASET_V2_FLOW, validate_extraction
+def _flow():
+    """문진 스키마의 흐름표와 계약의 기준 검사기(없으면 건너뛴다)."""
+    return question_flow_table(), rule_violations
 
 ORDER = ["Q1.D01", "Q1.D02", "Q1.D03", "Q2.D01", "Q3"]
 
@@ -55,17 +51,17 @@ class FakeFlow(unittest.TestCase):
         fixed = {"action": "NEXT", "next_item": "Q3", "values": []}
         self.assertEqual(session(ORDER, fixed).extract(a_input("Q1.D01")), fixed)
 
-    def test_passes_turn_engine_validate_extraction_for_every_item(self):
-        DATASET_V2_FLOW, validate_extraction = _turn_engine()
-        s = session(list(DATASET_V2_FLOW.order))
-        for qid in DATASET_V2_FLOW.order:
+    def test_passes_action_rules_for_every_item(self):
+        flow, validate_extraction = _flow()
+        s = session(list(flow["order"]))
+        for qid in flow["order"]:
             inp = a_input(qid)
-            self.assertEqual(validate_extraction(inp, s.extract(inp), DATASET_V2_FLOW), [], qid)
+            self.assertEqual(validate_extraction(inp, s.extract(inp), flow), [], qid)
 
     def test_legacy_fixed_output_is_rejected_by_validate_extraction(self):   # 이 변경의 동기(deploy CR-D22 1항)를 시험으로 남긴다
-        DATASET_V2_FLOW, validate_extraction = _turn_engine()
+        flow, validate_extraction = _flow()
         inp = a_input("Q1.D01")
-        v = validate_extraction(inp, session().extract(inp), DATASET_V2_FLOW)
+        v = validate_extraction(inp, session().extract(inp), flow)
         self.assertEqual([x.code for x in v], ["SKIP_ORDER_MISMATCH"])
 
     def test_flow_file_formats_and_errors(self):
@@ -143,14 +139,12 @@ class FakeValues(unittest.TestCase):
         s = session(ORDER)
         self.assertEqual(s.extract({**a_input("Q1.D01"), "user_utterance": "네"})["values"], [])
 
-    def test_passes_turn_engine_validate_extraction(self):
-        pytest.importorskip("turn_engine")
-        from turn_engine.flow import DATASET_V2_FLOW
-        from turn_engine.validation import validate_extraction
-        order = list(DATASET_V2_FLOW.order)
+    def test_passes_action_rules(self):
+        flow, validate_extraction = _flow()
+        order = list(flow["order"])
         slots = {"Q1.D03": SLOTS["Q1.D03"], "Q4": SLOTS["Q4"], "Q5": [{"key": "Q5.answer", "type": "boolean"}],
                  "Q7": [{"key": "Q7.does_not_drink", "type": "boolean"}], "Q8_1": SLOTS["Q8_1"], "Q9_1": [{"key": "Q9_1.days", "type": "integer"}]}
-        skips = [{"slot": r.slot, "op": "==", "value": r.value, "skip_item": r.skip_item} for r in DATASET_V2_FLOW.skips]
+        skips = skips_of(flow)
         b = mr.FakeBackend(mr.make_default_responder(order, None, slots, skips))
         cfgs, hashes = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
@@ -159,7 +153,7 @@ class FakeValues(unittest.TestCase):
             for utt in ("네", "아니요", "3일", "없어요", "   ", "글쎄요"):
                 inp = {**a_input(qid), "user_utterance": utt}
                 out = s.extract(inp)
-                self.assertEqual(validate_extraction(inp, out, DATASET_V2_FLOW), [], (qid, utt))
+                self.assertEqual(validate_extraction(inp, out, flow), [], (qid, utt))
                 n_saved += bool(out["values"])
         self.assertGreater(n_saved, 10)   # 저장 경로를 실제로 지났다
 
@@ -229,12 +223,10 @@ class FakeCorrect(unittest.TestCase):
         # corrections를 주지 않으면 기존 동작 그대로
         self.assertEqual(v2_session().extract({**a_input("Q5"), "user_utterance": "아까 말한 거 틀렸어요"})["action"], "NEXT")
 
-    def test_passes_turn_engine_validate_extraction(self):
-        pytest.importorskip("turn_engine")
-        from turn_engine.flow import DATASET_V2_FLOW
-        from turn_engine.validation import validate_extraction
-        order = list(DATASET_V2_FLOW.order)
-        skips = [{"slot": r.slot, "op": "==", "value": r.value, "skip_item": r.skip_item} for r in DATASET_V2_FLOW.skips]
+    def test_passes_action_rules(self):
+        flow, validate_extraction = _flow()
+        order = list(flow["order"])
+        skips = skips_of(flow)
         corr = [{"contains": "고칠게요", "key": "Q4.answer", "value": False}, {"contains": "고칠게요 일수", "key": "Q8_1.days", "value": 0},
                 {"contains": "고칠게요 술", "key": "Q1.D03.diagnosed", "value": True, "at": "Q5"}]
         b = mr.FakeBackend(mr.make_default_responder(order, None, {}, skips, corr))
@@ -245,7 +237,7 @@ class FakeCorrect(unittest.TestCase):
             for utt in ("고칠게요", "고칠게요 일수", "고칠게요 술"):
                 inp = {**a_input(qid), "user_utterance": utt}
                 out = s.extract(inp)
-                self.assertEqual(validate_extraction(inp, out, DATASET_V2_FLOW), [], (qid, utt))
+                self.assertEqual(validate_extraction(inp, out, flow), [], (qid, utt))
                 n += out["action"] == "CORRECT"
         self.assertGreater(n, 20)
 
@@ -299,16 +291,14 @@ class FakeReask(unittest.TestCase):
         self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "대충 그정도"})["action"], "NEXT")   # at 불일치
         self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "네"})["action"], "NEXT")   # 문구 없음: 기존 동작
 
-    def test_passes_turn_engine_validate_extraction(self):
-        pytest.importorskip("turn_engine")
-        from turn_engine.flow import DATASET_V2_FLOW
-        from turn_engine.validation import validate_extraction
-        order = list(DATASET_V2_FLOW.order)
+    def test_passes_action_rules(self):
+        flow, validate_extraction = _flow()
+        order = list(flow["order"])
         b = mr.FakeBackend(mr.make_default_responder(order, None, {}, (), (), [{"contains": "글쎄요", "key": "Q4.answer"}]))
         cfgs, hashes = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
         inp = {**a_input("Q4"), "user_utterance": "글쎄요"}
-        self.assertEqual(validate_extraction(inp, s.extract(inp), DATASET_V2_FLOW), [])
+        self.assertEqual(validate_extraction(inp, s.extract(inp), flow), [])
 
     def test_file_format_and_errors(self):
         with TemporaryDirectory() as t:

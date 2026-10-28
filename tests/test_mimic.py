@@ -2,7 +2,7 @@
 
 기대값의 출처는 구현이 아니라 계약과 이웃의 검증기다:
  (a) boundary-contracts의 `validator("ActionExtraction")` / `validator("ResponseRequest")` / `validator("ResponseText")`
- (b) turn-engine의 `validate_extraction`(의미 규칙). 건너뛰지 않는다: 없으면 helpers.require_turn_engine이 태그로 설치하고, 설치하지 못하면 시험이 실패한다.
+ (b) 계약의 기준 검사기 `check_action_extraction`(출력 규칙, 흐름표는 문진 스키마). 흐름표를 못 찾으면 모듈을 건너뛴다.
 모든 문항 x 대표 발화 묶음 x 상태 변형에 대해 확인한다."""
 import copy
 import json
@@ -12,17 +12,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from boundary_contracts import validator
-from helpers import B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, require_turn_engine, wait_until
+from helpers import B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of, wait_until
 
 import model_runtime as mr
 from model_runtime import server
 from test_server import StubReader, call
 
-te = require_turn_engine()
-from turn_engine.flow import DATASET_V2_FLOW   # noqa: E402
-from turn_engine.validation import validate_extraction   # noqa: E402
-
-ORDER = list(DATASET_V2_FLOW.order)
+FLOW = question_flow_table()   # 문진 스키마의 흐름표(사본 없음). 없으면 모듈을 건너뛴다
+ORDER = list(FLOW["order"])
 INTEGER_SLOTS = {"Q8_1": "days", "Q8_2": "days", "Q9_1": "days", "Q9_2": "days"}
 SLOTS = {}
 for it in ORDER:
@@ -34,7 +31,7 @@ for it in ORDER:
         SLOTS[it] = [{"key": "Q7.does_not_drink", "type": "boolean"}]
     else:
         SLOTS[it] = [{"key": f"{it}.answer", "type": "boolean"}]
-SKIPS = [{"slot": r.slot, "op": "==", "value": r.value, "skip_item": r.skip_item} for r in DATASET_V2_FLOW.skips]
+SKIPS = skips_of(FLOW)
 FLOW = {"order": ORDER, "slots": SLOTS, "skips": SKIPS,
         "corrections": [{"contains": "사실은 하루", "key": "Q8_1.days", "value": 1}],
         "reasks": [{"contains": "소리가 안 들", "key": "Q4.answer", "reason": "MISSING", "at": "Q4"}]}
@@ -79,7 +76,7 @@ class Env(unittest.TestCase):
 
 
 class Extractor(Env):
-    def test_every_item_times_utterance_times_state_passes_contract_and_turn_engine(self):
+    def test_every_item_times_utterance_times_state_passes_contract_and_action_rules(self):
         actions, ends, saved, n = set(), 0, 0, 0
         for qid in ORDER:
             for utt in UTTERANCES:
@@ -87,7 +84,7 @@ class Extractor(Env):
                     inp = a_input(qid, utt, state)
                     out = self.session.extract(inp)   # 세션 경로: 프롬프트 조립 -> 모방 -> 사후 검증(ActionExtraction) 통과
                     assert_valid("ActionExtraction", out)                               # (a) 계약 검증기
-                    self.assertEqual(validate_extraction(inp, out, DATASET_V2_FLOW), [], (qid, utt, state, out))   # (b) turn-engine
+                    self.assertEqual(rule_violations(inp, out, FLOW), [], (qid, utt, state, out))   # (b) 계약 기준 검사기(출력 규칙)
                     self.assertEqual(out, self.session.extract(copy.deepcopy(inp)), "결정적")
                     actions.add(out["action"]); ends += out["next_item"] == "END"; saved += any(v["save"] for v in out["values"]); n += 1
         self.assertEqual(n, len(UTTERANCES) * (len(ORDER) * 5 - 2 * 0) - len(UTTERANCES) * 2)   # 첫 문항은 앞 문항 변형이 없다

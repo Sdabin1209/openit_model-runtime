@@ -11,7 +11,8 @@ TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 BDIR="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
 # 계약 소스는 작업 트리가 아니라 태그 그대로다. 형제 폴더가 있으면 거기서 git archive로(오프라인 가능), 없으면 GitHub에서 태그를 얕게 clone한다(새 머신은 형제 폴더가 없다).
-if git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ]; then :
+# BOUNDARY_REPO: 형제 폴더 배치가 다른 작업 트리(git worktree)에서 계약 리포 위치를 줄 때 쓴다
+if git -C "${BOUNDARY_REPO:-$HERE/../boundary-contracts}" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ]; then :
 else
   rm -rf "$BDIR"; BDIR="$(mktemp -d)"
   git clone -q --depth 1 --branch "$BOUNDARY_TAG" git@github.com:Sdabin1209/openit_boundary-contracts.git "$BDIR" && rm -rf "$BDIR/.git" \

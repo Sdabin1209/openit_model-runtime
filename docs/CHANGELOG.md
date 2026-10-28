@@ -1,5 +1,15 @@
 # 변경 이력
 
+## 0.9.0 — 2026-10-29 (LoRA-A 출력 규칙 보증, 계약 v2.2.0 ADR 0010 결정 5, CR-007 구현)
+MINOR(추가형): 옛 본문과 라이브러리 호출은 그대로 동작한다. ADR 0021.
+- extract 요청 본문으로 `ExtractRequest{input, flow}`를 받는다. 옛 본문(`ActionExtractionInput`)도 받으며 형식은 계약 스키마로 판정한다(둘 다 아니면 400 INVALID_RECORD).
+- `flow`가 있으면 `ExtractRole`이 스키마 통과 뒤 `boundary_contracts.action_rules.check_action_extraction`으로 의미 규칙을 확인하고, 위반을 출력 무효로 보아 기존 재시도·`OUTPUT_INVALID` 경로를 탄다. `details.violations`에 `rule:<코드>:<경로>`(값 없음). `flow`가 없으면 규칙 검사는 없다(2.x 호환).
+- `ModelSession.extract(input, flow=None, *, deadline=None)`. `ExtractRole.call(backend, input, flow=None, deadline=None)`.
+- `MAX_INPUT_CHARS`(2500)는 모델 입력(`input`)에만 건다. `flow`는 프롬프트에 들어가지 않는다(프롬프트 글자 불변, D77).
+- turn-engine 의존 제거: `tests/helpers.py`의 `require_turn_engine`, `setup-env.sh --with-turn-engine` 삭제. 시험은 계약 검사기와 문진 스키마 흐름표(`data/question_flow.json`, 사본 없음)를 쓴다. 이미지 라벨 `io.openit.turn-engine`은 `n/a`로 둔다.
+- 계약 핀 v2.2.0 → **v2.2.1**(`Dockerfile`). 기준 서버 `RuntimeReferenceServer`와 같은 입력에 같은 (상태, 사유)를 내는지 `tests/test_extract_rules.py::ParityWithReferenceServer`가 본다.
+- 시험: `tests/test_extract_rules.py` 신설.
+
 ## 0.8.1 — 2026-10-29 (계약 v2.2.0 핀, 의존 핀만)
 PATCH: 의존 핀만 바꾸고 코드 동작은 바꾸지 않는다(헤드 지시 wo-bc220). ADR 0010의 `check_action_extraction` 연결(CR-007)은 다음 단위다.
 - 계약 핀 boundary-contracts v2.1.1 → **v2.2.0**(정본: `Dockerfile`의 `ARG BOUNDARY_VERSION`, `setup-env.sh`·`smoke.sh`·`gpu_check.sh`가 여기서 읽는다). 이 영역 서버의 401/403과 호출별 시간 상한(0.8.0)은 2.2.0 문서가 확정한 규칙이다.

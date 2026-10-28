@@ -49,21 +49,36 @@ def wait_until(pred, timeout=5.0):
     return pred()
 
 
-TURN_ENGINE_TAG_DEFAULT = "v0.4.3"   # 워크스페이스 기준 태그(계약 v2.2.0 열차). 기준표(deploy/scripts/lib.sh)와 다르면 환경 변수 TURN_ENGINE_TAG로 준다
-
-
-def require_turn_engine():
-    """turn-engine을 돌려준다. 없으면 건너뛰지 않고 태그로 설치한다. 설치하지 못하면 예외(시험 실패)다.
-    왜: 모방 컴포넌트의 출력은 turn-engine validate_extraction을 통과해야 한다는 검증을 환경 때문에 빼면 안 된다."""
-    import importlib
+def question_flow_table():
+    """시험용 문항 흐름표(QuestionFlowTable 모양: order, skips). 정본은 문진 스키마의 data/question_flow.json이고 사본을 두지 않는다(ADR 0021).
+    찾는 순서: 설치된 survey_schema 패키지 -> 환경 변수 SURVEY_SCHEMA_DIR -> 상위 폴더들의 survey-service/schema. 없으면 건너뛴다(읽을 수 없는 것을 있는 척하지 않는다)."""
     import os
-    import subprocess
-    import sys
+    import pytest
+    flow = None
     try:
-        return importlib.import_module("turn_engine")
-    except ImportError:
-        tag = os.environ.get("TURN_ENGINE_TAG", TURN_ENGINE_TAG_DEFAULT)
-        url = f"git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@{tag}"
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", url], check=True)
-        importlib.invalidate_caches()
-        return importlib.import_module("turn_engine")
+        from survey_schema import load_data
+        flow = load_data("question_flow")
+    except Exception:   # noqa: BLE001 (미설치 또는 데이터 없음: 아래 경로로)
+        roots = [Path(os.environ["SURVEY_SCHEMA_DIR"])] if os.environ.get("SURVEY_SCHEMA_DIR") else []
+        roots += [p / "survey-service" / "schema" for p in Path(__file__).resolve().parents]
+        for r in roots:
+            f = r / "data" / "question_flow.json"
+            if f.is_file():
+                flow = json.loads(f.read_text(encoding="utf-8"))
+                break
+    if flow is None:
+        pytest.skip("문진 스키마의 question_flow.json을 찾지 못했다(survey_schema 설치 또는 SURVEY_SCHEMA_DIR)", allow_module_level=True)
+    table = {"order": list(flow["order"]), "skips": list(flow["skips"])}   # 계약 QuestionFlowTable은 order와 skips만 받는다
+    assert_valid("QuestionFlowTable", table)
+    return table
+
+
+def rule_violations(inp, out, flow):
+    """계약 기준 검사기로 본 위반 목록(Violation, .code). 출력 규칙의 기대값은 계약에서 온다(ADR 0021)."""
+    from boundary_contracts.action_rules import check_action_extraction
+    return check_action_extraction(inp, out, flow)
+
+
+def skips_of(flow):
+    """QuestionFlowTable의 skips를 fake 응답기가 받는 모양(slot, op, value, skip_item 사전)으로 돌려준다."""
+    return [dict(x) for x in flow["skips"]]
