@@ -2,7 +2,7 @@
 
 목적: 허락된 짧은 시간대에 실제 GPU에서 학습된 LoRA A·B를 서빙해 extract·respond 지연(p50/p95/max)과 출력 형식 통과율을 잰다(OPEN_GAPS H1~H4, U02·U07 일부). 설계 이유는 `docs/adr/0013-gpu-session-kit.md`.
 
-**상태: 가짜 백엔드와 가짜 nvidia-smi로만 시험했다(`tests/test_gpu_session.py`). 실제 GPU, 실제 vLLM, 실제 어댑터로 돌려 본 적이 없다.** 아래의 '확인하지 못한 것'을 먼저 본다.
+**상태: 가짜 백엔드 시험(`tests/test_gpu_session.py`)과, gpu-dev(RTX 4070 SUPER 12GB)에서 Qwen2.5-1.5B + 무작위 LoRA 2개 + 합성 4행으로 한 바퀴(`run_session.sh` -> 측정 -> 정리, 종료 코드 0, GPU 메모리가 시작 값 748MiB로 복귀)를 돌린 것이 전부다. 학습된 어댑터, Qwen3-8B, 24GB/RunPod GPU로 돌려 본 적은 없다.** 아래의 '확인하지 못한 것'을 먼저 본다.
 
 ## 키트 구성 (`scripts/gpu_session/`)
 | 파일 | 하는 일 |
@@ -81,3 +81,45 @@
 - `prepare_bundle.py`의 `--release-id`는 `[A-Za-z0-9._-]+`이고 `.`/`..`이 아니어야 하며 `--out` 바로 아래여야 한다. `--overwrite`는 이 도구가 만든 번들(표식 `.mr-session-owned`)만 지운다.
 - 값이 필요한 옵션이 마지막 인자면 사용법을 내고 **종료 코드 2**로 끝난다(무한 루프 수정). run_session.sh의 종료 코드 2는 preflight 거부와 같은 값이다(메시지로 구분한다).
 - 준비 대기의 토큰은 `curl -H @파일`로 전달해 프로세스 인자(`ps`)에 보이지 않는다.
+
+## 임대 GPU(RunPod 등)에서 쓰기: 한 명령 절차 (pod_setup.sh, pod_run.sh)
+임대는 시간당 과금이라 파드를 켠 뒤 사람이 손으로 하는 단계를 없애고, 환경이 안 맞으면 **즉시 중단**하도록 순서를 정했다. 이 절은 gpu-dev 한 바퀴 실행(위 '상태')에서 얻은 결함 수정 위에 쓴 절차이며 **실제 RunPod 파드에서는 아직 돌려 보지 않았다.**
+
+### 0. 임대 전(PC, 비용 0): 확인할 것과 사용자 결정
+| 항목 | 값 / 출처 | 업로드 필요? |
+| --- | --- | --- |
+| 키트 코드(`make_kit.sh`) | 이 리포 + boundary-contracts 2.0.2 설치된 파이썬(`.venv`). 비밀 없음, 100KB | 필요(코드만) |
+| 어댑터 A·B | 학습 산출물(서버 `~/taehyeon/runs/a_8b_v2/adapter`, `~/myungchan/runs/b_8b_1014/adapter`)을 PC로 먼저 가져와야 한다. 각 약 350MB | **사용자 결정**(학습 산출물의 외부 반출) |
+| C1 val jsonl 2개 | `lora_a_val.jsonl`, `lora_b_val.jsonl`(합성 발화) | **사용자 결정**(데이터셋 소유자 확인 포함) |
+| 기반 모델 Qwen3-8B 약 16GB | 파드가 Hugging Face에서 직접 내려받음(공개 모델, 토큰 불필요) | 업로드 불필요 |
+| 파이썬 패키지 | `requirements-gpu.lock`(torch cu13, vllm 0.31.0 등). gpu-dev의 같은 잠금 venv가 8.3GB | 업로드 불필요(PyPI) |
+`pod_run.sh`는 `--i-confirm-upload-data` 없이는 위 데이터를 **보내지 않고** 목록만 출력한다(종료 코드 3, 시험 있음).
+파드 선택 조건: **CUDA 13을 지원하는 드라이버**(잠금의 torch가 cu13 휠. gpu-dev 드라이버 591.86/CUDA 13.1에서 동작 확인), python3.12, 디스크 80GB 이상, 외부 인터넷(PyPI·Hugging Face), 24GB 이상 GPU 1장(운영 목표 4090급이면 `rtx4090-24g.json`).
+
+### 1. 한 명령
+```
+scripts/gpu_session/pod_run.sh --ssh "-p <PORT> root@<HOST>" --adapter-a <A> --adapter-b <B> --c1-dir <C1> --i-confirm-upload-data --n-a 20 --n-b 20 --concurrency 1
+```
+하는 일과 중단 조건(각 단계의 '왜'는 임대 비용: 맞지 않는 환경에서 계속하면 돈만 나간다):
+| 단계 | 진행 조건 | 중단 시 | 왜 |
+| --- | --- | --- | --- |
+| 키트 생성(PC) | `make_kit.sh`가 boundary-contracts 설치본을 읽음 | 종료 1 | 버전이 다른 계약으로 서버를 띄우면 측정이 무의미 |
+| SSH·전송 | 접속·scp 성공 | 종료 1 | 비밀은 보내지 않는다: 전송 목록은 키트·어댑터·C1뿐 |
+| `pod_setup.sh` 1 GPU | `nvidia-smi` 있고 CUDA Version >= 13 | 중단 메시지, 종료 2 | cu13 휠이 안 뜬다 |
+| 〃 2 디스크 | 홈 남은 용량 >= 80GB | 중단 | 8B(16GB)+venv(8GB)+캐시. 80은 **합산 추정(측정 안 함)** |
+| 〃 3 인터넷 | PyPI·huggingface.co 응답 | 중단 | 설치·모델 내려받기 불가 |
+| 〃 4 설치 | python3.12 venv, lock 설치, `torch.cuda.is_available()`, vllm==0.31.0 | 중단 | backend_version이 번들과 맞아야 적재된다 |
+| 〃 5 모델 | `snapshot_download` 성공 | 중단 | 이후 `HF_HUB_OFFLINE=1`로 읽기만 한다 |
+| `run_session.sh` | preflight 통과, 번들 준비, 서버 준비(백엔드 기동 실패는 **기다리지 않고 즉시 중단**), 측정 | 종료 5/6/7 | 7 = 성공 호출 0건(전엔 0으로 끝났다) |
+| 결과 회수 | `session-*.tgz` 저장(번들·토큰 제외) | 수동 회수 안내 | 파드를 끄면 결과가 사라진다 |
+**파드를 끄기 전**: 종료 코드가 0 또는 4이고 `~/pod-results/session-*.tgz`가 0바이트가 아닌지 본다.
+소요 예상: **측정 안 함**(전송 + 설치 수 분 + 8B 내려받기 + 적재). 위 표의 단계별 시각이 `[pod_run HH:MM:SS]`로 찍히므로 첫 실행 뒤 이 줄을 실측으로 바꾼다. `--skip-setup`으로 같은 파드에서 재실행하면 설치를 건너뛴다.
+24GB 파드에서는 GPU를 단독으로 쓰므로 `--margin-mib 0`과 `rtx4090-24g.json`(util 0.9)을 쓴다(기본 여유 4096MiB를 쓰면 0.9x24GB+4GB가 전체를 넘어 preflight가 항상 거부한다).
+
+### gpu-dev 한 바퀴에서 찾아 고친 결함 (모두 GPU 외 결함)
+1. `XDG_CACHE_HOME`을 작업 폴더로 옮기면 HF 캐시가 안 보여 `LocalEntryNotFoundError`로 기동 실패. 옮기기 전에 `HF_HOME`을 고정했다(openit 서버에서도 같은 실패였을 결함).
+2. 백엔드 기동이 실패해도 서버는 살아 있어 준비 대기 상한(15분)을 다 기다렸다. 실패 로그를 보면 즉시 중단.
+3. 호출이 전부 503이어도 `measure.py`가 종료 코드 0. 성공 0건이면 7.
+4. `make_kit.sh`가 `requirements-gpu.lock`을 키트에 넣지 않았다(파드에서 설치할 수 없음). 추가.
+5. 기본 파이썬 경로가 openit 서버 고정이라 다른 호스트는 `--python`이 필수(`pod_run.sh`가 지정).
+미해결: `deploy/test/import-v2`의 jsonl에는 의도적 불량 줄이 있어 C1 대용으로 못 쓴다(필터가 필요). `prepare_bundle`은 불량 줄을 파일:줄 번호 메시지로 거부한다(수정함). 이번 한 바퀴는 무작위 어댑터라 attempts 2~3과 A 일치율 0이 나왔고, 이는 어댑터 때문이지 키트 결함이라는 근거는 아니다. 콜드 첫 extract 12.3초는 1.5B/12GB 값이며 8B/24GB에는 적용할 수 없다.

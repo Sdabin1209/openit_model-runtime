@@ -37,10 +37,13 @@ def system_prompts_of(path: Path) -> tuple[str, dict[str, int]]:
     """jsonl 전체를 훑어 첫 행의 system 메시지와 (종류별 행 수)를 낸다. 종류가 여럿이면 호출자가 보고한다."""
     first, kinds = None, {}
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for n, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            msgs = json.loads(line)["messages"]
+            try:
+                msgs = json.loads(line)["messages"]
+            except (ValueError, KeyError, TypeError) as e:   # 불량 줄은 스택 트레이스 대신 파일·줄 번호로 알린다(임대 중 원인 파악 시간)
+                raise SystemExit(f"{path}:{n}: JSON 행이 아니거나 messages가 없다({type(e).__name__})")
             sys_msgs = [m["content"] for m in msgs if m["role"] == "system"]
             if len(sys_msgs) != 1:
                 raise SystemExit(f"{path}: system 메시지가 정확히 하나가 아닌 행이 있다")

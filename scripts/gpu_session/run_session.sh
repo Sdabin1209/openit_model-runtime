@@ -18,7 +18,7 @@
 #   --production-limits  요청 상한 3.5초/대기 3.0초 기본값 그대로 측정(기본은 상한을 풀어 순수 지연을 잰다)
 #   --backend vllm|fake  fake는 리허설용(GPU 없이 파이프라인 확인; MODEL_RUNTIME_ALLOW_FAKE=1을 이 스크립트가 켠다)
 #   --keep-bundle        끝에 번들 복사본(어댑터 약 350MB)을 지우지 않는다    --clean-cache  끝에 캐시도 지운다
-# 종료 코드: preflight 거부 2 / nvidia-smi 불가 3 / 사용법 64 / 서버 기동·적재 실패 5 / 시간 초과 6 / 그 밖에는 measure.py의 종료 코드(0, 3, 4)
+# 종료 코드: preflight 거부 2 / nvidia-smi 불가 3 / 사용법 64 / 서버 기동·적재 실패 5 / 시간 초과 6 / 그 밖에는 measure.py의 종료 코드(0, 3, 4, 7=성공 호출 없음)
 set -u -o pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT_DEFAULT="$(cd "$HERE/../.." && pwd)"
@@ -111,10 +111,13 @@ NVIDIA_SMI="$SMI" bash "${PF[@]}" | tee "$RUN/logs/preflight.log"; rc=${PIPESTAT
 
 # 2) 환경 변수: 모든 캐시·임시를 작업 폴더로. HOME은 그대로 둔다
 mkdir -p "$C/vllm" "$C/xdg" "$C/inductor" "$C/triton" "$C/flashinfer" "$C/cuda" "$C/numba" "$C/mpl" "$C/vllm-config" "$C/torch-ext"
+# HF 캐시(모델 가중치)는 XDG_CACHE_HOME 아래가 기본이라 아래에서 XDG를 옮기면 이미 받아 둔 모델이 안 보인다(gpu-dev 실행에서 LocalEntryNotFoundError로 확인).
+# 그래서 XDG를 옮기기 전에 원래 위치를 HF_HOME으로 고정한다. 읽기만 한다(오프라인 모드).
+export HF_HOME="${HF_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/huggingface}"
 export VLLM_CACHE_ROOT="$C/vllm" XDG_CACHE_HOME="$C/xdg" TORCHINDUCTOR_CACHE_DIR="$C/inductor" TRITON_CACHE_DIR="$C/triton" \
        FLASHINFER_WORKSPACE_BASE="$C/flashinfer" CUDA_CACHE_PATH="$C/cuda" NUMBA_CACHE_DIR="$C/numba" MPLCONFIGDIR="$C/mpl" \
        VLLM_CONFIG_ROOT="$C/vllm-config" TORCH_EXTENSIONS_DIR="$C/torch-ext" TMPDIR="$RUN/tmp" \
-       HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 PYTHONDONTWRITEBYTECODE=1 \
+       HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" TRANSFORMERS_OFFLINE="${HF_HUB_OFFLINE:-1}" HF_DATASETS_OFFLINE=1 VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 PYTHONDONTWRITEBYTECODE=1 \
        PYTHONPATH="$KIT/src${PYLIB:+:$PYLIB}${PYTHONPATH:+:$PYTHONPATH}"
 [ "$BACKEND" = fake ] && export MODEL_RUNTIME_ALLOW_FAKE=1
 
@@ -188,6 +191,8 @@ cap=$(( READY_MIN * 60 )); r=$(remaining); [ "$r" -lt "$cap" ] && cap=$r
 t0=$(date +%s); ready=0
 while [ $(( $(date +%s) - t0 )) -lt "$cap" ]; do
   kill -0 "$SERVER_PID" 2>/dev/null || { tail -n 30 "$RUN/logs/server.log"; die "서버 프로세스가 종료됐다(logs/server.log)" 5; }
+  # 백엔드 기동이 실패하면 서버는 살아 있어도 영원히 준비되지 않는다(BACKEND_RETRY_S=0): 남은 시간을 기다리지 말고 바로 멈춘다(임대 비용)
+  if grep -aq '백엔드를 올리지 못함' "$RUN/logs/server.log" 2>/dev/null; then tail -n 30 "$RUN/logs/server.log"; die "백엔드 기동 실패(logs/server.log). 기다리지 않고 중단한다" 5; fi
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H "@$RUN/auth_header" "http://127.0.0.1:$PORT/readyz" 2>/dev/null)
   if [ "$code" = 200 ]; then ready=1; break; fi
   sleep 3

@@ -15,7 +15,7 @@ BC_VER="$("$PY" -I -c "import importlib.metadata as m;print(m.version('boundary-
 TMP="$(mktemp -d)"; trap 'rm -rf -- "${TMP:?}"' EXIT
 K="$TMP/mr-kit"; mkdir -p "$K/src" "$K/pylib" "$K/survey-schema" "$K/scripts"
 cp -r "$ROOT/src/model_runtime" "$K/src/"; cp -r "$BC_DIR" "$K/pylib/"; cp -r "$SCHEMA_ROOT/schemas" "$SCHEMA_ROOT/CONTRACT_VERSION" "$K/survey-schema/"
-cp -r "$ROOT/profiles" "$K/"; cp -r "$ROOT/scripts/gpu_session" "$K/scripts/"
+cp -r "$ROOT/profiles" "$K/"; cp "$ROOT/requirements-gpu.lock" "$K/"; cp -r "$ROOT/scripts/gpu_session" "$K/scripts/"
 find "$K" -name __pycache__ -type d -prune -exec rm -rf {} +
 { echo "commit: $(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"; echo "boundary-contracts: $BC_VER"; echo "survey schema CONTRACT_VERSION: $(cat "$SCHEMA_ROOT/CONTRACT_VERSION")"
   (cd "$K" && find . -type f | sort | xargs sha256sum | sha256sum | sed 's/^/tree sha256: /'); } > "$K/KIT_MANIFEST.txt"

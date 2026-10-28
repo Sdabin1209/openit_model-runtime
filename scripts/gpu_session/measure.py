@@ -296,6 +296,10 @@ def main() -> int:
     if a.out:
         Path(a.out).write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         Path(a.out).with_suffix(".txt").write_text(text + "\n", encoding="utf-8")
+    # 성공 호출이 하나도 없으면 실패다. 종료 코드 0이면 임대 시간을 쓰고도 빈 결과를 성공으로 오해한다(gpu-dev 첫 실행에서 어댑터 파일이 깨져 전부 503인데 0으로 끝났다)
+    if not any(r["status"] == 200 for r in report["calls"]):
+        print("성공한 호출이 하나도 없다(종료 코드 7). 서버 로그(logs/server.log)를 본다.", file=sys.stderr)
+        return 7
     return 4 if report["truncated"] else 0
 
 

@@ -299,3 +299,27 @@ def test_options_without_value_exit_2_instead_of_hanging(tmp_path):   # 인자 �
 def test_token_is_not_in_curl_arguments():   # 토큰은 헤더 파일로만 전달한다
     text = (KIT / "run_session.sh").read_text(encoding="utf-8")
     assert 'Bearer $(cat' not in text and '-H "@$RUN/auth_header"' in text
+
+
+def test_hf_home_is_pinned_before_xdg_redirect():   # gpu-dev 실행에서 발견: XDG_CACHE_HOME을 옮기면 이미 받은 모델(HF 캐시)이 안 보여 LocalEntryNotFoundError
+    sh = (KIT / "run_session.sh").read_text(encoding="utf-8")
+    assert sh.index("export HF_HOME=") < sh.index('XDG_CACHE_HOME="$C/xdg"')
+
+
+def test_measure_exit_code_7_when_no_call_succeeds():   # 전부 실패인데 0으로 끝나면 임대 시간만 쓰고 성공으로 오해한다
+    src = (KIT / "measure.py").read_text(encoding="utf-8")
+    assert "return 7" in src and 'r["status"] == 200' in src
+
+
+def test_kit_contains_gpu_lock_and_pod_scripts_parse():
+    for n in ("pod_setup.sh", "pod_run.sh"):
+        assert subprocess.run(["bash", "-n", str(KIT / n)]).returncode == 0
+    assert "requirements-gpu.lock" in (KIT / "make_kit.sh").read_text(encoding="utf-8")
+
+
+def test_pod_run_refuses_without_upload_confirmation(tmp_path):   # 데이터 외부 반출은 사용자 결정: 확인 플래그 없이는 아무것도 보내지 않는다
+    ad = tmp_path / "a"; ad.mkdir(); (ad / "adapter_config.json").write_text("{}"); (ad / "adapter_model.safetensors").write_bytes(b"x")
+    c1 = tmp_path / "c"; c1.mkdir(); (c1 / "lora_a_val.jsonl").write_text("{}\n"); (c1 / "lora_b_val.jsonl").write_text("{}\n")
+    r = subprocess.run(["bash", str(KIT / "pod_run.sh"), "--ssh", "-p 1 nobody@127.0.0.1", "--adapter-a", str(ad), "--adapter-b", str(ad), "--c1-dir", str(c1)],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 3 and "아무것도 보내지 않았다" in r.stdout
