@@ -43,12 +43,11 @@ flowchart LR
 
 ## 실행 방법
 
-전제: 파이썬 3(venv), 시험만 할 때는 GPU 불필요. 이미지 빌드·스모크는 Docker와 형제 폴더 `../boundary-contracts`(기준 태그는 `deploy/scripts/lib.sh`의 `BOUNDARY_TAG`)가 필요하다. GPU 실행은 NVIDIA 드라이버와 `--gpus`가 필요하다. 비밀은 값이 아니라 파일 경로(`MODEL_RUNTIME_TOKENS_FILE`, `MODEL_RUNTIME_RELEASE_TOKEN_FILE`)로 받는다(D84, docs/runbook.md).
+전제: 파이썬 3(venv), 시험만 할 때는 GPU 불필요. 이미지 빌드·스모크는 Docker가 필요하다. 계약 소스는 태그 기준이며, 형제 폴더 `../boundary-contracts`가 있으면 거기서 태그를 꺼내고 없으면 GitHub에서 태그를 clone한다(GitHub SSH 접근 필요). 이 리포가 쓰는 계약 태그의 정본은 `Dockerfile`의 `ARG BOUNDARY_VERSION`이다(워크스페이스 기준표 `deploy/scripts/lib.sh`와 같아야 하며, 다르면 이 파일을 고친다). GPU 실행은 NVIDIA 드라이버와 `--gpus`가 필요하다. 비밀은 값이 아니라 파일 경로(`MODEL_RUNTIME_TOKENS_FILE`, `MODEL_RUNTIME_RELEASE_TOKEN_FILE`)로 받는다(D84, docs/runbook.md).
 
 ```bash
-# 1) 설치 (docs/runbook.md "개발 시험")
-python3 -m venv .venv
-.venv/bin/pip install pytest jsonschema "git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<BOUNDARY_TAG>" -e .
+# 1) 설치: 정본 스크립트. .venv를 만들거나 재사용하고, Dockerfile의 계약 태그로 boundary-contracts·pytest·jsonschema·-e .를 맞춘다(멱등, 형제 폴더 불필요)
+bash scripts/setup-env.sh
 # 2) 시험
 .venv/bin/python -m pytest -q
 # 3) 이미지 빌드와 스모크 (CPU/fake, 빈 포트를 Docker가 배정)
@@ -58,7 +57,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-위 설치 줄에는 turn-engine·xgrammar가 없어 그 둘이 필요한 시험은 건너뛴다. 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
+`setup-env.sh`는 turn-engine·xgrammar를 설치하지 않는다. turn-engine은 버전 표를 여러 곳에 두지 않으려고 이 리포가 핀하지 않는 시험 전용 **선택 설치**이고(docs/runbook.md), xgrammar도 무거운 선택 의존이라, 그 둘이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다. 또 형제 `../boundary-contracts`가 없으면 참조 서버 적합성 시험(`tests/test_server_e2e.py`, `tests/test_anyof_constraint.py`)도 건너뛴다. 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
 
 이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 "현재 상태" 절), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
@@ -66,7 +65,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 현행 버전은 `src/model_runtime/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- **시험 상태(정본, 개수는 이 한 곳)**. 기준은 위 설치 줄 그대로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
+- **시험 상태(정본, 개수는 이 한 곳)**. 기준은 `setup-env.sh`로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
 - 위 새 clone 기준(216/6)은 `pod_setup` 단계 시험 8개(`tests/test_gpu_session.py`)를 더하기 전 값이다. 더한 뒤 이 리포의 기존 `.venv`(turn-engine 설치됨)에서 `python -m pytest -q -rs`: **233 통과, 7 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1, `tests/test_server_e2e.py`의 'boundary-contracts 참조 서버가 없다' 5; ADR 0015·0016 시험 추가 후. 이전 측정 232/2에서 e2e 5건이 건너뛰어진 원인은 이번에 조사하지 않았다: 이웃 폴더 상태에 따른 환경 차이로 추정, 미확인). 새 venv 기준 값은 다시 재지 않았다.
 - 가짜 A의 `reasks` 설정(CHANGELOG 0.7.5)과 시험 4개(`FakeReask`)를 더한 뒤 같은 기존 `.venv`에서 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(건너뜀 7건은 참조 서버·xgrammar·참조 데이터 경로 없음 등 환경 항목이며 전체 사유는 `-rs` 출력으로 확인, 이 줄에는 옮겨 적지 않았다). 새 venv 기준 값은 다시 재지 않았다.
   - 0.7.5(계약 v2.1.0 정렬 릴리스): 기존 `.venv`에 boundary-contracts v2.1.0과 turn-engine v0.4.1을 `git+file`로 설치한 뒤 `python -m pytest -q -rs`: **242 통과, 2 건너뜀**(건너뜀: xgrammar 없음 1, 참조 데이터 경로 없음 1; 계약 v2.1.0 설치로 참조 서버 시험 5건도 돈다). 위 237/7 줄은 그 이전 기록이다. `scripts/smoke.sh`(라벨 기대값 0.7.5)와 이미지 빌드는 이 릴리스 준비에서 돌리지 않았다.

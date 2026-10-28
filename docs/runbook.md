@@ -3,9 +3,9 @@
 라이브러리이므로 서비스처럼 직접 운영하지 않는다. 아래는 이 라이브러리를 쓰는 서비스·평가에서 증상이 나올 때의 확인 순서다.
 
 ## 개발 시험
-`.venv`를 만들고 `pip install pytest jsonschema "git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<BOUNDARY_TAG>" -e .`를 한 뒤 `.venv/bin/python -m pytest`. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 형제 폴더를 읽는 시험은 읽기 전용 참조 두 곳뿐이다: `tests/test_server_e2e.py`(참조 I4 서버·conformance, 없으면 건너뜀)와 `tests/test_anyof_constraint.py`(`examples/`). 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. turn-engine·xgrammar가 없는 새 venv에서는 그 둘이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
+`bash scripts/setup-env.sh`(정본: `.venv` 생성·재사용, pytest·jsonschema·`-e .`·boundary-contracts 태그 설치, 멱등, 형제 폴더 불필요)를 한 뒤 `.venv/bin/python -m pytest`. 계약 태그의 정본은 `Dockerfile`의 `ARG BOUNDARY_VERSION`이다. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 형제 폴더를 읽는 시험은 읽기 전용 참조 두 곳뿐이다: `tests/test_server_e2e.py`(참조 I4 서버·conformance, 없으면 건너뜀)와 `tests/test_anyof_constraint.py`(`examples/`). 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. turn-engine·xgrammar가 없는 새 venv에서는 그 둘이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
 
-**turn-engine(선택, 시험 전용)**: `pyproject.toml`은 turn-engine 버전을 핀하지 않는다(버전 표를 여러 곳에 두지 않기 위해, U15). `tests/test_fake_flow.py`의 turn-engine 검증 2건은 `pytest.importorskip("turn_engine")`라 설치되어 있지 않으면 건너뛴다. 돌리려면 어떤 turn-engine인지 정해서 직접 설치한다. 기준은 deploy의 버전 표(`versions.env` 성격)가 정한 태그이고, 이 리포는 정하지 않는다. 예: `.venv/bin/pip install --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@<태그>"` (또는 형제 체크아웃이 있으면 `.venv/bin/pip install --no-deps -e ../turn-engine`). 건너뛴 시험 수는 `pytest -rs`의 SKIPPED 줄과 마지막 줄의 `skipped`로 본다.
+**turn-engine(선택, 시험 전용)**: `pyproject.toml`은 turn-engine 버전을 핀하지 않는다(버전 표를 여러 곳에 두지 않기 위해, U15). `tests/test_fake_flow.py`의 turn-engine 검증 2건은 `pytest.importorskip("turn_engine")`라 설치되어 있지 않으면 건너뛴다. 돌리려면 어떤 turn-engine인지 정해서 직접 설치한다. 기준은 deploy의 버전 표(`versions.env` 성격)가 정한 태그이고, 이 리포는 정하지 않는다. 예: `.venv/bin/pip install --no-deps "git+ssh://git@github.com/Sdabin1209/openit_turn-engine.git@<태그>"`. 건너뛴 시험 수는 `pytest -rs`의 SKIPPED 줄과 마지막 줄의 `skipped`로 본다.
 
 ## GPU 시험 (gpu-dev, D47)
 `scripts/gpu_check.sh [preflight|sync|setup|run|fetch|all]`. 호스트에 `python3-pip`·`python3-venv`가 있어야 한다(없으면 종료 코드 3, 설치하지 않는다). SSH가 두 번 실패하면 종료 코드 4(호스트 불가)이고 멈춘다. `sync`는 코드와 읽기 전용 입력의 사본(boundary-contracts, 문진 스키마)을 `~/openit-gpu/model-runtime/`로 보낸다. `setup`은 호스트 `.venv`에 `.[vllm]`을 설치하고(수 GB, GPU 안 씀) `runs/env-versions.txt`를 남긴다. `run`은 `flock -w 1800 ~/openit-gpu/.gpu.lock` 아래에서 `gpu_probe.py`를 서버 두 번(결정성)과 LoRA 끈 기준선 한 번 돌리고 `setsid nohup`으로 분리해 폴링한다. `fetch`는 `runs/<RUN_ID>/`(gitignore)로 가져와 `gpu_report.py`로 요약한다. 12GB 값은 `profiles/gpu-dev-12g.json`에 있다. 알려진 함정: nvcc가 없으면 `VLLM_USE_FLASHINFER_SAMPLER=0`(프로파일 `env`), 순위 초과 어댑터는 엔진을 죽인다. 결과 해석은 design.md §11-R.
@@ -13,7 +13,7 @@
 ## 서버와 컨테이너 (D62, 0.5.0) — deploy가 compose에 넣을 정보
 
 ### 이미지 두 변형
-같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(그 폴더는 기준 태그(`deploy/scripts/lib.sh`의 `BOUNDARY_TAG`)이어야 한다. CI에서는 태그 설치로 바꾼다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
+같은 `Dockerfile`, `VARIANT` 빌드 인자만 다르다. `boundary-contracts`는 형제 폴더를 읽기 전용 빌드 컨텍스트(`boundary`)로 받는다(`scripts/smoke.sh`는 형제 폴더가 있으면 거기서 `git archive <태그>`로, 없으면 GitHub에서 태그를 clone해 만든 임시 폴더를 컨텍스트로 넘긴다. 직접 빌드할 때는 그런 태그 소스 폴더를 `--build-context boundary=<폴더>`로 준다). 의존은 `requirements-{cpu,gpu}.lock`으로 고정.
 
 | 변형 | 빌드 | 용도 | 크기 |
 | --- | --- | --- | --- |

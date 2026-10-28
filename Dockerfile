@@ -1,7 +1,7 @@
 # model-runtime 추론 서버 이미지. 서빙 목표: RTX 4090 24GB(GPU 변형), 같은 이미지의 CPU 변형은 가짜 백엔드 스모크용.
 #   GPU: docker build --build-arg VARIANT=gpu --build-context boundary=../boundary-contracts -t model-runtime:gpu .
 #   CPU: docker build --build-context boundary=../boundary-contracts -t model-runtime:cpu .
-# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드는 형제 폴더를 읽기 전용 빌드 컨텍스트로 쓰며, 그 내용은 BOUNDARY_VERSION 태그의 소스여야 한다(scripts/smoke.sh가 형제 폴더에서 `git archive <태그>`로 꺼내 컨텍스트로 쓴다. 작업 트리 상태에는 의존하지 않는다).
+# boundary-contracts는 CI에서는 태그로 설치한다(공통 규칙). 로컬 빌드의 컨텍스트는 BOUNDARY_VERSION 태그의 소스 폴더여야 한다(scripts/smoke.sh가 형제 폴더의 `git archive <태그>` 또는 GitHub 태그 clone으로 만든다. 작업 트리 상태에는 의존하지 않는다). 이 ARG가 이 리포의 계약 태그 정본이다(scripts/setup-env.sh도 여기서 읽는다).
 # 의존은 잠금 파일(requirements-*.lock)로 고정한다. 비밀 값은 넣지 않는다.
 # 문진 스키마를 이미지에 넣는 선택 옵션: --build-context schema=<.../survey-service/schema>(없으면 빈 스테이지라 아무것도 안 들어간다).
 # 넣으면 MODEL_RUNTIME_SCHEMA_DIR 없이 /opt/survey-schema/schemas를 쓴다. 라벨 io.openit.contracts.survey-schema에 정수 버전을 밝힌다.

@@ -3,15 +3,20 @@
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-BOUNDARY_TAG="${BOUNDARY_TAG:-v2.1.1}"   # 계약 태그(공통 규칙). 형제 폴더가 이 태그가 아니면 중단한다
+# 계약 태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION이다(여기에 버전 숫자를 따로 적지 않는다). BOUNDARY_TAG 환경 변수로 덮어쓸 수 있다
+BOUNDARY_TAG="${BOUNDARY_TAG:-$(sed -n 's/^ARG BOUNDARY_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$HERE/Dockerfile" | head -1)}"
 # 기대 라벨 값의 정본은 pyproject.toml의 version이다(RUNTIME_VERSION과 같아야 하며 tests가 확인한다)
 MR_VERSION="$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/pyproject.toml")"
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 BDIR="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
-# 계약 소스는 형제 폴더의 작업 트리가 아니라 태그 그대로(git archive)다. 작업 트리가 태그보다 앞서 있어도 상관없다.
-git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ] \
-  || { echo "../boundary-contracts에서 태그 $BOUNDARY_TAG를 꺼내지 못했다(폴더가 없거나 태그가 없다)" >&2; exit 1; }
+# 계약 소스는 작업 트리가 아니라 태그 그대로다. 형제 폴더가 있으면 거기서 git archive로(오프라인 가능), 없으면 GitHub에서 태그를 얕게 clone한다(새 머신은 형제 폴더가 없다).
+if git -C "$HERE/../boundary-contracts" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ]; then :
+else
+  rm -rf "$BDIR"; BDIR="$(mktemp -d)"
+  git clone -q --depth 1 --branch "$BOUNDARY_TAG" git@github.com:Sdabin1209/openit_boundary-contracts.git "$BDIR" && rm -rf "$BDIR/.git" \
+    || { echo "boundary-contracts 태그 $BOUNDARY_TAG를 형제 폴더에서도 GitHub에서도 꺼내지 못했다" >&2; exit 1; }
+fi
 docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
   --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" --build-arg MODEL_RUNTIME_VERSION="$MR_VERSION" \
   --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
