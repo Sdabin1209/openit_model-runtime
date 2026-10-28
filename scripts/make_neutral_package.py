@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import struct
 import sys
@@ -103,7 +104,7 @@ def make_adapter(out: Path, base_model: str, dims: dict, rank: int, targets: lis
 
 
 def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revision: str, targets: list[str], seed: int,
-          model_config: str | None, max_tokens: int, system_prompts: dict[str, bytes] | None = None) -> dict:
+          model_config: str | None, max_tokens: int, system_prompts: dict[str, bytes] | None = None, turn_engine_version: str = mr.TURN_ENGINE_MARKER_VERSION) -> dict:
     prof = mr.load_profile(profile_path)
     base_model = prof.get("base_model")
     if not base_model:
@@ -131,7 +132,7 @@ def build(out: Path, *, profile_path: Path, vllm_version: str, rank: int, revisi
             "serving_config": cfg, "serving_config_hash": sha256_hash(cfg),
             "system_prompt": {"path": "system_prompt.txt", "sha256": file_hash(d / "adapter" / "system_prompt.txt")},
             "lineage": {"dataset": {"id": "neutral-no-dataset", "version": "0", "content_hash": sha256_hash({"neutral": True})},
-                        "training_run_id": "neutral-no-training", "turn_engine_version": "none",
+                        "training_run_id": "neutral-no-training", "turn_engine_version": turn_engine_version,
                         "model_runtime_version": mr.RUNTIME_VERSION},
             "eval_report_ref": "neutral-no-eval",
             "ext": {"model-runtime": {"neutral": True, "trained": False, "note": NOTE, "rank": rank, "targets": targets, "seed": seed}},
@@ -155,6 +156,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--model-config")
     ap.add_argument("--max-tokens", type=int, default=512)
+    ap.add_argument("--turn-engine-version", default=os.environ.get("MODEL_RUNTIME_TURN_ENGINE_MARKER", mr.TURN_ENGINE_MARKER_VERSION), help="lineage.turn_engine_version 표지(D109, 기본은 라이브러리의 고정 표지)")
     ap.add_argument("--system-prompt-a", help="LORA_A 시스템 프롬프트 파일(없으면 자리표시 문장)")
     ap.add_argument("--system-prompt-b", help="LORA_B 시스템 프롬프트 파일(없으면 자리표시 문장)")
     a = ap.parse_args()
@@ -170,7 +172,7 @@ def main() -> None:
                 raise SystemExit(f"{role} 시스템 프롬프트가 비어 있다: {f}")
             prompts[role] = data
     s = build(Path(a.out), profile_path=Path(a.profile), vllm_version=a.vllm_version, rank=a.rank, revision=a.revision,
-              targets=a.targets.split(","), seed=a.seed, model_config=a.model_config, max_tokens=a.max_tokens, system_prompts=prompts)
+              targets=a.targets.split(","), seed=a.seed, model_config=a.model_config, max_tokens=a.max_tokens, system_prompts=prompts, turn_engine_version=a.turn_engine_version)
     print(json.dumps(s, indent=1, sort_keys=True))
 
 

@@ -506,3 +506,16 @@ def test_make_kit_records_commit_and_logs_carry_it():
     assert "rev-parse HEAD" in mk and "-dirty" in mk
     assert "KIT_MANIFEST" in (KIT / "run_session.sh").read_text(encoding="utf-8") and "kit_commit" in (KIT / "run_session.sh").read_text(encoding="utf-8")
     assert "KIT_MANIFEST" in (KIT / "pod_setup.sh").read_text(encoding="utf-8") and "KIT_MANIFEST" in (KIT / "pod_run.sh").read_text(encoding="utf-8")
+
+
+def test_prepare_bundle_turn_engine_marker(tmp_path):
+    import model_runtime as mr
+    setup_inputs(tmp_path)
+    r = run_prepare(tmp_path)
+    assert r.returncode == 0, r.stderr
+    m = json.loads((tmp_path / "out" / "gpu-session" / "manifest.json").read_text(encoding="utf-8"))
+    assert m["turn_engine_version"] == mr.TURN_ENGINE_MARKER_VERSION != "none"
+    r = run_prepare(tmp_path, "--out", str(tmp_path / "out2"), "--turn-engine-version", "9.9.9")   # 뒤의 --out이 이긴다
+    assert r.returncode == 0, r.stderr
+    m = json.loads((tmp_path / "out2" / "gpu-session" / "manifest.json").read_text(encoding="utf-8"))
+    assert m["turn_engine_version"] == "9.9.9"

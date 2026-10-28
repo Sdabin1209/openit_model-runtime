@@ -191,3 +191,16 @@ class NeutralQwen3(unittest.TestCase):
             self.assertEqual(hdr[p + "o_proj.lora_B.weight"]["shape"], [64, 4])
             m = json.loads((Path(t) / "o" / "LORA_A" / "manifest.json").read_text())
             self.assertEqual(m["base_model"]["id"], "Qwen/Qwen3-1.7B")
+
+
+class TurnEngineMarker(unittest.TestCase):
+    """매니페스트의 turn_engine_version 표지(D109: 2.x는 turn-engine v0.4.3 고정 표지)는 하드코딩 "none"이 아니라 한 기준값·인자·환경 변수에서 온다."""
+    def test_neutral_package_lineage_uses_the_marker(self):
+        with TemporaryDirectory() as t:
+            build(Path(t) / "a")
+            m = json.loads((Path(t) / "a" / "LORA_A" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(m["lineage"]["turn_engine_version"], mr.TURN_ENGINE_MARKER_VERSION)
+            self.assertNotEqual(m["lineage"]["turn_engine_version"], "none")
+            build(Path(t) / "b", turn_engine_version="9.9.9")
+            m = json.loads((Path(t) / "b" / "LORA_A" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(m["lineage"]["turn_engine_version"], "9.9.9")

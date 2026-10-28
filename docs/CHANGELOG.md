@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.9.1 미정 — 매니페스트 turn_engine_version 표지 (D109)
+`make_neutral_package.py`와 `gpu_session/prepare_bundle.py`가 매니페스트에 하드코딩 `"none"` 대신 표지를 쓴다. 값은 `--turn-engine-version` > 환경 변수 `MODEL_RUNTIME_TURN_ENGINE_MARKER` > `model_runtime.TURN_ENGINE_MARKER_VERSION`(`"0.4.3"`, session.py 한 곳) 순이다. 형식(v 접두사 없음)은 같은 매니페스트의 `model_runtime_version`과 맞춘 것이고, 받는 쪽이 어떤 형식으로 비교하는지는 읽지 못해 **미확인**이다. 버전 번호는 올리지 않았다(헤드가 정한다).
+
 ## 0.9.0 — 2026-10-29 (LoRA-A 출력 규칙 보증, 계약 v2.2.0 ADR 0010 결정 5, CR-007 구현)
 MINOR(추가형): 옛 본문과 라이브러리 호출은 그대로 동작한다. ADR 0021.
 - extract 요청 본문으로 `ExtractRequest{input, flow}`를 받는다. 옛 본문(`ActionExtractionInput`)도 받으며 형식은 계약 스키마로 판정한다(둘 다 아니면 400 INVALID_RECORD).
