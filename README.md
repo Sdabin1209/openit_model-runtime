@@ -114,6 +114,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0016](docs/adr/0016-pod-cost-guards.md) | 파드 비용 가드: 메모리 부족 기동 실패 시 util 자동 재시도, 한 기동 다단계 부하(--plan), 키트 커밋 기록 |
 | [0017](docs/adr/0017-role-components-and-shared-retry.md) | LoRA-A·B를 두 컴포넌트로, 재시도는 공용 함수, 특수 토큰은 prompts.py |
 | [0018](docs/adr/0018-mimic-components.md) | 데모용 모방 컴포넌트와 규칙표 데이터 파일 |
+| [0019](docs/adr/0019-value-provenance.md) | 근거 없는 값(3.5초, 재시도 3, util 단계, 2500자, 릴리스 4개 등)의 출처 분류와 측정 계획. 값은 바꾸지 않는다 |
 
 ## 더 자세한 문서
 
