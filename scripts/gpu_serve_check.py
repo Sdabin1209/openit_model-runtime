@@ -75,7 +75,7 @@ def main():
     RID = "rel-gpu-dev"
     env = dict(os.environ, MODEL_RUNTIME_BACKEND="vllm", MODEL_RUNTIME_SCHEMA_DIR=a.schema_dir, MODEL_RUNTIME_PROFILE=a.profile,
                MODEL_RUNTIME_RELEASE_URL=i4.url, MODEL_RUNTIME_RELEASE_TOKEN="tok", MODEL_RUNTIME_BUNDLE_DIR=str(out / "bundles"),
-               MODEL_RUNTIME_PUT_WAIT_S="120", MODEL_RUNTIME_QUEUE_WAIT_S="600", MODEL_RUNTIME_REQUEST_DEADLINE_S="600",   # 측정 스크립트라 운영 상한(3.5s)을 풀어 둔다
+               MODEL_RUNTIME_PUT_WAIT_S="120", MODEL_RUNTIME_QUEUE_WAIT_S="600", MODEL_RUNTIME_EXTRACT_DEADLINE_S="600", MODEL_RUNTIME_RESPOND_DEADLINE_S="600",   # 측정 스크립트라 운영 상한(extract 3.0s, respond 2.0s)을 풀어 둔다
                MODEL_RUNTIME_ALLOW_NO_AUTH="1",   # 루프백 개발 측정(운영에서는 토큰 필수)
                MODEL_RUNTIME_HOST="127.0.0.1", MODEL_RUNTIME_PORT=str(a.port))
     base = f"http://127.0.0.1:{a.port}"

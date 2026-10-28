@@ -31,8 +31,8 @@ class ModelSession(Protocol):
     system_prompt_hashes: Mapping[str, str]    # 역할별, 패키지 프롬프트 파일 바이트의 sha256(D75)
     last_call_info: CallInfo | None
 
-    def extract(self, input: Mapping) -> dict: ...
-    def respond(self, input: Mapping) -> ResponseResult: ...
+    def extract(self, input: Mapping, *, deadline: float | None = None) -> dict: ...   # deadline: time.monotonic 기준 호출 마감(선택). 재시도 예산에만 쓴다
+    def respond(self, input: Mapping, *, deadline: float | None = None) -> ResponseResult: ...
     def extract_raw(self, input: Mapping) -> RawResult: ...
     def respond_raw(self, input: Mapping) -> RawResult: ...
 
@@ -76,15 +76,15 @@ class _Session:
         raw, self.last_call_info = self._roles["LORA_B"].raw(self._backend, input)
         return raw
 
-    def extract(self, input: Mapping) -> dict:
-        o = self._roles["LORA_A"].call(self._backend, input)
+    def extract(self, input: Mapping, *, deadline: float | None = None) -> dict:
+        o = self._roles["LORA_A"].call(self._backend, input, deadline)
         self.last_call_info = o.info
         if o.error is not None:
             raise o.error
         return o.result
 
-    def respond(self, input: Mapping) -> ResponseResult:
-        o = self._roles["LORA_B"].call(self._backend, input)
+    def respond(self, input: Mapping, *, deadline: float | None = None) -> ResponseResult:
+        o = self._roles["LORA_B"].call(self._backend, input, deadline)
         self.last_call_info = o.info
         return o.result
 

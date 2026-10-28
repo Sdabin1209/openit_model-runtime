@@ -395,7 +395,7 @@ class FaultCells(unittest.TestCase):
             if req.role == "LORA_A":
                 gate.wait(30)
             return json.dumps(mr.backends.FAKE_EXTRACTION)
-        url, svc = self.up(hang, MODEL_RUNTIME_REQUEST_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
+        url, svc = self.up(hang, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
         t = time.monotonic()
         s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
         self.assertLess(time.monotonic() - t, 1.5)   # 멈춘 엔진을 무한히 기다리지 않는다
@@ -416,18 +416,18 @@ class FaultCells(unittest.TestCase):
         def slow(req):
             time.sleep(0.2)
             return json.dumps(mr.backends.FAKE_EXTRACTION) if req.role == "LORA_A" else "괜찮은 문장입니다."
-        url, _ = self.up(slow, MODEL_RUNTIME_REQUEST_DEADLINE_S="2.0")
+        url, _ = self.up(slow, MODEL_RUNTIME_EXTRACT_DEADLINE_S="2.0")
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
-    def test_retries_are_bounded_by_the_total_deadline(self):   # 출력이 계속 틀려 3번 시도해도 총 상한을 넘기지 않는다
+    def test_retries_are_bounded_by_the_total_deadline(self):   # 출력이 계속 틀려도 총 상한을 넘기지 않는다(2.2.0: 남은 예산이 직전 시도보다 짧으면 재시도하지 않고 OUTPUT_INVALID)
         def slow_bad(req):
             time.sleep(0.4)
             return "아님"
-        url, _ = self.up(slow_bad, MODEL_RUNTIME_REQUEST_DEADLINE_S="0.7")
+        url, _ = self.up(slow_bad, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.7")
         t = time.monotonic()
         s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertLess(time.monotonic() - t, 1.2)
-        self.assertEqual((s, b["details"]["reason"]), (503, "ENGINE_TIMEOUT"))
+        self.assertLess(time.monotonic() - t, 0.7)
+        self.assertEqual((s, b["details"]["reason"], b["details"]["attempts"]), (503, "OUTPUT_INVALID", 1))
 
     def test_dead_engine_gives_503_and_readyz_503_until_next_success(self):
         state = {"dead": True}

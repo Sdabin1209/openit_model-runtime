@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -35,19 +36,26 @@ def _reject_constant(name: str):
 
 
 def run_attempts(backend: ConstraintBackend, *, role: str, prompt: str, constraint_schema: dict | None, cfg: Mapping,
-                 input: Mapping, parse: Callable[[Any], tuple[Any, list]], check: Callable[[Any], list]) -> Attempts:
+                 input: Mapping, parse: Callable[[Any], tuple[Any, list]], check: Callable[[Any], list], deadline: float | None = None) -> Attempts:
     """공용 재시도 반복: `max_attempts`번까지, 시도마다 시드를 1씩 올리고 재시도 온도를 쓴다(§2.3). parse(raw) -> (값, 파싱 오류 목록), check(값) -> 위반 목록.
-    왜 한 곳: 시도 횟수·시드·온도 규칙은 두 역할이 같은 계약이라 따로 두면 어긋난다(ADR 0007)."""
+    왜 한 곳: 시도 횟수·시드·온도 규칙은 두 역할이 같은 계약이라 따로 두면 어긋난다(ADR 0007).
+    deadline(time.monotonic 기준)이 있으면 재시도는 남은 예산이 직전 시도에 걸린 시간 이상일 때만 한다(계약 '시간 상한 사슬' 2.2.0, ADR 0020).
+    왜 직전 시도 시간인가: 호출 상한 자체와 비교하면 호출 안에서는 재시도가 영영 안 된다. 직전 시도 시간은 다음 시도가 걸릴 시간의 유일한 관측값이다(추정, 측정 안 함)."""
     dec = cfg["decoding"]
     value: Any = None
     errs: list = []
     n = 0
+    last_s = 0.0
     for k in range(cfg["max_attempts"]):
+        if k > 0 and deadline is not None and deadline - time.monotonic() < last_s:
+            break   # 남은 예산이 모자라면 재시도하지 않고 마지막 결과로 실패 처리한다
         n = k + 1
+        t0 = time.monotonic()
         d = dec
         if k > 0 and "retry_temperature" in dec:   # 재시도 온도. 시도 0은 항상 temperature
             d = {**dec, "temperature": dec["retry_temperature"]}
         raw = backend.generate(GenerationRequest(role, prompt, constraint_schema, d, dec["seed"] + k, k, input))
+        last_s = time.monotonic() - t0
         value, perr = parse(raw)
         if perr:
             errs = perr
@@ -98,14 +106,14 @@ class ExtractRole(_RoleBase):
         except (ValueError, TypeError):
             return None, ["json"]
 
-    def _attempt(self, backend: ConstraintBackend, input: Mapping) -> Attempts:
+    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Attempts:
         constrained = self._cfg["decoding"]["constraint_mode"] == "constrained"
         return run_attempts(backend, role=self.name, prompt=self._prompt(input), constraint_schema=self.constraint[0] if constrained else None,
-                            cfg=self._cfg, input=input, parse=self._parse, check=self._violations)
+                            cfg=self._cfg, input=input, parse=self._parse, check=self._violations, deadline=deadline)
 
-    def call(self, backend: ConstraintBackend, input: Mapping) -> Outcome:
+    def call(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Outcome:
         """항상 ActionExtraction을 지키는 값을 낸다. 재시도 후에도 못 지키면 값을 지어내지 않고 ModelOutputInvalid."""
-        a = self._attempt(backend, input)
+        a = self._attempt(backend, input, deadline)
         removed = self.constraint[1]
         if a.errors:
             log.warning("role=%s 출력이 형식을 지키지 못함 attempts=%s", self.name, a.attempts)
@@ -126,13 +134,13 @@ class RespondRole(_RoleBase):
     def _parse(raw: Any):
         return (raw.strip() if isinstance(raw, str) else raw), []   # 앞뒤 공백은 형식에 포함하지 않는다(J1)
 
-    def _attempt(self, backend: ConstraintBackend, input: Mapping) -> Attempts:
+    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Attempts:
         return run_attempts(backend, role=self.name, prompt=self._prompt(input), constraint_schema=None,
-                            cfg=self._cfg, input=input, parse=self._parse, check=self._violations)
+                            cfg=self._cfg, input=input, parse=self._parse, check=self._violations, deadline=deadline)
 
-    def call(self, backend: ConstraintBackend, input: Mapping) -> Outcome:
+    def call(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None) -> Outcome:
         """못 지키면 입력 재료로 만든 대체 문장(is_fallback=True, 코드가 채운다, D36)."""
-        a = self._attempt(backend, input)
+        a = self._attempt(backend, input, deadline)
         if not a.errors:
             result, info = ResponseResult(a.output, False), _info(self.name, a.attempts, ())
         else:

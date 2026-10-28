@@ -13,7 +13,7 @@ MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON 또는 {"order",
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요)
 비밀(MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN)은 D84에 따라 <이름>_FILE(파일 경로)을 우선 읽고 없을 때만 환경 변수를 쓴다(boundary_contracts.read_secret),
-MODEL_RUNTIME_REQUEST_DEADLINE_S(extract/respond 한 요청의 총 상한: 대기+추론, 기본 3.5; 넘기면 503 ENGINE_TIMEOUT, 근거는 docs/boundary.md 불변식), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
+MODEL_RUNTIME_EXTRACT_DEADLINE_S(기본 3.0)·MODEL_RUNTIME_RESPOND_DEADLINE_S(기본 2.0)(호출 하나의 총 상한: 대기+추론+재시도; 넘기면 503 ENGINE_TIMEOUT. 계약 CONVENTIONS '시간 상한 사슬' 2.2.0 표 값, 측정하지 않은 배분값: ADR 0020. 옛 MODEL_RUNTIME_REQUEST_DEADLINE_S는 시작 거부), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
 MODEL_RUNTIME_HOST/PORT(기본 127.0.0.1:8080, 이미지는 0.0.0.0), MODEL_RUNTIME_ALLOW_NO_AUTH=1(개발용: 토큰 없이 시작), MODEL_RUNTIME_ALLOW_FAKE=1(fake 백엔드 허용),
 MODEL_RUNTIME_PUT_ROLES(적재 PUT을 허용할 역할 목록, 없으면 인증된 모든 역할), MODEL_RUNTIME_MAX_INPUT_CHARS(기본 2500), MODEL_RUNTIME_MAX_CONNECTIONS(32), MODEL_RUNTIME_MAX_LOADING(2),
@@ -62,6 +62,7 @@ MAX_FAILED_KEPT = 16            # 왜: 실패 항목이 메모리에 무한히 �
 INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
 DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
+DEFAULT_DEADLINES_S = {"extract": 3.0, "respond": 2.0}   # 왜: 계약 CONVENTIONS '시간 상한 사슬' 2.2.0 표. 한 턴이 extract→respond 두 번이라 합 5.0s + 서버 처리 여유 1.0s = 턴 마감 6s. 측정하지 않은 배분값 (ADR 0020)
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
           "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
@@ -133,7 +134,7 @@ class Service:
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
-                 request_deadline_s: float = 3.5, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 기본 3.5s: survey 읽기 timeout 4s보다 짧게(ADR 0006, 실측 안 함). 30s: 초기값, 근거 기록 없음
+                 deadlines: Mapping[str, float] | None = None, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 호출별 상한 extract 3.0s·respond 2.0s: 계약 표(합 5.0s + 여유 1.0s = 턴 마감 6s, ADR 0020, 실측 안 함). 30s: 초기값, 근거 기록 없음
                  max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
@@ -149,7 +150,8 @@ class Service:
         self.engine_lock = threading.Lock()          # 엔진 직렬화
         self.pending = 0                             # 실행 중 + 대기 중
         self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
-        self.request_deadline_s, self.backend_retry_s = request_deadline_s, backend_retry_s   # 요청 상한(FAULT_POLICY 4), 백엔드 기동 재시도 간격(0이면 재시도 없음)
+        self.deadlines = dict(DEFAULT_DEADLINES_S if deadlines is None else deadlines)   # 호출별 총 상한(op → 초)
+        self.backend_retry_s = backend_retry_s   # 백엔드 기동 재시도 간격(0이면 재시도 없음). 출력 재시도와 무관하다
         self.max_input_chars, self.max_loading, self.conn_timeout_s = max_input_chars, max_loading, conn_timeout_s
         self.put_roles = None if put_roles is None else frozenset(put_roles)   # None이면 인증된 모든 역할이 적재 신호를 보낼 수 있다(survey-service가 404에서 PUT으로 다시 적재한다)
         self.overdue = False          # 상한을 넘긴 엔진 호출이 아직 끝나지 않았다(엔진이 멈췄을 수 있다)
@@ -353,7 +355,8 @@ class Service:
         try:
             if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
                 return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
-            deadline = time.monotonic() + self.request_deadline_s   # 요청 전체의 상한(대기 + 추론). 호출별이 아니라 총합이다
+            limit_s = self.deadlines[op]
+            deadline = time.monotonic() + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
             if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             res: dict = {}
@@ -362,7 +365,7 @@ class Service:
             def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
                 try:
                     t = time.time()
-                    out = getattr(r.session, op)(body)
+                    out = getattr(r.session, op)(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
                     info = r.session.last_call_info
                     self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
                     res["ok"] = (out, info)
@@ -375,7 +378,7 @@ class Service:
             threading.Thread(target=work, daemon=True).start()
             if not done.wait(max(0.0, deadline - time.monotonic())):
                 self.overdue = True
-                log.error("추론이 요청 상한 %.1fs를 넘겼다(op=%s)", self.request_deadline_s, op)
+                log.error("추론이 호출 상한 %.1fs를 넘겼다(op=%s)", limit_s, op)
                 return 503, BoundaryError("UNAVAILABLE", "추론이 요청 상한을 넘겼다", {"reason": "ENGINE_TIMEOUT"}).to_record(), {}
             if "err" in res:
                 raise res["err"]
@@ -532,6 +535,8 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         log.warning("인증 없이 시작한다(MODEL_RUNTIME_ALLOW_NO_AUTH=1, 개발용)")
     log.info("비밀 출처(값 아님): MODEL_RUNTIME_TOKENS=%s MODEL_RUNTIME_RELEASE_TOKEN=%s",
              secret_source("MODEL_RUNTIME_TOKENS", environ=env), secret_source("MODEL_RUNTIME_RELEASE_TOKEN", environ=env))
+    if env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S"):   # 조용히 무시하면 옛 3.5초 하나가 남아 있다고 착각한다
+        raise SystemExit("MODEL_RUNTIME_REQUEST_DEADLINE_S는 없어졌다(계약 2.2.0). 호출별로 MODEL_RUNTIME_EXTRACT_DEADLINE_S(3.0), MODEL_RUNTIME_RESPOND_DEADLINE_S(2.0)를 쓴다")
     if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
         raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
@@ -581,7 +586,8 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),
                    put_wait_s=float(env.get("MODEL_RUNTIME_PUT_WAIT_S", "3.0")),
-                   request_deadline_s=float(env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S", "3.5")),
+                   deadlines={"extract": float(env.get("MODEL_RUNTIME_EXTRACT_DEADLINE_S", DEFAULT_DEADLINES_S["extract"])),
+                              "respond": float(env.get("MODEL_RUNTIME_RESPOND_DEADLINE_S", DEFAULT_DEADLINES_S["respond"]))},
                    backend_retry_s=float(env.get("MODEL_RUNTIME_BACKEND_RETRY_S", "30")),
                    max_releases=int(env.get("MODEL_RUNTIME_MAX_RELEASES", "4")),
                    max_input_chars=int(env.get("MODEL_RUNTIME_MAX_INPUT_CHARS", str(MAX_INPUT_CHARS))),

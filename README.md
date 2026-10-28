@@ -101,7 +101,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0003](docs/adr/0003-one-base-two-adapters.md) | 한 기반 모델에 LoRA-A·B 동시 적재, 릴리스 교체 |
 | [0004](docs/adr/0004-release-bundle-and-hashes.md) | 릴리스 번들 형식과 해시 검증 |
 | [0005](docs/adr/0005-serialize-engine-calls.md) | 엔진 호출 직렬화(락)와 큐 대신 503 |
-| [0006](docs/adr/0006-request-deadline.md) | 요청 총 상한 3.5초, 대기 3.0초(측정 안 함) |
+| [0006](docs/adr/0006-request-deadline.md) | 요청 총 상한과 대기 상한(3.5초는 [0020](docs/adr/0020-per-call-deadline-budget.md)이 호출별 3.0/2.0초로 대체, 측정 안 함) |
 | [0007](docs/adr/0007-retry-attempts.md) | 출력 재시도 3회 |
 | [0008](docs/adr/0008-profiles.md) | 프로파일 gpu-12g(1.7B) / rtx4090-24g(8B) |
 | [0009](docs/adr/0009-fake-backend-in-image.md) | fake 백엔드를 이미지에 두고 운영에서 차단 |
@@ -115,6 +115,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0017](docs/adr/0017-role-components-and-shared-retry.md) | LoRA-A·B를 두 컴포넌트로, 재시도는 공용 함수, 특수 토큰은 prompts.py |
 | [0018](docs/adr/0018-mimic-components.md) | 데모용 모방 컴포넌트와 규칙표 데이터 파일 |
 | [0019](docs/adr/0019-value-provenance.md) | 근거 없는 값(3.5초, 재시도 3, util 단계, 2500자, 릴리스 4개 등)의 출처 분류와 측정 계획. 값은 바꾸지 않는다 |
+| [0020](docs/adr/0020-per-call-deadline-budget.md) | 호출별 상한 extract 3.0초·respond 2.0초(계약 표), 재시도는 남은 예산이 직전 시도 이상일 때만, 인증 실패 401 |
 
 ## 더 자세한 문서
 

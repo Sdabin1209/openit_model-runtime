@@ -17,7 +17,7 @@
 #   --n-a N --n-b N      측정 행 수(기본 각 200)     --concurrency 1,4  동시 요청 수 목록(기본 1,4)
 #   --plan "1:20,4:20"   한 번의 서버 기동으로 이어 돌릴 부하 단계 '동시:건수'(재기동은 몇 분 비용이라 단계마다 다시 띄우지 않는다). --concurrency/--n-a/--n-b와 같이 못 쓴다. 단계 사이 GPU 메모리는 measure.json의 stage_gpu에 남는다
 #   --max-used-mib N     preflight 임계(기본 2048)    --margin-mib N  남은 메모리 여유(기본 4096)
-#   --production-limits  요청 상한 3.5초/대기 3.0초 기본값 그대로 측정(기본은 상한을 풀어 순수 지연을 잰다)
+#   --production-limits  호출 상한 extract 3.0초·respond 2.0초/대기 3.0초 기본값 그대로 측정(기본은 상한을 풀어 순수 지연을 잰다)
 #   --backend vllm|fake  fake는 리허설용(GPU 없이 파이프라인 확인; MODEL_RUNTIME_ALLOW_FAKE=1을 이 스크립트가 켠다)
 #   서버 기동이 'GPU 메모리를 요구량만큼 못 잡아서' 실패하면 util을 0.05씩 낮춰 최대 2번 자동 재시도한다(예 0.90 -> 0.85 -> 0.80). 시도 기록은 util_attempts.json과 measure.json의 util_attempts에 남는다. 다른 종류의 실패는 재시도 없이 중단한다(ADR 0016, util_retry.py)
 #   --keep-bundle        끝에 번들 복사본(어댑터 약 350MB)을 지우지 않는다    --clean-cache  끝에 캐시도 지운다
@@ -186,7 +186,7 @@ REL_PID=$!
 for _ in $(seq 1 20); do [ -s "$RUN/release.port" ] && break; sleep 0.5; done
 [ -s "$RUN/release.port" ] || die "릴리스 서버가 뜨지 않았다(logs/release_server.log)" 5
 RELPORT="$(cat "$RUN/release.port")"; PORT="$(freeport)"
-if [ "$PROD" -eq 1 ]; then LIMITS=(MODEL_RUNTIME_X=1); else LIMITS=(MODEL_RUNTIME_REQUEST_DEADLINE_S=600 MODEL_RUNTIME_QUEUE_WAIT_S=600); fi
+if [ "$PROD" -eq 1 ]; then LIMITS=(MODEL_RUNTIME_X=1); else LIMITS=(MODEL_RUNTIME_EXTRACT_DEADLINE_S=600 MODEL_RUNTIME_RESPOND_DEADLINE_S=600 MODEL_RUNTIME_QUEUE_WAIT_S=600); fi
 SERVER_ENV=(MODEL_RUNTIME_BACKEND="$BACKEND" MODEL_RUNTIME_SCHEMA_DIR="$SCHEMA_DIR" MODEL_RUNTIME_PROFILE="$RUN_PROFILE"
     MODEL_RUNTIME_RELEASE_URL="http://127.0.0.1:$RELPORT" MODEL_RUNTIME_BUNDLE_DIR="$RUN/bundles"
     MODEL_RUNTIME_TOKENS_FILE="$RUN/tokens" MODEL_RUNTIME_PUT_WAIT_S=5 MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S=600
@@ -201,7 +201,7 @@ stop_server() {   # 이 스크립트가 띄운 서버 그룹만 내린다(cleanu
 # 그 밖의 실패는 재시도해도 같으므로 즉시 중단한다. 판별 문구는 util_retry.py 주석.
 ATT="$RUN/util_attempts.json"; ATTEMPT=0; MAX_RETRY=2; CUR_UTIL="$UTIL_EFF"
 while true; do
-  log "추론 서버 기동 127.0.0.1:$PORT (백엔드 $BACKEND, util $CUR_UTIL, 시도 $((ATTEMPT+1)), 요청 상한 $([ "$PROD" -eq 1 ] && echo '기본 3.5s/3.0s' || echo '풀어 둠 600s'))"
+  log "추론 서버 기동 127.0.0.1:$PORT (백엔드 $BACKEND, util $CUR_UTIL, 시도 $((ATTEMPT+1)), 요청 상한 $([ "$PROD" -eq 1 ] && echo "기본 3.0s(extract)/2.0s(respond), 대기 3.0s" || echo '풀어 둠 600s'))"
   env "${SERVER_ENV[@]}" setsid "$PY" -m "$SERVER_MODULE" > "$RUN/logs/server.log" 2>&1 &
   SERVER_PID=$!
   cap=$(( READY_MIN * 60 )); r=$(remaining); [ "$r" -lt "$cap" ] && cap=$r
