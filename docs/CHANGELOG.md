@@ -1,5 +1,19 @@
 # 변경 이력
 
+## 미정(버전은 올리지 않음) — 승격된 계약 스키마의 영역 사본 정리 (U49)
+`docs/change-requests/schemas/` 아래 파일 16개(스키마 5, 예시 10, 스크립트 1)를 분류했다(계약 v2.7.0 패키지의 스키마 이름과 대조).
+
+| 파일 | 분류 | 처리 | 근거 |
+|---|---|---|---|
+| schemas/ServingConfig.schema.json (+ examples/ServingConfig.valid·invalid.json) | (가) 계약에 같은 이름 | 삭제 | 계약 `ServingConfig`. 이 영역은 `validator("ServingConfig")`로 검증한다 |
+| schemas/RuntimeInfo.schema.json (+ examples 2) | (가) | 삭제 | 계약 `RuntimeInfo`. `tests/test_contract_schemas.py`가 `/v1/info` 응답을 계약으로 검증한다 |
+| schemas/ReleaseLoadStatus.schema.json (+ examples 2) | (가) | 삭제 | 계약 `ReleaseLoadStatus` |
+| schemas/RuntimeProfile.schema.json (+ examples 2) | (가) | 삭제 | 계약 `RuntimeProfile`. `load_profile`이 계약으로 검증한다 |
+| schemas/RuntimeFlowFile.schema.json (+ examples 2) | (가) | 삭제 | 계약 `RuntimeFlowFile`. 흐름 파일 로더가 계약으로 검증한다 |
+| schemas/verify.py | 사본 검증 스크립트 | 삭제 | 사본이 사라져 대상이 없다. 계약의 유효·거부 예시 검사는 계약 쪽 몫이다 |
+
+지운 파일 **16개**(스키마 5 + 예시 10 + verify.py 1). 남긴 파일은 **0개**, (나)(계약에 없는 영역 소유 스키마)는 **0개**였다. 사본을 읽는 시험·스크립트·링크는 없었다(`CR-006-boundary-schemas.md`의 본문 서술만 남아 맨 위에 처리됨 표지를 달았다).
+
 ## 미정(버전은 올리지 않음) — setup-env.sh 결과 한 줄(SetupEnvReport), 계약 v2.6.0 (ADR 0026, U43)
 - `scripts/setup-env.sh`의 표준 출력은 SetupEnvReport JSON 한 줄뿐이다(`environment`에 `.venv`와 `test_command`). 진행 기록(pip 포함)은 표준 오류로 옮겼다. **동작 변화**: 이전에는 완료 문구가 표준 출력으로 나왔다. 실패해도 `status=fail` 보고를 낸다.
 - 계약 핀 v2.5.1 → **v2.7.0**(`Dockerfile`).

@@ -1,5 +1,7 @@
 # CR-006: model-runtime 영역 경계 형식의 스키마 초안 (헤드에게)
 
+> **처리됨(U49, 2026-10-30).** 이 요청의 스키마 5개(ServingConfig, RuntimeInfo, ReleaseLoadStatus, RuntimeProfile, RuntimeFlowFile)는 계약 boundary-contracts(2.2.0 이후)의 정본으로 승격되었다. 영역 안의 초안 파일과 예시, `verify.py`는 사본이라 지웠다(내용은 git 기록에 있다). 이 영역은 `boundary_contracts.validator(<이름>)`으로 검증한다(ADR 0025). 아래 본문은 요청 당시의 기록이다.
+
 작성: 2026-10-28, wo2 브랜치. 근거: 지시서 1 B, 자기 점검 보고서 E절(MR-09, MR-10, MR-07). **코드는 바꾸지 않았다.** 스키마를 계약(boundary-contracts)에 올릴지, 올린다면 어느 이름·위치인지는 헤드가 정한다. 올라가면 이 영역이 코드에서 이 스키마를 쓰도록 바꾼다(다음 단계).
 
 초안은 `docs/change-requests/schemas/*.schema.json`(JSON Schema 2020-12), 예시는 `schemas/examples/<이름>.valid.json`(실제 코드·설정에서 만든 것)과 `<이름>.invalid.json`(거부되어야 하는 것)이다.
