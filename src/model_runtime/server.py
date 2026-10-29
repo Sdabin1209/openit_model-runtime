@@ -321,12 +321,12 @@ class Service:
     # --- 추론 ---
     @staticmethod
     def split_extract_body(body):
-        """extract 본문을 (input, flow)로 나눈다. 형식은 계약 스키마로 판정한다: ExtractRequest면 둘 다, ActionExtractionInput이면 옛 본문이라 flow=None
+        """extract 본문을 (input, flow, fields)로 나눈다. 형식은 계약 스키마로 판정한다: ExtractRequest면 input·flow와 선택 fields(2.4.0), ActionExtractionInput이면 옛 본문이라 flow=fields=None
         (2.x 호환, 이때는 규칙 보증이 없다). 둘 다 아니면 ContractViolation. 왜 스키마인가: 'flow 키가 있나' 같은 추측은 반쯤 맞는 본문을 조용히 옛 형식으로 읽는다."""
         if validator("ExtractRequest").is_valid(body):
-            return body["input"], body["flow"]
+            return body["input"], body["flow"], body.get("fields")
         if validator("ActionExtractionInput").is_valid(body):
-            return body, None
+            return body, None, None
         raise ContractViolation("extract 본문이 ExtractRequest도 ActionExtractionInput도 아니다")
 
     def infer(self, rid: str, op: str, body):
@@ -339,9 +339,9 @@ class Service:
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             self.pending += 1
         try:
-            flow = None
+            flow = fields = None
             if op == "extract":
-                body, flow = self.split_extract_body(body)   # 이후 body는 모델 입력(input)이다
+                body, flow, fields = self.split_extract_body(body)   # 이후 body는 모델 입력(input)이다
             # 한도는 모델 입력에만 건다: flow는 프롬프트에 들어가지 않으므로 컨텍스트를 쓰지 않는다(2500자 근거는 ADR 0012)
             if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
                 return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
@@ -355,7 +355,7 @@ class Service:
             def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
                 try:
                     t = time.time()
-                    out = r.session.extract(body, flow, deadline=deadline) if op == "extract" else r.session.respond(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
+                    out = r.session.extract(body, flow, fields, deadline=deadline) if op == "extract" else r.session.respond(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
                     info = r.session.last_call_info
                     self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
                     res["ok"] = (out, info)

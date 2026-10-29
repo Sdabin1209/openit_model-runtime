@@ -10,7 +10,8 @@ import copy
 import json
 import logging
 import time
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -20,7 +21,7 @@ from .fallback import fallback_text
 from .prompts import render_prompt
 from .results import CallInfo, RawResult, ResponseResult
 from .schema_guard import SchemaSet, relax
-from boundary_contracts.action_rules import check_action_extraction
+from boundary_contracts.action_rules import apply_value_rules, check_action_extraction
 
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
@@ -107,31 +108,57 @@ class ExtractRole(_RoleBase):
         except (ValueError, TypeError):
             return None, ["json"]
 
-    def _rule_violations(self, value: Any, input: Mapping, flow: Mapping) -> list[str]:
+    def _rule_violations(self, value: Any, input: Mapping, flow: Mapping, fields: Mapping | None = None, box: dict | None = None) -> list[str]:
         """스키마 위반이 없을 때만 의미 규칙(계약의 기준 검사기)을 본다. 위반은 "rule:<코드>:<경로>"이며 값은 싣지 않는다.
-        왜 여기서: 통과한 값은 호출자가 다시 검사하지 않는다(R7, 계약 ADR 0010). 규칙 본문은 계약의 데이터라 이 영역에 복사하지 않는다."""
+        왜 여기서: 통과한 값은 호출자가 다시 검사하지 않는다(R7, 계약 ADR 0010). 규칙 본문은 계약의 데이터라 이 영역에 복사하지 않고 기준 검사기를 호출한다.
+        fields(QuestionFieldSpec)가 있으면 그 뒤에 값 규칙(apply_value_rules, 계약 2.4.0)을 적용한다. 바꿀 수 없는 위반은 위반으로 돌려주어 다시 생성하게 하고,
+        규칙에 걸려 바뀐 출력은 box["output"]에, 적용 사유는 box["applied"]에 둔다(바뀐 출력도 스키마와 의미 규칙을 다시 통과해야 한다)."""
         errs = self._violations(value)
         if errs or flow is None:
             return errs
-        return [f"rule:{v.code}:{v.path}" for v in check_action_extraction(dict(input), value, dict(flow))]
+        errs = [f"rule:{v.code}:{v.path}" for v in check_action_extraction(dict(input), value, dict(flow))]
+        if errs or fields is None or box is None:
+            return errs
+        changed, viol, applied = apply_value_rules(dict(input), value, dict(fields), dict(flow))
+        if viol:
+            return [f"rule:{v.code}:{v.path}" for v in viol]
+        if applied:
+            again = self._violations(changed) or [f"rule:AFTER_VALUE_RULES_{v.code}:{v.path}" for v in check_action_extraction(dict(input), changed, dict(flow))]
+            if again:
+                return again   # 계약 기준 구현끼리 어긋난 것이다. 값을 내보내지 않고 다시 생성한다
+            box["output"], box["applied"] = changed, list(applied)
+        return []
 
-    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None, flow: Mapping | None = None) -> Attempts:
+    def _attempt(self, backend: ConstraintBackend, input: Mapping, deadline: float | None = None, flow: Mapping | None = None,
+                 fields: Mapping | None = None) -> tuple[Attempts, list[str]]:
         constrained = self._cfg["decoding"]["constraint_mode"] == "constrained"
-        return run_attempts(backend, role=self.name, prompt=self._prompt(input), constraint_schema=self.constraint[0] if constrained else None,
-                            cfg=self._cfg, input=input, parse=self._parse, check=lambda v: self._rule_violations(v, input, flow), deadline=deadline)
+        box: dict = {}
 
-    def call(self, backend: ConstraintBackend, input: Mapping, flow: Mapping | None = None, deadline: float | None = None) -> Outcome:
-        """항상 ActionExtraction을 지키는 값을 낸다. flow(QuestionFlowTable)가 있으면 의미 규칙도 지킨다.
+        def check(v):
+            box.clear()   # 마지막 시도의 결과만 남긴다
+            return self._rule_violations(v, input, flow, fields, box)
+        a = run_attempts(backend, role=self.name, prompt=self._prompt(input), constraint_schema=self.constraint[0] if constrained else None,
+                         cfg=self._cfg, input=input, parse=self._parse, check=check, deadline=deadline)
+        if not a.errors and "output" in box:
+            a = replace(a, output=box["output"])
+        return a, box.get("applied", [])
+
+    def call(self, backend: ConstraintBackend, input: Mapping, flow: Mapping | None = None, fields: Mapping | None = None,
+             deadline: float | None = None) -> Outcome:
+        """항상 ActionExtraction을 지키는 값을 낸다. flow(QuestionFlowTable)가 있으면 의미 규칙도, fields(QuestionFieldSpec)가 있으면 값 규칙도 지킨다.
+        값 규칙에 걸려 출력이 바뀌면 다시 생성하지 않고 바뀐 출력을 낸다(데이터셋 정답 모양). 적용 사유는 로그와 보호 건수에 사유 이름만 남긴다.
         재시도 후에도 못 지키면 값을 지어내지 않고 ModelOutputInvalid."""
-        a = self._attempt(backend, input, deadline, flow)
+        a, applied = self._attempt(backend, input, deadline, flow, fields)
         removed = self.constraint[1]
         if a.errors:
             log.warning("role=%s 출력이 형식을 지키지 못함 attempts=%s", self.name, a.attempts)
             return Outcome(None, _info(self.name, a.attempts, removed, "invalid"), ModelOutputInvalid(a.attempts, a.errors))
-        return Outcome(a.output, _info(self.name, a.attempts, removed))
+        if applied:
+            log.info("role=%s 값 규칙 적용 reasons=%s attempts=%s", self.name, ",".join(applied), a.attempts)   # 값은 남기지 않는다
+        return Outcome(a.output, _info(self.name, a.attempts, removed, protections=tuple(sorted(Counter(applied).items()))))
 
     def raw(self, backend: ConstraintBackend, input: Mapping):
-        a = self._attempt(backend, input)
+        a, _ = self._attempt(backend, input)
         return _raw(a), _info(self.name, a.attempts, self.constraint[1], "raw")
 
 

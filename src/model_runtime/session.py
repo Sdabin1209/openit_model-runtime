@@ -79,9 +79,10 @@ class _Session:
         raw, self.last_call_info = self._roles["LORA_B"].raw(self._backend, input)
         return raw
 
-    def extract(self, input: Mapping, flow: Mapping | None = None, *, deadline: float | None = None) -> dict:
-        """flow(QuestionFlowTable)가 있으면 출력이 계약의 LoRA-A 출력 규칙도 지킨다(2.x 동안 없으면 스키마만, HTTP.md I9)."""
-        o = self._roles["LORA_A"].call(self._backend, input, flow, deadline)
+    def extract(self, input: Mapping, flow: Mapping | None = None, fields: Mapping | None = None, *, deadline: float | None = None) -> dict:
+        """flow(QuestionFlowTable)가 있으면 출력이 계약의 LoRA-A 출력 규칙도 지킨다(2.x 동안 없으면 스키마만, HTTP.md I9).
+        fields(QuestionFieldSpec, 계약 2.4.0)가 있으면 값 규칙도 지키며, 규칙에 걸린 출력은 데이터셋 정답 모양으로 바뀌어 나온다."""
+        o = self._roles["LORA_A"].call(self._backend, input, flow, fields, deadline)
         self.last_call_info = o.info
         if o.error is not None:
             raise o.error

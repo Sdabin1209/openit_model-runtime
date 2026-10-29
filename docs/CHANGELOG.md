@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 미정(버전은 올리지 않음) — 값 규칙 적용(`fields`), 계약 v2.4.0 (ADR 0024, D115)
+- `ExtractRequest.fields`(QuestionFieldSpec)가 있으면 `check_action_extraction` 뒤에 `apply_value_rules`를 적용한다. 규칙에 걸린 출력은 다시 생성 없이 바뀐 모양으로 200, 바꿀 수 없는 위반(`VALUE_TYPE_MISMATCH`, `VALUE_BELOW_MINIMUM`)은 재시도 후 503 OUTPUT_INVALID. `fields`가 없으면 이전 동작.
+- 적용 사유는 로그와 `X-Openit-Protections`(사유별 건수)에 이름만 남긴다. `ModelSession.extract(input, flow=None, fields=None)`.
+- 계약 핀 v2.3.0 → **v2.4.0**(`Dockerfile`). 시험 `tests/test_value_rules.py`.
+
 ## 미정(버전은 올리지 않음) — GPU 세션 키트의 release_server.py를 waitress로 (ADR 0023)
 `scripts/gpu_session/release_server.py`를 `ThreadingHTTPServer`에서 WSGI 앱 + waitress로 바꾼다. 응답 내용은 같고 번들은 chunked로 나가며 SIGTERM에 종료 코드 0으로 끝난다. 새 의존 없음(waitress는 추론 서버와 같은 잠금 파일에 있다). 시험 `tests/test_release_server.py`.
 
