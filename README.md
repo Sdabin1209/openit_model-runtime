@@ -2,7 +2,7 @@
 
 문진 챗봇이 쓰는 두 개의 작은 언어 모델(LoRA-A 추출, LoRA-B 응답)을 불러와 같은 방식으로 호출해 주는 공유 라이브러리이자 추론 서버다.
 
-환자 발화에서 "무슨 뜻인지"를 구조화해 뽑는 일(A, `extract`)과, 정해진 재료로 환자에게 할 문장을 만드는 일(B, `respond`)을 맡는다. 학습 후 평가, 승인 평가, 실제 서비스가 같은 프롬프트·디코딩으로 모델을 부르게 하는 것이 목적이다(docs/brief.md). 하지 않는 것: 학습(model-lab), 모델 보관과 승인(release-gate), 서비스 서버(survey-service), 판단 로직(turn-engine). 모델이 판단하게 만드는 프롬프트도 두지 않는다. 출처: docs/brief.md.
+환자 발화에서 "무슨 뜻인지"를 구조화해 뽑는 일(A, `extract`)과, 정해진 재료로 환자에게 할 문장을 만드는 일(B, `respond`)을 맡는다. 학습 후 평가, 승인 평가, 실제 서비스가 같은 프롬프트·디코딩으로 모델을 부르게 하는 것이 목적이다(docs/brief.md). 하지 않는 것: 학습(model-lab), 모델 보관과 승인(release-gate), 서비스 서버(survey-service), 판단 로직(문진 서비스). 모델이 판단하게 만드는 프롬프트도 두지 않는다. 출처: docs/brief.md.
 
 ## 전체 속의 위치
 
@@ -58,7 +58,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
   MODEL_RUNTIME_RELEASE_URL=<release-gate 주소> .venv/bin/python -m model_runtime.server
 ```
 
-`setup-env.sh`는 xgrammar를 설치하지 않는다(무거운 선택 의존이라 그것이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다). turn-engine 의존은 0.9.0에서 없앴다(ADR 0021, 아래 개수는 그 이전 값이라 turn-engine 설치 여부가 섞여 있다). 문항 흐름표는 문진 스키마에서 읽는다(docs/runbook.md). 또 형제 `../boundary-contracts`가 없으면 `test_reference_checkout_is_the_installed_tag` 1건이 건너뛰어진다(참조 서버·예제는 설치된 태그 패키지에서 읽는다). 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
+`setup-env.sh`는 xgrammar를 설치하지 않는다(무거운 선택 의존이라 그것이 필요한 시험이 건너뛰어지는 것은 의도된 선택이다). turn-engine은 쓰지 않는다(0.9.0에서 의존을 없앴고 3.0.0에서 표지도 action_rules_version으로 바꿨다). 문항 흐름표는 문진 스키마에서 읽는다(docs/runbook.md). 또 형제 `../boundary-contracts`가 없으면 `test_reference_checkout_is_the_installed_tag` 1건이 건너뛰어진다(참조 서버·예제는 설치된 태그 패키지에서 읽는다). 이것이 기준이고, 몇 건이 건너뛰어지는지와 의존을 더하면 몇 건이 더 도는지는 "현재 상태" 절의 시험 상태 항목이 정본이다.
 
 이 세션에서 실제로 돌린 것: `.venv/bin/python -m pytest --collect-only -q`(수집 개수는 "현재 상태" 절), `.venv/bin/python -m model_runtime.server --help`(스키마 경로가 필요하다는 안내가 나왔고 서버는 뜨지 않음). 돌리지 않은 것: 시험 실행, `scripts/smoke.sh`, 이미지 빌드, 서버 기동, GPU 관련 전부. 4번의 환경 변수 조합은 runbook 표를 옮긴 것이며 직접 기동해 확인하지 않았다.
 
@@ -66,14 +66,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 현행 버전은 `src/model_runtime/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- **시험 상태(정본, 개수는 이 한 곳)**. 기준은 `setup-env.sh`로 만든 새 가상환경이다(turn-engine·xgrammar 없음). 새 clone + 새 venv(2026-10-28, 커밋 a0d5b1a, 형제 `../boundary-contracts`·`../survey-service` 옆에 둠, PostgreSQL 무관)에서 `python -m pytest -q -rs`: **216 통과, 6 건너뜀**. 건너뜀 6건: turn-engine 미설치 4(`tests/test_fake_flow.py`), xgrammar 없음 1(`tests/test_key_order.py`), `MODEL_RUNTIME_REFERENCE_DATA_DIR` 없음 1(`tests/test_reference_data.py`, 참조 데이터 경로를 줘야 돈다).
-- **이웃 폴더가 없는 새 머신 기준(최신)**: 새 clone(커밋 시점 HEAD) + `bash scripts/setup-env.sh` 두 번 + `python -m pytest -q -rs`: **236 통과, 0 실패, 9 건너뜀**(turn-engine 미설치 5, xgrammar 없음 1, 참조 데이터 경로 없음 1, 작업공간 스키마 없음 1, 형제 boundary-contracts 작업 트리 없음 1). 스모크·이미지 빌드는 이번에 돌리지 않았다.
-- 위 새 clone 기준(216/6)은 `pod_setup` 단계 시험 8개(`tests/test_gpu_session.py`)를 더하기 전 값이다. 더한 뒤 이 리포의 기존 `.venv`(turn-engine 설치됨)에서 `python -m pytest -q -rs`: **233 통과, 7 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1, `tests/test_server_e2e.py`의 'boundary-contracts 참조 서버가 없다' 5; ADR 0015·0016 시험 추가 후. 이전 측정 232/2에서 e2e 5건이 건너뛰어진 원인은 이번에 조사하지 않았다: 이웃 폴더 상태에 따른 환경 차이로 추정, 미확인). 새 venv 기준 값은 다시 재지 않았다.
-- 가짜 A의 `reasks` 설정(CHANGELOG 0.7.5)과 시험 4개(`FakeReask`)를 더한 뒤 같은 기존 `.venv`에서 `python -m pytest -q -rs`: **237 통과, 7 건너뜀**(건너뜀 7건은 참조 서버·xgrammar·참조 데이터 경로 없음 등 환경 항목이며 전체 사유는 `-rs` 출력으로 확인, 이 줄에는 옮겨 적지 않았다). 새 venv 기준 값은 다시 재지 않았다.
-  - 0.7.5(계약 v2.1.0 정렬 릴리스): 기존 `.venv`에 boundary-contracts v2.1.0과 turn-engine v0.4.1을 `git+file`로 설치한 뒤 `python -m pytest -q -rs`: **242 통과, 2 건너뜀**(건너뜀: xgrammar 없음 1, 참조 데이터 경로 없음 1; 계약 v2.1.0 설치로 참조 서버 시험 5건도 돈다). 위 237/7 줄은 그 이전 기록이다. `scripts/smoke.sh`(라벨 기대값 0.7.5)와 이미지 빌드는 이 릴리스 준비에서 돌리지 않았다.
-  - 의존을 더하면: turn-engine(`pip install --no-deps` 태그 설치)을 더한 같은 venv에서 **220 통과, 2 건너뜀**(4건이 더 돈다, 실측). xgrammar를 더하면 `test_key_order.py` 1건이 더 돌 것이나, 이번에는 확인하지 못했다(xgrammar가 torch·transformers를 끌어와 5분 상한 안에 설치하지 못했다. 건너뜀 조건이 `import xgrammar` 실패라는 코드 읽기에 근거한 추정이다). 참조 데이터 1건은 환경 변수를 줘야 하며 돌리지 않았다.
-  - 스모크·이미지 라벨: **실행 확인 안 함**(Docker 빌드가 필요해 이번 점검에서 돌리지 않았다. 마지막 실행 기록은 docs/STATUS.md 23차, 0.7.3). **정적으로 확인한 것**: `scripts/smoke.sh`의 라벨 기대값은 pyproject의 version과 이미지에 설치된 `RUNTIME_VERSION` 두 출처이고(`bash -n` 통과), Dockerfile은 `MODEL_RUNTIME_VERSION` 인자가 비면 빌드를 실패시킨다. 이 구분의 정본은 이 절이며 다른 문서는 여기를 가리킨다.
-- 20차(0.7.0)의 시험·스모크 결과는 STATUS에 숫자가 없다. 수집 개수는 통과 수가 아니다.
+- **시험 상태(정본, 개수는 이 한 곳)**: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command): **336 통과, 2 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1), 계약 v3.0.0, 이 개발 PC(gpu-dev) 한 환경에서 잰 값이다. 깨끗한 두 번째 환경에서는 재현하지 않았다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
 
@@ -122,6 +115,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0024](docs/adr/0024-server-applies-value-rules.md) | extract가 요청의 `fields`로 값 규칙(범위·R1~R3)을 적용한다 |
 | [0025](docs/adr/0025-build-entrypoint-and-contract-schemas.md) | 영역 빌드 진입점 `scripts/build-image.sh`(계약 BuildImageRequest/Result)와 ServingConfig·RuntimeProfile·RuntimeFlowFile을 계약 스키마로 검증 |
 | [0026](docs/adr/0026-setup-env-report.md) | `scripts/setup-env.sh`가 SetupEnvReport 한 줄로 시험 환경(.venv, test_command)을 선언한다 |
+| [0027](docs/adr/0027-contract-3-transition.md) | 계약 3.0.0 전환: ExtractRequest만, action_rules_version, 라벨 정직성(U50) |
 
 ## 더 자세한 문서
 

@@ -261,7 +261,8 @@ def main():
             refs[r] = {"path": "system_prompt.txt", "sha256": file_hash(Path(d) / "system_prompt.txt")}
         s = mr.load(ad, cfgs, schema_dir=schema_dir, expected_serving_config_hashes=hs, system_prompts=refs, backend=backend)
         try:
-            pa = s.extract(A_INPUT); sa = schemas.output_violations("LORA_A", pa); ia = s.last_call_info
+            pa = s.extract(A_INPUT, {"order": [A_INPUT["question_id"]], "skips": []}, {"fields": [{"slot": A_INPUT["question_id"] + ".placeholder", "data_type": "boolean"}]});   # 3.0.0: flow·fields 필수. 점검용 한 문항 흐름과 자리표시 규격
+            sa = schemas.output_violations("LORA_A", pa); ia = s.last_call_info
             ra = {"attempts": ia.attempts, "outcome": ia.outcome, "schema_violations": len(sa)}
         except mr.ModelOutputInvalid as e:   # 무작위 LoRA라 형식을 못 지킬 수 있다. 값을 지어내지 않는 것이 정상 동작이다
             ra = {"attempts": e.attempts, "outcome": "invalid", "schema_violations": None}

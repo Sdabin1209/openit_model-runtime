@@ -5,7 +5,7 @@ from pathlib import Path
 
 import model_runtime as mr
 from model_runtime import roles
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, cfgs_and_hashes
+from helpers import A_FIELDS, A_FLOW, A_INPUT, B_INPUT, SCHEMA_DIR, cfgs_and_hashes
 
 SRC = Path(mr.__file__).parent
 BRANCH = re.compile(r"\brole\s*(==|!=|in\s+JSON_OUTPUT_ROLES|not in JSON_OUTPUT_ROLES)|JSON_OUTPUT_ROLES|\.role\s*(==|!=)")
@@ -25,7 +25,7 @@ class Split(unittest.TestCase):
         a, r = s._roles["LORA_A"], s._roles["LORA_B"]
         self.assertIsNotNone(a.constraint[0])           # A만 제약 스키마를 가진다
         self.assertEqual(r.constraint, (None, ()))
-        self.assertIsInstance(a.call(b, A_INPUT).result, dict)
+        self.assertIsInstance(a.call(b, A_INPUT, A_FLOW, A_FIELDS).result, dict)
         self.assertEqual(r.call(b, B_INPUT).result.is_fallback, False)
 
     def test_retry_function_is_shared(self):

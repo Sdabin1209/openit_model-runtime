@@ -96,7 +96,7 @@ class MimicExtractor:
         self.reasks = list(reasks)
         self.rules = (rules or load_rules())["extractor"]
 
-    # --- 문항 흐름(turn-engine의 규칙과 같은 뜻: 이 말에서 저장한 값만으로 건너뛰기를 적용한다) ---
+    # --- 문항 흐름(계약 action_rules의 규칙과 같은 뜻: 이 말에서 저장한 값만으로 건너뛰기를 적용한다) ---
     def _next_after(self, item: str, saved: Mapping) -> str:
         if item not in self.order:
             return "END"

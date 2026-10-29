@@ -12,14 +12,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from boundary_contracts import validator
-from helpers import B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of, wait_until
+from helpers import extract_body, rules_for, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of, wait_until
 
 import model_runtime as mr
 from model_runtime import server
 from test_server import StubReader, call
 
-FLOW = question_flow_table()   # 문진 스키마의 흐름표(사본 없음). 없으면 모듈을 건너뛴다
-ORDER = list(FLOW["order"])
+TABLE = question_flow_table()   # 문진 스키마의 흐름표(QuestionFlowTable, 사본 없음). 없으면 모듈을 건너뛴다
+ORDER = list(TABLE["order"])
+
+
+def rf(inp):
+    """세션에 줄 (flow, fields): 문진 스키마의 흐름표(3.0.0: extract는 항상 flow·fields와 함께 부른다)."""
+    return rules_for(inp, TABLE)
 INTEGER_SLOTS = {"Q8_1": "days", "Q8_2": "days", "Q9_1": "days", "Q9_2": "days"}
 SLOTS = {}
 for it in ORDER:
@@ -31,7 +36,7 @@ for it in ORDER:
         SLOTS[it] = [{"key": "Q7.does_not_drink", "type": "boolean"}]
     else:
         SLOTS[it] = [{"key": f"{it}.answer", "type": "boolean"}]
-SKIPS = skips_of(FLOW)
+SKIPS = skips_of(TABLE)
 FLOW = {"order": ORDER, "slots": SLOTS, "skips": SKIPS,
         "corrections": [{"contains": "사실은 하루", "key": "Q8_1.days", "value": 1}],
         "reasks": [{"contains": "소리가 안 들", "key": "Q4.answer", "reason": "MISSING", "at": "Q4"}]}
@@ -82,10 +87,10 @@ class Extractor(Env):
             for utt in UTTERANCES:
                 for state in states_for(qid):
                     inp = a_input(qid, utt, state)
-                    out = self.session.extract(inp)   # 세션 경로: 프롬프트 조립 -> 모방 -> 사후 검증(ActionExtraction) 통과
+                    out = self.session.extract(inp, *rf(inp))   # 세션 경로: 프롬프트 조립 -> 모방 -> 사후 검증(ActionExtraction) 통과
                     assert_valid("ActionExtraction", out)                               # (a) 계약 검증기
-                    self.assertEqual(rule_violations(inp, out, FLOW), [], (qid, utt, state, out))   # (b) 계약 기준 검사기(출력 규칙)
-                    self.assertEqual(out, self.session.extract(copy.deepcopy(inp)), "결정적")
+                    self.assertEqual(rule_violations(inp, out, TABLE), [], (qid, utt, state, out))   # (b) 계약 기준 검사기(출력 규칙)
+                    self.assertEqual(out, self.session.extract(copy.deepcopy(inp), *rf(copy.deepcopy(inp))), "결정적")
                     actions.add(out["action"]); ends += out["next_item"] == "END"; saved += any(v["save"] for v in out["values"]); n += 1
         self.assertEqual(n, len(UTTERANCES) * (len(ORDER) * 5 - 2 * 0) - len(UTTERANCES) * 2)   # 첫 문항은 앞 문항 변형이 없다
         # 다양성: 일곱 가지 동작이 모두 나오고, 종료(END)와 저장 경로도 지난다
@@ -94,7 +99,7 @@ class Extractor(Env):
 
     def test_each_behavior_on_a_known_item(self):
         s = self.session
-        ex = lambda q, u, st=None: s.extract(a_input(q, u, st or {}))
+        ex = lambda q, u, st=None: s.extract(a_input(q, u, st or {}), *rf(a_input(q, u, st or {})))
         self.assertEqual(ex("Q4", "네 피웠어요")["values"][0]["value"], True)
         out = ex("Q4", "아니요 안 피웠어요")                       # 값 채우기 + 건너뛰기 규칙(Q4_1 건너뜀)
         self.assertEqual((out["action"], out["next_item"], out["values"][0]["value"]), ("NEXT", "Q5", False))
@@ -119,9 +124,9 @@ class Extractor(Env):
 
     def test_two_slot_item_asks_for_the_remaining_slot_then_moves_on(self):
         s = self.session
-        first = s.extract(a_input("Q1.D03", "네 있어요", {}))
+        first = s.extract(a_input("Q1.D03", "네 있어요", {}), *rf(a_input("Q1.D03", "네 있어요", {})))
         self.assertEqual((first["action"], first["targets"]), ("REASK", ["Q1.D03.on_medication"]))
-        second = s.extract(a_input("Q1.D03", "아니요", {"Q1.D03.diagnosed": {"value": True, "status": "ANSWERED"}}))
+        second = s.extract(a_input("Q1.D03", "아니요", {"Q1.D03.diagnosed": {"value": True, "status": "ANSWERED"}}), *rf(a_input("Q1.D03", "아니요", {"Q1.D03.diagnosed": {"value": True, "status": "ANSWERED"}})))
         self.assertEqual((second["action"], second["values"][0]["key"], second["next_item"]), ("NEXT", "Q1.D03.on_medication", "Q1.D04"))
 
     def test_without_flow_it_invents_nothing(self):
@@ -234,7 +239,7 @@ class ServerSelectsMimic(unittest.TestCase):
             self.assertEqual(info["serving_config_expectation"]["constraint"]["backend"], "mimic")
             self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0] in (200, 202), True)
             wait_until(lambda: svc.releases.get("r1") is not None and svc.releases["r1"].state == "LOADED")
-            st, body, hdr = call(url, "/v1/releases/r1/extract", a_input("Q4", "아니요 안 피웠어요", {}))
+            st, body, hdr = call(url, "/v1/releases/r1/extract", extract_body(a_input("Q4", "아니요 안 피웠어요", {}), TABLE))
             self.assertEqual((st, body["next_item"], body["values"][0]["value"]), (200, "Q5", False))
             st, text, _ = call(url, "/v1/releases/r1/respond", B_INPUT)
             self.assertEqual(st, 200); self.assertRegex(text, r"[가-힣]")

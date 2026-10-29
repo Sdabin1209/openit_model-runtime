@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["jsonschema>=4.10", "waitress>=3.0", "boundary-contracts"]   # waitress: 추론 서버의 WSGI 서버(ADR 0022)
 
 [project.optional-dependencies]
-dev = ["pytest"]   # turn-engine 의존은 없다(ADR 0021). 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다
+dev = ["pytest"]   # 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다
 vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU 시험 뒤에 고정한다(scripts/gpu_check.sh가 설치 버전을 기록).
 
 [tool.setuptools.packages.find]

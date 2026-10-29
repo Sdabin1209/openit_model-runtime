@@ -236,7 +236,8 @@ log "서버 준비됨 ($(( $(date +%s) - t0 ))초, util $CUR_UTIL). GPU: $(gpu_m
 left=$(( $(remaining) - 90 )); [ "$left" -lt 60 ] && die "측정할 시간이 남지 않았다(남은 ${left}초)" 6
 if [ -n "$PLAN" ]; then LOADARGS=(--plan "$PLAN"); else LOADARGS=(--n-a "$N_A" --n-b "$N_B" --concurrency "$CONC"); fi
 log "적재와 측정 시작 (측정 시간 상한 ${left}초, ${LOADARGS[*]})"
-"$PY" "$HERE/measure.py" --url "http://127.0.0.1:$PORT" --release-id gpu-session --c1-a "$C1/lora_a_val.jsonl" --c1-b "$C1/lora_b_val.jsonl" \
+FLOWARGS=(); [ -f "$KIT/survey-schema/data/question_flow.json" ] && FLOWARGS=(--flow-file "$KIT/survey-schema/data/question_flow.json")   # 문진 스키마의 흐름표(키트에 있으면). 없으면 행마다 한 문항 흐름
+"$PY" "$HERE/measure.py" "${FLOWARGS[@]}" --url "http://127.0.0.1:$PORT" --release-id gpu-session --c1-a "$C1/lora_a_val.jsonl" --c1-b "$C1/lora_b_val.jsonl" \
   "${LOADARGS[@]}" --token-file "$RUN/token" --put-release --put-timeout 900 --max-seconds "$left" --out "$RUN/measure.json"
 MRC=$?
 echo "$(date +%H:%M:%S) 측정 후 $(gpu_mem)" >> "$RUN/logs/gpu_mem.log"

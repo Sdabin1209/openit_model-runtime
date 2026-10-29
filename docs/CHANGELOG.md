@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 미정(버전은 올리지 않음, 헤드가 정한다) — 계약 3.0.0 전환 (ADR 0027, U300·U50)
+**호환 깨짐**: I9 extract 본문은 `ExtractRequest{input, flow, fields}`만 받는다(옛 본문·fields 없는 요청은 400 INVALID_RECORD).
+- `ModelSession.extract(input, flow, fields)`, `ExtractRole.call(backend, input, flow, fields)`: flow·fields 필수. 규칙·값 규칙 보증의 "없을 때" 분기를 지웠다.
+- 계보 표지 `turn_engine_version` -> `action_rules_version`(값은 계약 규칙 데이터의 `rules_version`, `model_runtime.ACTION_RULES_VERSION`). 이미지 라벨 `io.openit.turn-engine`과 `ARG TURN_ENGINE_VERSION` 제거. `TURN_ENGINE_MARKER_VERSION`·`--turn-engine-version`·`MODEL_RUNTIME_TURN_ENGINE_MARKER`는 `ACTION_RULES_VERSION`·`--action-rules-version`으로 바뀌었고 환경 변수는 없앴다.
+- `build-image.sh` 라벨 정직성(U50): 요청·소스 트리·이 영역의 고정이 다르면 빌드 전에 실패하고, 빌드 뒤 이미지 안의 설치 버전이 라벨과 다르면 이미지를 지우고 실패한다.
+- GPU 세션 도구(`measure.py`, `gpu_serve_check.py`, `gpu_probe.py`)는 ExtractRequest로 보낸다. 측정의 칸 규격은 자리표시라 값 규칙을 검사하지 않는다(결과 JSON의 `rules_context`).
+- 계약 핀 v2.7.0 -> **v3.0.0**(`Dockerfile`).
+
 ## 미정(버전은 올리지 않음) — 승격된 계약 스키마의 영역 사본 정리 (U49)
 `docs/change-requests/schemas/` 아래 파일 16개(스키마 5, 예시 10, 스크립트 1)를 분류했다(계약 v2.7.0 패키지의 스키마 이름과 대조).
 

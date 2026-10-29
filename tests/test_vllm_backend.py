@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from boundary_contracts.canonical import file_hash
-from helpers import A_INPUT, B_INPUT, GOOD_A, GOOD_B, SCHEMA_DIR
+from helpers import rules_for, A_INPUT, B_INPUT, GOOD_A, GOOD_B, SCHEMA_DIR
 
 import model_runtime as mr
 
@@ -199,7 +199,7 @@ class Session(unittest.TestCase):
         cfgs, hs = self.cfgs(a={"decoding": {"constraint_mode": "constrained", "temperature": 0.5, "seed": 7, "max_tokens": 64}})
         s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
         self.llms[0].texts = ["not json", "{}", GOOD_A]
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         seeds = [c[1].kw["seed"] for c in self.llms[0].calls]
         self.assertEqual(seeds, [7, 8, 9])
         self.assertEqual({c[1].kw["temperature"] for c in self.llms[0].calls}, {0.5})
@@ -229,7 +229,7 @@ class Session(unittest.TestCase):
         cfgs, hs = self.cfgs(b={"decoding": {"constraint_mode": "constrained", "temperature": 0.3, "seed": 50, "max_tokens": 32}})
         s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
         self.llms[0].texts = [GOOD_A, GOOD_B]
-        s.extract(A_INPUT); s.respond(B_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT)); s.respond(B_INPUT)
         (_, spa, la), (_, spb, lb) = self.llms[0].calls
         self.assertEqual((la.name, spa.kw["seed"], spa.kw["temperature"]), ("LORA_A", 1000, 0))
         self.assertEqual((lb.name, spb.kw["seed"], spb.kw["temperature"], spb.kw["max_tokens"]), ("LORA_B", 50, 0.3, 32))
@@ -245,7 +245,7 @@ class Session(unittest.TestCase):
         d = {"constraint_mode": "none", "temperature": 0, "seed": 1, "max_tokens": 64}
         cfgs, hs = self.cfgs(a={"decoding": d})
         s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         kw = self.llms[0].calls[0][1].kw
         self.assertNotIn("structured_outputs", kw)
 
@@ -254,7 +254,7 @@ class Session(unittest.TestCase):
         s = mr.load(self.ad, cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, system_prompts=refs(self.ad), backend=self.b)
         self.llms[0].texts = ["x", "y", "z"]
         with self.assertRaises(mr.ModelOutputInvalid) as cm:
-            s.extract(A_INPUT)
+            s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertEqual((cm.exception.attempts, s.last_call_info.outcome), (3, "invalid"))
 
     def test_respond_sends_no_schema_and_a_package_prompt_with_the_b_adapter(self):

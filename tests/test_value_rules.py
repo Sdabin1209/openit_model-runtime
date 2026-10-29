@@ -58,7 +58,7 @@ class ServerValueRulesHelpers:
 
     def post(self, url, q, fields=FIELDS):
         body = {"input": inp(q), "flow": FLOW, **({"fields": fields} if fields is not None else {})}
-        return call(url, "/v1/releases/r1/extract", body)
+        return call(url, "/v1/releases/r1/extract", body, wrap=False)
 
 
 class ServerValueRules(ServerValueRulesHelpers, unittest.TestCase):
@@ -95,12 +95,12 @@ class ServerValueRules(ServerValueRulesHelpers, unittest.TestCase):
         s, b, h = self.post(url, "Q10")
         self.assertEqual((s, h["X-Openit-Attempts"], b["values"][0]["value"]), (200, "2", 3))
 
-    def test_c_without_fields_behaves_as_before(self):
+    def test_c_without_fields_is_rejected_400(self):   # 3.0.0: fields는 필수다(값 규칙 보증을 건너뛰는 길이 없다). 모델을 부르지 않는다
         for out, q in ((OUT_OF_RANGE, "Q10"), (TYPE_MISMATCH, "Q10"), (BELOW_MIN, "Q9_2")):
             url = self.up(lambda r, out=out: json.dumps(out))
             s, b, h = self.post(url, q, fields=None)
-            self.assertEqual((s, b), (200, out))   # 값 규칙 없음, 출력 그대로
-            self.assertNotIn("X-Openit-Protections", h)
+            self.assertEqual((s, b["code"]), (400, "INVALID_RECORD"))
+            self.assertEqual(self.calls, [])
 
     def test_fields_must_match_schema(self):
         url = self.up(lambda r: json.dumps(OK))
@@ -121,7 +121,8 @@ class LibraryValueRules(unittest.TestCase):
         self.assertEqual(dict(s.last_call_info.protections), {"OUT_OF_RANGE": 1})
         with self.assertRaises(mr.ModelOutputInvalid):
             self.session(lambda r: json.dumps(TYPE_MISMATCH)).extract(inp("Q10"), FLOW, FIELDS)
-        self.assertEqual(self.session(lambda r: json.dumps(OUT_OF_RANGE)).extract(inp("Q10"), FLOW)["next_item"], "END")   # fields 없음
+        with self.assertRaises(TypeError):   # fields는 필수 인자(3.0.0)
+            self.session(lambda r: json.dumps(OUT_OF_RANGE)).extract(inp("Q10"), FLOW)
 
 
 class FakeBackendScene(ServerValueRulesHelpers, unittest.TestCase):
@@ -130,12 +131,12 @@ class FakeBackendScene(ServerValueRulesHelpers, unittest.TestCase):
         slots = {"Q10": [{"key": "Q10.days", "type": "integer"}]}
         url = self.up(mr.make_default_responder(FLOW["order"], None, slots, FLOW["skips"]))
         body = {"input": {**inp("Q10"), "user_utterance": utterance}, "flow": FLOW, **({"fields": fields} if fields else {})}
-        return call(url, "/v1/releases/r1/extract", body)
+        return call(url, "/v1/releases/r1/extract", body, wrap=False)
 
     def test_out_of_range_utterance(self):
         s, b, h = self.scene("일주일에 8일 해요")
         self.assertEqual((s, b["action"], b["reason"], b["values"][0]["value"], h["X-Openit-Protections"]), (200, "REASK", "OUT_OF_RANGE", None, "OUT_OF_RANGE:1"))
         s, b, h = self.scene("일주일에 8일 해요", fields=None)
-        self.assertEqual((s, b["action"], b["values"][0]["value"]), (200, "NEXT", 8))   # fields가 없으면 이전 동작
+        self.assertEqual((s, b["code"]), (400, "INVALID_RECORD"))   # fields가 없으면 거부(3.0.0)
         s, b, h = self.scene("일주일에 3일 해요")
         self.assertEqual((s, b["action"], b["values"][0]["value"], "X-Openit-Protections" in h), (200, "NEXT", 3, False))

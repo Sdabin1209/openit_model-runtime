@@ -150,7 +150,7 @@ def fake_extraction_for(question_id: str, order: Sequence[str], utterance: str |
                         slots: Mapping | None = None, skips: Sequence[Mapping] = (), corrections: Sequence[Mapping] = (),
                         reasks: Sequence[Mapping] = ()) -> dict:
     """question_id 다음 문항으로 가는 최소 유효 ActionExtraction. values가 비어 있으면 저장 값이 없어 건너뛰기 규칙이 적용되지 않으므로
-    기대 next_item은 순서상 바로 다음 문항(마지막이면 END)이다(turn-engine v0.3.0 validate_extraction과 일치).
+    기대 next_item은 순서상 바로 다음 문항(마지막이면 END)이다(계약 action_rules의 기준 검사기와 일치).
     문항에 칸 정의(slots)가 있고 발화에서 값을 정할 수 있으면 첫 칸에 ANSWERED 값을 내고, 그 값에 건너뛰기(skips)를 적용한 다음 문항으로 간다."""
     order = list(order)
     i = order.index(question_id) + 1 if question_id in order else len(order)
@@ -160,7 +160,7 @@ def fake_extraction_for(question_id: str, order: Sequence[str], utterance: str |
             return {"action": "REASK", "next_item": question_id, "reason": r.get("reason", "MISSING"), "targets": [r["key"]],
                     "values": [{"key": r["key"], "precision": "unspecified", "save": False, "status": "MISSING", "value": None}]}
     # 정정(0.7.2): corrections 항목의 문구가 발화에 있으면(at이 있으면 그 문항일 때만) CORRECT. 앞서 한 답의 칸을 CORRECTION으로 저장한다.
-    # next_item은 turn-engine 규칙대로 정정한 문항(값의 문항) 바로 다음에 건너뛰기를 적용한 문항이다.
+    # next_item은 계약 출력 규칙대로 정정한 문항(값의 문항) 바로 다음에 건너뛰기를 적용한 문항이다.
     for c in corrections:
         if utterance and c["contains"] in utterance and c.get("at") in (None, question_id):
             item = c["key"].rsplit(".", 1)[0].split("[")[0]

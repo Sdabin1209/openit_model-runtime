@@ -33,16 +33,14 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
     && chown -R 10001 /var/lib/model-runtime
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
-ARG BOUNDARY_VERSION=v2.7.0
+ARG BOUNDARY_VERSION=v3.0.0
 ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). 라벨 값은 v 접두사를 붙인다(ImageLabels, D108). scripts/smoke.sh가 pyproject에서 읽어 v를 붙여 넘긴다
-# 값이 없다는 표기는 n/a 하나다(계약 v2.2.0 ImageLabels, D108: none·unknown 불가). 이 서버는 turn-engine을 쓰지 않는다
+# 값이 없다는 표기는 n/a 하나다(계약 ImageLabels: none·unknown 불가)
 ARG SURVEY_SCHEMA_VERSION=n/a
-ARG TURN_ENGINE_VERSION=n/a
 LABEL io.openit.service="model-runtime" \
       io.openit.revision="${REVISION}" \
       io.openit.contracts.boundary="${BOUNDARY_VERSION}" \
       io.openit.contracts.survey-schema="${SURVEY_SCHEMA_VERSION}" \
-      io.openit.turn-engine="${TURN_ENGINE_VERSION}" \
       io.openit.model-runtime="${MODEL_RUNTIME_VERSION}"
 USER 10001
 # 라벨 인자 가드(가벼운 레이어라 캐시에 영향 없음): 인자가 비면 unknown 같은 거짓 라벨 대신 빌드를 실패시킨다

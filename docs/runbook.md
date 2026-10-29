@@ -3,7 +3,7 @@
 라이브러리이므로 서비스처럼 직접 운영하지 않는다. 아래는 이 라이브러리를 쓰는 서비스·평가에서 증상이 나올 때의 확인 순서다.
 
 ## 개발 시험
-`bash scripts/setup-env.sh`(정본: `.venv` 생성·재사용, pytest·jsonschema·`-e .`·boundary-contracts 태그 설치, 멱등, 형제 폴더 불필요)를 한 뒤 `.venv/bin/python -m pytest`. 계약 태그의 정본은 `Dockerfile`의 `ARG BOUNDARY_VERSION`이다. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 참조 I4 서버·conformance·예제는 설치된 태그 패키지의 `conformance`에서 읽어 형제 폴더 없이 돈다. 형제 폴더를 읽는 시험은 `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag` 하나뿐이고, 형제 작업 트리가 없으면 건너뛴다. 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. turn-engine·xgrammar가 없는 새 venv에서는 그 둘이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
+`bash scripts/setup-env.sh`(정본: `.venv` 생성·재사용, pytest·jsonschema·`-e .`·boundary-contracts 태그 설치, 멱등, 형제 폴더 불필요)를 한 뒤 `.venv/bin/python -m pytest`. 계약 태그의 정본은 `Dockerfile`의 `ARG BOUNDARY_VERSION`이다. GPU 불필요. boundary-contracts는 형제 폴더 editable(`-e ../boundary-contracts`)이 아니라 **태그로 설치한다**(공통 규칙). `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag`가 "설치된 패키지가 형제 작업 트리가 아니다"를 요구하고, 형제 `../boundary-contracts`는 읽기 전용 참조(적합성 시험·smoke의 git archive)로 같은 태그를 가리켜야 한다(`read_secret`이 v2.0.2부터 있다). 참조 I4 서버·conformance·예제는 설치된 태그 패키지의 `conformance`에서 읽어 형제 폴더 없이 돈다. 형제 폴더를 읽는 시험은 `tests/test_server_e2e.py::test_reference_checkout_is_the_installed_tag` 하나뿐이고, 형제 작업 트리가 없으면 건너뛴다. 설치본은 항상 태그 패키지다. 시험 상태(통과·건너뜀 수)는 README 5절이 정본이다. xgrammar가 없는 새 venv에서는 그것이 필요한 시험이 건너뛰어진다(`pytest -rs`의 SKIPPED 줄로 본다).
 
 **문항 흐름표(시험 전용)**: 출력 규칙 시험(`tests/test_extract_rules.py`, `test_mimic.py`, `test_fake_flow.py`)은 문진 스키마의 `data/question_flow.json`을 읽어 `QuestionFlowTable`(order, skips)로 쓴다. 사본을 두지 않는다. 찾는 순서는 설치된 `survey_schema`, 환경 변수 `SURVEY_SCHEMA_DIR`, 상위 폴더의 `survey-service/schema`이고, 못 찾으면 그 시험만 건너뛴다(`pytest -rs`의 SKIPPED 줄). turn-engine은 더 이상 필요하지 않다(ADR 0021).
 
@@ -22,7 +22,7 @@
 
 스키마를 이미지에 넣는 선택 옵션: `--build-context schema=<.../survey-service/schema>`를 더하면 `/opt/survey-schema`에 들어가고, `MODEL_RUNTIME_SCHEMA_DIR`가 없을 때 `/opt/survey-schema/schemas`를 쓴다(읽기 전용 마운트 불필요). 안 주면 빈 스테이지라 이미지에 스키마가 없고 마운트가 필요하다. 어느 쪽이든 정수 버전은 라벨 `io.openit.contracts.survey-schema`(`--build-arg SURVEY_SCHEMA_VERSION=<n>`)로 밝히고, 스키마 버전이 바뀌면 이미지를 다시 만든다(D21).
 
-라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n> TURN_ENGINE_VERSION=<v>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 빌드 인자 `MODEL_RUNTIME_VERSION`, 정본은 pyproject의 version). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
+라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 빌드 인자 `MODEL_RUNTIME_VERSION`, 정본은 pyproject의 version). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
 
 ### 환경 변수 (설정은 환경 변수로만 받는다)
 | 변수 | 필수 | 기본 | 뜻 |

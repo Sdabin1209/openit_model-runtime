@@ -7,7 +7,7 @@ import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of
+from helpers import rules_for, A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of
 
 import model_runtime as mr
 from model_runtime import server
@@ -17,6 +17,12 @@ def _flow():
     return question_flow_table(), rule_violations
 
 ORDER = ["Q1.D01", "Q1.D02", "Q1.D03", "Q2.D01", "Q3"]
+ORDER_FLOW = {"order": ORDER, "skips": []}
+
+
+def rf(inp, flow=None):
+    """이 파일의 시험이 세션에 줄 (flow, fields). 기본은 v2_session·corr_session이 쓰는 V2_FLOW다(ORDER 목록 세션은 ORDER_FLOW, 문진 스키마 흐름표를 쓰는 시험은 그 표를 명시한다)(3.0.0: extract는 항상 flow·fields와 함께 부른다)."""
+    return rules_for(inp, flow or V2_FLOW)
 
 
 def session(order=None, extraction=None):
@@ -38,31 +44,33 @@ class FakeFlow(unittest.TestCase):
     def test_session_returns_schema_valid_output_per_input(self):
         s = session(ORDER)
         for qid, want in zip(ORDER, ORDER[1:] + ["END"]):
-            out = s.extract(a_input(qid))
+            out = s.extract(a_input(qid), *rf(a_input(qid), ORDER_FLOW))
             assert_valid("ActionExtraction", out)
             self.assertEqual((out["action"], out["next_item"], out["values"]), ("NEXT", want, []))
         self.assertEqual(s.respond(B_INPUT).text, mr.backends.FAKE_RESPONSE_TEXT)
 
     def test_without_config_output_is_legacy_fixed(self):   # 호환
-        out = session().extract(a_input("Q1.D01"))
+        out = session().extract(a_input("Q1.D01"), *rules_for(a_input("Q1.D01")))   # 한 문항 흐름(끝)이면 고정 출력도 규칙을 지킨다
         self.assertEqual(out, mr.backends.FAKE_EXTRACTION)
 
     def test_fixed_extraction_wins_over_flow(self):
         fixed = {"action": "NEXT", "next_item": "Q3", "values": []}
-        self.assertEqual(session(ORDER, fixed).extract(a_input("Q1.D01")), fixed)
+        self.assertEqual(session(ORDER, fixed).extract(a_input("Q1.D01"), *rules_for(a_input("Q1.D01"), {"order": ["Q1.D01", "Q3"], "skips": []})), fixed)
 
     def test_passes_action_rules_for_every_item(self):
         flow, validate_extraction = _flow()
         s = session(list(flow["order"]))
         for qid in flow["order"]:
             inp = a_input(qid)
-            self.assertEqual(validate_extraction(inp, s.extract(inp), flow), [], qid)
+            self.assertEqual(validate_extraction(inp, s.extract(inp, *rf(inp, flow)), flow), [], qid)
 
     def test_legacy_fixed_output_is_rejected_by_validate_extraction(self):   # 이 변경의 동기(deploy CR-D22 1항)를 시험으로 남긴다
         flow, validate_extraction = _flow()
         inp = a_input("Q1.D01")
-        v = validate_extraction(inp, session().extract(inp), flow)
-        self.assertEqual([x.code for x in v], ["SKIP_ORDER_MISMATCH"])
+        fixed = session().extract(inp, *rules_for(inp))   # 고정 출력(다음은 END)은 한 문항 흐름에서만 규칙을 지킨다
+        self.assertEqual([x.code for x in validate_extraction(inp, fixed, flow)], ["SKIP_ORDER_MISMATCH"])   # 실제 흐름표로 보면 위반이다
+        with self.assertRaises(mr.ModelOutputInvalid):   # 서버(세션)는 그런 출력을 내보내지 않는다(3.0.0: 규칙 보증은 항상)
+            session().extract(inp, *rf(inp, flow))
 
     def test_flow_file_formats_and_errors(self):
         with TemporaryDirectory() as t:
@@ -128,7 +136,7 @@ class FakeValues(unittest.TestCase):
     def test_rule_table(self):
         s = v2_session()
         for qid, utt, want in RULES:
-            out = s.extract({**a_input(qid), "user_utterance": utt})
+            out = s.extract({**a_input(qid), "user_utterance": utt}, *rf({**a_input(qid), "user_utterance": utt}))
             assert_valid("ActionExtraction", out)
             self.assertEqual(out, want, (qid, utt))
             self.assertEqual(list(out), sorted(out), "키 순서 사전순")
@@ -137,7 +145,7 @@ class FakeValues(unittest.TestCase):
 
     def test_no_slots_keeps_empty_values_for_any_utterance(self):
         s = session(ORDER)
-        self.assertEqual(s.extract({**a_input("Q1.D01"), "user_utterance": "네"})["values"], [])
+        self.assertEqual(s.extract({**a_input("Q1.D01"), "user_utterance": "네"}, *rf({**a_input("Q1.D01"), "user_utterance": "네"}, ORDER_FLOW))["values"], [])
 
     def test_passes_action_rules(self):
         flow, validate_extraction = _flow()
@@ -152,7 +160,7 @@ class FakeValues(unittest.TestCase):
         for qid in order:
             for utt in ("네", "아니요", "3일", "없어요", "   ", "글쎄요"):
                 inp = {**a_input(qid), "user_utterance": utt}
-                out = s.extract(inp)
+                out = s.extract(inp, *rf(inp, flow))
                 self.assertEqual(validate_extraction(inp, out, flow), [], (qid, utt))
                 n_saved += bool(out["values"])
         self.assertGreater(n_saved, 10)   # 저장 경로를 실제로 지났다
@@ -190,6 +198,7 @@ class FakeValues(unittest.TestCase):
 CORRECTIONS = [{"contains": "아까 말", "key": "Q4.answer", "value": False, "at": "Q5"},
                {"contains": "사실은 하루", "key": "Q8_1.days", "value": 1}]
 V2_ORDER = ["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04", "Q4", "Q4_1", "Q5", "Q8_1", "Q8_2", "Q9_1"]
+V2_FLOW = {"order": V2_ORDER, "skips": SKIPS}
 
 
 def corr_session():
@@ -209,7 +218,7 @@ class FakeCorrect(unittest.TestCase):
             ("Q8_2", "사실은 하루예요", {"action": "CORRECT", "next_item": "Q8_2", "values": [cv("Q8_1.days", 1)]}),
             ("Q9_1", "사실은 하루예요", {"action": "CORRECT", "next_item": "Q8_2", "values": [cv("Q8_1.days", 1)]}),
         ):
-            out = s.extract({**a_input(qid), "user_utterance": utt})
+            out = s.extract({**a_input(qid), "user_utterance": utt}, *rf({**a_input(qid), "user_utterance": utt}))
             assert_valid("ActionExtraction", out)
             self.assertEqual(out, want, (qid, utt))
             self.assertEqual(list(out), sorted(out))
@@ -218,10 +227,10 @@ class FakeCorrect(unittest.TestCase):
     def test_at_restricts_and_no_match_is_unchanged(self):
         s = corr_session()
         # at=Q5 이므로 다른 문항에서는 정정이 아니라 기존 규칙(NEXT)
-        out = s.extract({**a_input("Q4"), "user_utterance": "아까 말한 대로 네"})
+        out = s.extract({**a_input("Q4"), "user_utterance": "아까 말한 대로 네"}, *rf({**a_input("Q4"), "user_utterance": "아까 말한 대로 네"}))
         self.assertEqual(out["action"], "NEXT")
         # corrections를 주지 않으면 기존 동작 그대로
-        self.assertEqual(v2_session().extract({**a_input("Q5"), "user_utterance": "아까 말한 거 틀렸어요"})["action"], "NEXT")
+        self.assertEqual(v2_session().extract({**a_input("Q5"), "user_utterance": "아까 말한 거 틀렸어요"}, *rf({**a_input("Q5"), "user_utterance": "아까 말한 거 틀렸어요"}))["action"], "NEXT")
 
     def test_passes_action_rules(self):
         flow, validate_extraction = _flow()
@@ -236,7 +245,7 @@ class FakeCorrect(unittest.TestCase):
         for qid in order:
             for utt in ("고칠게요", "고칠게요 일수", "고칠게요 술"):
                 inp = {**a_input(qid), "user_utterance": utt}
-                out = s.extract(inp)
+                out = s.extract(inp, *rf(inp, flow))
                 self.assertEqual(validate_extraction(inp, out, flow), [], (qid, utt))
                 n += out["action"] == "CORRECT"
         self.assertGreater(n, 20)
@@ -283,13 +292,13 @@ class FakeReask(unittest.TestCase):
     def test_consecutive_reask_and_at(self):
         s = self.sess()
         for _ in range(4):   # 연속 호출에서도 매번 같은 REASK(상태 없음)
-            out = s.extract({**a_input("Q4"), "user_utterance": "글쎄요"})
+            out = s.extract({**a_input("Q4"), "user_utterance": "글쎄요"}, *rf({**a_input("Q4"), "user_utterance": "글쎄요"}))
             assert_valid("ActionExtraction", out)
             self.assertEqual(out, {"action": "REASK", "next_item": "Q4", "reason": "MISSING", "targets": ["Q4.answer"],
                                    "values": [{"key": "Q4.answer", "precision": "unspecified", "save": False, "status": "MISSING", "value": None}]})
-        self.assertEqual(s.extract({**a_input("Q8_1"), "user_utterance": "대충 그정도"})["reason"], "VAGUE_QUANTITY")
-        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "대충 그정도"})["action"], "NEXT")   # at 불일치
-        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "네"})["action"], "NEXT")   # 문구 없음: 기존 동작
+        self.assertEqual(s.extract({**a_input("Q8_1"), "user_utterance": "대충 그정도"}, *rf({**a_input("Q8_1"), "user_utterance": "대충 그정도"}))["reason"], "VAGUE_QUANTITY")
+        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "대충 그정도"}, *rf({**a_input("Q4"), "user_utterance": "대충 그정도"}))["action"], "NEXT")   # at 불일치
+        self.assertEqual(s.extract({**a_input("Q4"), "user_utterance": "네"}, *rf({**a_input("Q4"), "user_utterance": "네"}))["action"], "NEXT")   # 문구 없음: 기존 동작
 
     def test_passes_action_rules(self):
         flow, validate_extraction = _flow()
@@ -298,7 +307,7 @@ class FakeReask(unittest.TestCase):
         cfgs, hashes = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
         inp = {**a_input("Q4"), "user_utterance": "글쎄요"}
-        self.assertEqual(validate_extraction(inp, s.extract(inp), flow), [])
+        self.assertEqual(validate_extraction(inp, s.extract(inp, *rf(inp, flow)), flow), [])
 
     def test_file_format_and_errors(self):
         with TemporaryDirectory() as t:

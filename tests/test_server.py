@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from boundary_contracts.errors import BoundaryError
 from boundary_contracts.sdk import ReleaseBundle
 from boundary_contracts.canonical import file_hash
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, serve_app, wait_until
+from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, extract_body, serve_app, wait_until
 
 import model_runtime as mr
 from model_runtime import server
@@ -59,7 +59,10 @@ def _body(r):
     return raw.decode("utf-8") if r.headers.get_content_type() == "text/plain" else json.loads(raw)
 
 
-def call(url, path, body=None, token=None, method=None):
+def call(url, path, body=None, token=None, method=None, wrap=True):
+    """wrap=True(기본)면 /extract의 입력 객체를 ExtractRequest(흐름표·칸 규격 포함)로 감싼다. 감싸지 않은 본문을 보내려면 wrap=False."""
+    if wrap and path.endswith("/extract") and isinstance(body, dict) and "flow" not in body:
+        body = extract_body(body) if "question_id" in body else body
     req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(), method=method,
                                  headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
@@ -366,7 +369,7 @@ class RuntimeDirs(unittest.TestCase):
         self.assertLess(pip, apt); self.assertLess(apt, env); self.assertLess(env, user)   # apt는 무거운 pip 레이어 뒤, USER 앞
         # 커밋·버전마다 바뀌는 ARG/LABEL은 무거운 레이어(pip, apt)와 모든 COPY·RUN보다 뒤에 있어야 빌드 캐시가 재사용된다
         last_layer = max(df.rindex(x) for x in ("\nRUN pip", "\nCOPY ", "\nRUN if"))   # 라벨 인자 가드 RUN(test -n)은 가벼워 제외
-        for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "ARG TURN_ENGINE_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
+        for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
             self.assertGreater(df.index(x), last_layer, x)
         self.assertLess(df.index("ARG VARIANT"), df.index("COPY requirements-"))   # 잠금 파일 선택에 쓰이므로 앞
         for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_TELEMETRY=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",

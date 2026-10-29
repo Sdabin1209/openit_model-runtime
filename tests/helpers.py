@@ -27,6 +27,23 @@ BAD_A = json.dumps({**GOOD_EXTRACTION, "values": [{**GOOD_EXTRACTION["values"][0
 GOOD_B = "십 년 전에 고혈압 진단을 받으셨군요. 지금 약은 드시고 계세요?"
 
 
+# 3.0.0: extract는 항상 흐름표(flow)와 칸 규격(fields)과 함께 부른다. A_INPUT(Q1.D03)용 최소 규격: 이 문항이 마지막이라 NEXT의 다음 문항은 END다.
+A_FLOW = {"order": ["Q1.D03"], "skips": []}
+A_FIELDS = {"fields": [{"slot": "Q1.D03.diagnosed", "data_type": "boolean"}]}
+
+
+def rules_for(inp, flow=None):
+    """입력 한 건을 위한 (flow, fields). flow가 없으면 입력의 문항이 마지막인 한 문항 흐름(A_INPUT 같은 단독 시험), 칸 규격은 그 문항의 칸 하나다."""
+    flow = flow or ({"order": [inp.get("question_id", "Q1.D03")], "skips": []})
+    return flow, {"fields": [{"slot": inp.get("question_id", "Q1.D03") + ".answer", "data_type": "boolean"}]} if inp.get("question_id", "Q1.D03") != "Q1.D03" else A_FIELDS
+
+
+def extract_body(inp, flow=None):
+    """HTTP extract 요청 본문(ExtractRequest)."""
+    f, fl = rules_for(inp, flow)
+    return {"input": inp, "flow": f, "fields": fl}
+
+
 def assert_valid(name, value):
     errs = list(validator(name).iter_errors(value))
     assert not errs, (name, [e.message for e in errs][:3])

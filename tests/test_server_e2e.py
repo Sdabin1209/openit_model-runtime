@@ -21,7 +21,7 @@ except ImportError:
 from boundary_contracts import BoundaryError
 from boundary_contracts.canonical import sha256_hash
 from boundary_contracts.clients import HttpModelRuntime, is_output_invalid
-from helpers import A_INPUT, B_INPUT, B_START, SCHEMA_DIR, assert_valid, serve_app
+from helpers import extract_body, A_FIELDS, A_FLOW, A_INPUT, B_INPUT, B_START, SCHEMA_DIR, assert_valid, serve_app
 from test_server import call
 
 import model_runtime as mr
@@ -110,7 +110,7 @@ class E2E(unittest.TestCase):
             flow.write_text(json.dumps(["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04"]), encoding="utf-8")
             svc, url = self.serve(i4, tmp, MODEL_RUNTIME_FAKE_FLOW_FILE=str(flow))
             self.assertEqual(call(url, "/v1/releases/rel-0001", method="PUT")[1]["state"], "LOADED")
-            s, out, _ = call(url, "/v1/releases/rel-0001/extract", A_INPUT)   # A_INPUT.question_id = Q1.D03
+            s, out, _ = call(url, "/v1/releases/rel-0001/extract", extract_body(A_INPUT, {"order": ["Q1.D01", "Q1.D02", "Q1.D03", "Q1.D04"], "skips": []}))   # A_INPUT.question_id = Q1.D03; 흐름표는 서버 흐름 파일과 같은 순서
             self.assertEqual((s, out), (200, {"action": "NEXT", "next_item": "Q1.D04", "values": []}))
             assert_valid("ActionExtraction", out)
 
@@ -124,19 +124,19 @@ class E2E(unittest.TestCase):
                 with self.assertRaises(BoundaryError) as cm:
                     fn(*a)
                 return cm.exception.code
-            self.assertEqual(code(c.extract, "rel-0001", A_INPUT), "NOT_FOUND")   # 적재 전
+            self.assertEqual(code(c.extract, "rel-0001", A_INPUT, A_FLOW, A_FIELDS), "NOT_FOUND")   # 적재 전
             self.assertEqual(c.get_release_state("rel-0001")["state"], "ABSENT")
             self.assertEqual(c.load_release("rel-0001")["state"], "LOADED")
             self.assertEqual(c.load_release("rel-0001")["state"], "LOADED")        # 멱등
             self.assertIn("rel-0001", c.info()["loaded"])
             self.assertEqual(code(c.load_release, "../x"), "INVALID_RECORD")
             # extract: ActionExtraction (클라이언트가 엄격하게 검증), 헤더
-            r = c.extract("rel-0001", A_INPUT)
+            r = c.extract("rel-0001", A_INPUT, A_FLOW, A_FIELDS)
             assert_valid("ActionExtraction", r.output)
             self.assertEqual((r.outcome, r.attempts, r.protections, r.is_fallback), ("ok", 1, {}, False))
-            self.assertEqual(c.extract("rel-0001", A_INPUT), r)                     # 부작용 없음
+            self.assertEqual(c.extract("rel-0001", A_INPUT, A_FLOW, A_FIELDS), r)                     # 부작용 없음
             # 입력은 보내기 전에 클라이언트가, 서버도 검증한다
-            self.assertEqual(code(c.extract, "rel-0001", {"question_id": "Q1.D01"}), "INVALID_RECORD")
+            self.assertEqual(code(c.extract, "rel-0001", {"question_id": "Q1.D01"}, A_FLOW, A_FIELDS), "INVALID_RECORD")
             with self.assertRaises(BoundaryError) as cm:
                 c._json("POST", "/v1/releases/rel-0001/extract", body={"question_id": "Q1.D01"})
             self.assertEqual(cm.exception.code, "INVALID_RECORD")
@@ -151,13 +151,13 @@ class E2E(unittest.TestCase):
                              (mr.fallback_text(B_INPUT), "fallback", 3, {"G0": 1, "G5": 1}, True))
             # extract가 끝내 형식을 못 지키면 503 OUTPUT_INVALID(D75), 값은 지어내지 않는다
             with self.assertRaises(BoundaryError) as cm:
-                c.extract("rel-0001", A_INPUT)
+                c.extract("rel-0001", A_INPUT, A_FLOW, A_FIELDS)
             e = cm.exception
             self.assertEqual((e.code, e.retryable), ("UNAVAILABLE", True))
             self.assertEqual({k: e.details[k] for k in ("reason", "attempts", "violations")}, {"reason": "OUTPUT_INVALID", "attempts": 3, "violations": ["json"]})   # 계약 클라이언트(2.5.1)가 details에 http_status를 더한다
             self.assertTrue(is_output_invalid(e))
             sess._backend = mr.FakeBackend()                                         # 다음 호출은 정상(상태가 남지 않는다)
-            self.assertEqual(c.extract("rel-0001", A_INPUT).outcome, "ok")
+            self.assertEqual(c.extract("rel-0001", A_INPUT, A_FLOW, A_FIELDS).outcome, "ok")
 
     def test_token_is_enforced_with_contract_client(self):
         with ReferenceServer({"tok": "reader"}) as i4, TemporaryDirectory() as tmp:

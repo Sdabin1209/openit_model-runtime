@@ -321,13 +321,11 @@ class Service:
     # --- 추론 ---
     @staticmethod
     def split_extract_body(body):
-        """extract 본문을 (input, flow, fields)로 나눈다. 형식은 계약 스키마로 판정한다: ExtractRequest면 input·flow와 선택 fields(2.4.0), ActionExtractionInput이면 옛 본문이라 flow=fields=None
-        (2.x 호환, 이때는 규칙 보증이 없다). 둘 다 아니면 ContractViolation. 왜 스키마인가: 'flow 키가 있나' 같은 추측은 반쯤 맞는 본문을 조용히 옛 형식으로 읽는다."""
-        if validator("ExtractRequest").is_valid(body):
-            return body["input"], body["flow"], body.get("fields")
-        if validator("ActionExtractionInput").is_valid(body):
-            return body, None, None
-        raise ContractViolation("extract 본문이 ExtractRequest도 ActionExtractionInput도 아니다")
+        """extract 본문을 (input, flow, fields)로 나눈다. 3.0.0: 본문은 계약 ExtractRequest{input, flow, fields}뿐이다(옛 ActionExtractionInput 본문과 fields 없는 요청은 거부).
+        형식은 계약 스키마로 판정한다. 아니면 ContractViolation(400 INVALID_RECORD)."""
+        if not validator("ExtractRequest").is_valid(body):
+            raise ContractViolation("extract 본문이 ExtractRequest{input, flow, fields}가 아니다")
+        return body["input"], body["flow"], body["fields"]
 
     def infer(self, rid: str, op: str, body):
         """op: extract | respond. (상태, 본문, 헤더). extract의 본문은 dict, respond의 본문은 문장(str). 대기가 길 것 같으면 503."""

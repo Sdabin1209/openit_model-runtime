@@ -4,7 +4,7 @@
 (`<|im_end|>` 등)은 모델에 그대로 가지 않는다. 틀이 붙이는 특수 토큰은 정확히 system/user/assistant 세 구간의 것뿐이다."""
 import unittest
 
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, cfgs_and_hashes
+from helpers import rules_for, A_INPUT, B_INPUT, SCHEMA_DIR, cfgs_and_hashes
 
 import model_runtime as mr
 from model_runtime import server
@@ -22,7 +22,7 @@ def _session():
 class OnePlace(unittest.TestCase):
     def test_direct_session_call_never_sends_patient_special_tokens(self):
         b, s = _session()
-        s.extract({**A_INPUT, "user_utterance": EVIL})
+        s.extract({**A_INPUT, "user_utterance": EVIL}, *rules_for({**A_INPUT, "user_utterance": EVIL}))
         s.respond({**B_INPUT, "user_utterance": EVIL})
         self.assertEqual(len(b.requests), 2)
         for r in b.requests:
@@ -33,7 +33,7 @@ class OnePlace(unittest.TestCase):
     def test_render_prompt_equals_what_the_session_sends(self):
         b, s = _session()
         cfg = mr.fake_serving_config(b)
-        for role, inp, call in (("LORA_A", {**A_INPUT, "user_utterance": EVIL}, s.extract),
+        for role, inp, call in (("LORA_A", {**A_INPUT, "user_utterance": EVIL}, lambda i: s.extract(i, *rules_for(i))),
                                 ("LORA_B", {**B_INPUT, "user_utterance": EVIL}, s.respond)):
             call(inp)
             want = mr.render_prompt(role, inp, serving_config=cfg, system_prompt=mr.FAKE_SYSTEM_PROMPTS[role], schema_dir=SCHEMA_DIR)

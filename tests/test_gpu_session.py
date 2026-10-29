@@ -508,14 +508,14 @@ def test_make_kit_records_commit_and_logs_carry_it():
     assert "KIT_MANIFEST" in (KIT / "pod_setup.sh").read_text(encoding="utf-8") and "KIT_MANIFEST" in (KIT / "pod_run.sh").read_text(encoding="utf-8")
 
 
-def test_prepare_bundle_turn_engine_marker(tmp_path):
-    import model_runtime as mr
+def test_prepare_bundle_action_rules_version(tmp_path):
+    from boundary_contracts.action_rules import load_rules
     setup_inputs(tmp_path)
     r = run_prepare(tmp_path)
     assert r.returncode == 0, r.stderr
     m = json.loads((tmp_path / "out" / "gpu-session" / "manifest.json").read_text(encoding="utf-8"))
-    assert m["turn_engine_version"] == mr.TURN_ENGINE_MARKER_VERSION != "none"
-    r = run_prepare(tmp_path, "--out", str(tmp_path / "out2"), "--turn-engine-version", "9.9.9")   # 뒤의 --out이 이긴다
+    assert m["action_rules_version"] == load_rules()["rules_version"] and "turn_engine_version" not in m
+    r = run_prepare(tmp_path, "--out", str(tmp_path / "out2"), "--action-rules-version", "9")   # 뒤의 --out이 이긴다
     assert r.returncode == 0, r.stderr
     m = json.loads((tmp_path / "out2" / "gpu-session" / "manifest.json").read_text(encoding="utf-8"))
-    assert m["turn_engine_version"] == "9.9.9"
+    assert m["action_rules_version"] == "9"

@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import A_INPUT, SCHEMA_DIR, wait_until
+from helpers import A_INPUT, SCHEMA_DIR, extract_body, wait_until
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,7 +77,7 @@ class Properties(Proc):
             slow.append(s); self.addCleanup(s.close)
         t = time.monotonic()
         self.assertEqual(self.get("/healthz")[0], 200)
-        self.assertEqual(self.req("POST", "/v1/releases/r1/extract", A_INPUT)[0], 200)
+        self.assertEqual(self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT))[0], 200)
         self.assertLess(time.monotonic() - t, 3)
 
     def test_idle_connection_is_closed_by_the_server(self):
@@ -92,7 +92,7 @@ class Properties(Proc):
         self.launch(DELAY="1.5")
         out = {}
         import threading
-        th = threading.Thread(target=lambda: out.update(r=self.req("POST", "/v1/releases/r1/extract", A_INPUT, timeout=10))); th.start()
+        th = threading.Thread(target=lambda: out.update(r=self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10))); th.start()
         time.sleep(0.5)   # extract가 엔진 안에 있다
         self.p.send_signal(signal.SIGTERM)
         th.join(10)
@@ -102,10 +102,10 @@ class Properties(Proc):
     def test_healthz_answers_while_the_engine_is_busy(self):
         self.launch(DELAY="2.0")
         import threading
-        th = threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", A_INPUT, timeout=10)); th.start()
+        th = threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10)); th.start()
         time.sleep(0.4)
         for _ in range(3):   # 이어지는 추론 요청이 대기 상한에서 거절되는 동안에도
-            threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", A_INPUT, timeout=10), daemon=True).start()
+            threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10), daemon=True).start()
         t = time.monotonic()
         self.assertEqual(self.get("/healthz")[0], 200)
         self.assertLess(time.monotonic() - t, 1.0)

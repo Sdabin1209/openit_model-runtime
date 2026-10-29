@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """떠 있는 model-runtime 서버에 C1 val의 A·B 행을 보내 지연과 출력 형식 통과율을 잰다(GPU 세션 키트, 표준 라이브러리만).
 
-보내는 것: lora_a_val.jsonl의 user 메시지(ActionExtractionInput JSON) -> POST /v1/releases/{id}/extract, lora_b_val.jsonl의 user 메시지(ResponseRequest JSON) -> POST .../respond.
+보내는 것: lora_a_val.jsonl의 user 메시지(ActionExtractionInput JSON)를 ExtractRequest{input, flow, fields}로 감싸(계약 3.0.0) -> POST /v1/releases/{id}/extract, lora_b_val.jsonl의 user 메시지(ResponseRequest JSON) -> POST .../respond.
 호출마다 기록: 지연(초), HTTP 상태, 오류 코드와 details.reason(OUTPUT_INVALID, ENGINE_TIMEOUT 등), X-Openit-Attempts, X-Openit-Outcome.
 표(엔드포인트 x 동시 요청 수): 호출 수, 성공률(HTTP 200), 콜드 첫 호출(따로), 이후 p50/p95/max(성공 호출), 재시도 호출(attempts>1)과 실패 호출(따로).
 정답 비교(정답 = 행의 assistant 메시지): A는 action 일치율, next_item 일치율, values 키 집합 일치율, 정확히 같은 JSON 비율. B는 출력이 비어 있지 않은 비율과 대체 문장(fallback) 비율.
@@ -45,6 +45,16 @@ def parse_plan(text: str) -> list[tuple[int, int]]:
     if not out or any(c < 1 or n < 1 for c, n in out) or len({c for c, _ in out}) != len(out):
         raise ValueError(text)
     return out
+
+
+# 3.0.0: extract 요청은 항상 흐름표(flow)와 칸 규격(fields)을 싣는다. 이 측정에서의 선택(결과 JSON의 rules_context에 남긴다):
+#  - flow: --flow-file(QuestionFlowTable, 보통 문진 스키마의 흐름표)이 있으면 그것, 없으면 행마다 그 문항 하나뿐인 흐름이다(다음 문항은 END).
+#  - fields: --fields-file(QuestionFieldSpec)이 있으면 그것, 없으면 아무 칸도 판정하지 않는 자리표시 규격이다 -> 값 규칙(범위·R1~R3)은 이 측정에서 검사되지 않는다.
+INERT_FIELDS = {"fields": [{"slot": "Q0.placeholder", "data_type": "boolean"}]}
+
+
+def extract_request(body: dict, flow: dict | None, fields: dict | None) -> dict:
+    return {"input": body, "flow": flow or {"order": [body.get("question_id", "Q0")], "skips": []}, "fields": fields or INERT_FIELDS}
 
 
 def load_rows(path: str, n: int, mode: str) -> list[dict]:
@@ -145,7 +155,8 @@ def judge_b(rec: dict) -> None:
         rec["fallback"] = rec["outcome"] == "fallback"
 
 
-def run_phase(base: str, rid: str, kind: str, rows: list[dict], conc: int, token, timeout: float, deadline: float | None, cold_done: set) -> list[dict]:
+def run_phase(base: str, rid: str, kind: str, rows: list[dict], conc: int, token, timeout: float, deadline: float | None, cold_done: set,
+              flow: dict | None = None, fields: dict | None = None) -> list[dict]:
     path = {"extract": "extract", "respond": "respond"}[kind]
     url = f"{base}/v1/releases/{rid}/{path}"
     results: list[dict | None] = [None] * len(rows)
@@ -154,7 +165,7 @@ def run_phase(base: str, rid: str, kind: str, rows: list[dict], conc: int, token
     def one(i: int):
         if deadline is not None and time.monotonic() > deadline:
             return
-        rec = call(url, rows[i]["body"], token, timeout)
+        rec = call(url, extract_request(rows[i]["body"], flow, fields) if kind == "extract" else rows[i]["body"], token, timeout)
         rec.update(kind=kind, idx=i, concurrency=conc, scenario_id=rows[i]["scenario_id"])
         (judge_a(rec, rows[i]["gold"]) if kind == "extract" else judge_b(rec))
         rec.pop("json", None)
@@ -273,6 +284,8 @@ def main() -> int:
     ap.add_argument("--max-seconds", type=float, default=0, help="전체 시간 상한(초). 넘으면 남은 호출을 건너뛰고 종료 코드 4. 0이면 상한 없음")
     ap.add_argument("--put-release", action="store_true", help="측정 전에 PUT /v1/releases/{id}로 적재하고 걸린 시간을 기록한다(202면 LOADED까지 기다린다)")
     ap.add_argument("--put-timeout", type=float, default=900.0, help="적재 대기 상한(초)")
+    ap.add_argument("--flow-file", help="extract 요청에 실을 QuestionFlowTable JSON(order, skips). 없으면 행마다 한 문항 흐름")
+    ap.add_argument("--fields-file", help="extract 요청에 실을 QuestionFieldSpec JSON. 없으면 자리표시 규격(값 규칙 검사 없음)")
     ap.add_argument("--out", help="결과 JSON 경로(표는 같은 이름의 .txt)")
     a = ap.parse_args()
     try:
@@ -299,12 +312,20 @@ def main() -> int:
             if a.out:
                 Path(a.out).write_text(json.dumps({"url": base, "release_id": a.release_id, "put": put}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
             print(f"적재 실패: {put}", file=sys.stderr); return 3
+    flow = fields = None
+    try:
+        if a.flow_file:
+            f = json.loads(Path(a.flow_file).read_text(encoding="utf-8")); flow = {"order": f["order"], "skips": f.get("skips", [])}   # QuestionFlowTable은 order와 skips만 받는다
+        if a.fields_file:
+            fields = json.loads(Path(a.fields_file).read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError) as e:
+        print(f"--flow-file/--fields-file을 읽지 못했다: {type(e).__name__}", file=sys.stderr); return 2
     na = max(n for _, n in plan) if a.plan else a.n_a
     nb = na if a.plan else a.n_b
     rows = {"extract": load_rows(a.c1_a, na, a.sample), "respond": load_rows(a.c1_b, nb, a.sample)}
     deadline = time.monotonic() + a.max_seconds if a.max_seconds > 0 else None
     report = {"url": base, "release_id": a.release_id, "n": {k: len(v) for k, v in rows.items()}, "concurrency": concs, "sample": a.sample,
-              "started_at_unix": time.time(), "put": put, "plan": a.plan, "stage_gpu": {"after_load": gpu_mem_now()}, "summary": {}, "calls": [], "truncated": False}
+              "started_at_unix": time.time(), "put": put, "rules_context": {"flow": "file" if flow else "single-item-per-row", "fields": "file" if fields else "inert-placeholder (값 규칙 검사 없음)"}, "plan": a.plan, "stage_gpu": {"after_load": gpu_mem_now()}, "summary": {}, "calls": [], "truncated": False}
     try:
         report["info"] = json.loads(urllib.request.urlopen(base + "/v1/info", timeout=10).read())
     except Exception:   # noqa: BLE001  info는 있으면 좋은 정보
@@ -313,7 +334,7 @@ def main() -> int:
     for conc, n_stage in plan:
         for kind in ("extract", "respond"):
             stage_rows = rows[kind][:n_stage] if n_stage else rows[kind]
-            recs = run_phase(base, a.release_id, kind, stage_rows, conc, token, a.timeout, deadline, cold_done)
+            recs = run_phase(base, a.release_id, kind, stage_rows, conc, token, a.timeout, deadline, cold_done, flow, fields)
             if len(recs) < len(stage_rows):
                 report["truncated"] = True
             if recs:

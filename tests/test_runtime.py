@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import A_INPUT, B_INPUT, B_START, B_END, BAD_A, GOOD_A, GOOD_B, GOOD_EXTRACTION, SCHEMA_DIR, assert_valid, cfgs_and_hashes
+from helpers import rules_for, A_INPUT, B_INPUT, B_START, B_END, BAD_A, GOOD_A, GOOD_B, GOOD_EXTRACTION, SCHEMA_DIR, assert_valid, cfgs_and_hashes
 
 import model_runtime as mr
 from boundary_contracts.canonical import canonicalize, sha256_hash
@@ -176,7 +176,7 @@ class Load(unittest.TestCase):
             b = mr.FakeBackend.scripted({"LORA_A": [GOOD_A], "LORA_B": [GOOD_B]})
             cfgs, hs = cfgs_and_hashes(b)
             s = mr.load(ad, cfgs, expected_serving_config_hashes=hs, system_prompts=refs, schema_dir=SCHEMA_DIR, backend=b)
-            s.extract(A_INPUT); s.respond(B_INPUT)
+            s.extract(A_INPUT, *rules_for(A_INPUT)); s.respond(B_INPUT)
             self.assertIn("<|im_start|>system\n패키지-A-프롬프트<|im_end|>", b.requests[0].prompt)
             self.assertIn("<|im_start|>system\n패키지-B-프롬프트<|im_end|>", b.requests[1].prompt)
 
@@ -209,7 +209,7 @@ class PerRole(unittest.TestCase):
             {"max_attempts": 3, "decoding": {"constraint_mode": "none", "temperature": 0.7, "seed": 500, "max_tokens": 256}})
         self.assertNotEqual(hs["LORA_A"], hs["LORA_B"])
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
-        s.extract(A_INPUT); s.respond(B_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT)); s.respond(B_INPUT)
         a_reqs = [r for r in b.requests if r.role == "LORA_A"]; b_reqs = [r for r in b.requests if r.role == "LORA_B"]
         self.assertEqual([r.seed for r in a_reqs], [10, 11]); self.assertEqual([r.seed for r in b_reqs], [500, 501, 502])
         self.assertEqual(a_reqs[0].decoding["temperature"], 0); self.assertEqual(b_reqs[0].decoding["temperature"], 0.7)
@@ -228,7 +228,7 @@ class PerRole(unittest.TestCase):
         b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
         self.assertEqual(s._cfgs["LORA_A"]["protection_policy_version"], "protect-2")
-        s.extract(A_INPUT); s.respond(B_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT)); s.respond(B_INPUT)
         self.assertIn(mr.FAKE_SYSTEM_PROMPTS["LORA_A"], b.requests[0].prompt)
         self.assertIn(mr.FAKE_SYSTEM_PROMPTS["LORA_B"], b.requests[1].prompt)
 
@@ -243,12 +243,12 @@ class PerRole(unittest.TestCase):
 class Extract(unittest.TestCase):
     def test_first_attempt(self):
         _, _, s = make({"LORA_A": [GOOD_A]})
-        self.assertEqual(s.extract(A_INPUT), GOOD_EXTRACTION)
+        self.assertEqual(s.extract(A_INPUT, *rules_for(A_INPUT)), GOOD_EXTRACTION)
         self.assertEqual((s.last_call_info.attempts, s.last_call_info.outcome, s.last_call_info.protections), (1, "ok", ()))
 
     def test_retry_then_success_same_prompt_seed_plus_attempt(self):
         b, cfg, s = make({"LORA_A": ["not json", BAD_A, GOOD_A]})
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertEqual(s.last_call_info.attempts, 3)
         self.assertEqual([r.seed for r in b.requests], [1000, 1001, 1002])
         self.assertEqual(len({r.prompt for r in b.requests}), 1)
@@ -260,7 +260,7 @@ class Extract(unittest.TestCase):
             with self.subTest(script=script[0][:30]):
                 b, _, s = make({"LORA_A": script}, max_attempts=2)
                 with self.assertRaises(mr.ModelOutputInvalid) as cm:
-                    s.extract(A_INPUT)
+                    s.extract(A_INPUT, *rules_for(A_INPUT))
                 self.assertEqual(cm.exception.attempts, 2)
                 self.assertEqual(len(b.requests), 2)
                 self.assertEqual((s.last_call_info.attempts, s.last_call_info.outcome), (2, "invalid"))
@@ -269,13 +269,13 @@ class Extract(unittest.TestCase):
         b, _, s = make()
         for bad in ({"question_id": "Q1"}, B_INPUT, {**A_INPUT, "extra": 1}, {**A_INPUT, "user_utterance": ""}):
             with self.assertRaises(mr.ContractViolation):
-                s.extract(bad)
+                s.extract(bad, *rules_for(bad))
         self.assertEqual(b.requests, [])
 
     def test_unconstrained_mode_still_validates(self):
         dec = {"constraint_mode": "none", "temperature": 0, "seed": 1, "max_tokens": 64}
         b, _, s = make({"LORA_A": [BAD_A, GOOD_A]}, decoding=dec)
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertIsNone(b.requests[0].constraint_schema)
         self.assertEqual(s.last_call_info.attempts, 2)
 
@@ -291,7 +291,7 @@ class Extract(unittest.TestCase):
     def test_nan_is_rejected(self):
         _, _, s = make({"LORA_A": ['{"values":[{"key":"Q10.days","value":NaN}],"action":"NEXT","next_item":"END"}']}, max_attempts=1)
         with self.assertRaises(mr.ModelOutputInvalid):
-            s.extract(A_INPUT)
+            s.extract(A_INPUT, *rules_for(A_INPUT))
 
 
 class Respond(unittest.TestCase):
@@ -369,7 +369,7 @@ class Relax(unittest.TestCase):
         self.assertIn("allOf", old_removed)
         self.assertTrue(jsonschema.Draft202012Validator(old).is_valid(bad))
         self.assertTrue(s._schemas.output_violations("LORA_A", bad))              # 사후 검증은 그대로 잡는다
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertEqual(s.last_call_info.attempts, 2)
         self.assertIn("allOf->anyOf", s.last_call_info.relaxed)
 
@@ -429,13 +429,13 @@ class Privacy(unittest.TestCase):
         with self.assertLogs("model_runtime", level=logging.DEBUG) as logs:
             logging.getLogger("model_runtime").debug("start")
             with self.assertRaises(mr.ModelOutputInvalid) as cm:
-                s.extract(secret)
+                s.extract(secret, *rules_for(secret))
             raw = s.extract_raw(secret)
             r = s.respond({**B_INPUT, "user_utterance": "비밀발화123"})
         self.assertNotIn("비밀발화123", "\n".join(logs.output) + repr(s.last_call_info) + repr(raw.errors) + str(cm.exception) + repr(cm.exception.errors))
         self.assertNotIn("비밀발화123", r.text)
         with self.assertRaises(mr.ContractViolation) as cm:
-            s.extract({**secret, "extra": "비밀발화123"})
+            s.extract({**secret, "extra": "비밀발화123"}, *rules_for({**secret, "extra": "비밀발화123"}))
         self.assertNotIn("비밀발화123", str(cm.exception))
 
 
@@ -443,13 +443,13 @@ class RetryTemperature(unittest.TestCase):
     def test_retry_temperature_used_from_second_attempt_only(self):
         dec = {"constraint_mode": "constrained", "temperature": 0, "seed": 10, "max_tokens": 64, "retry_temperature": 0.7}
         b, cfgs, s = make({"LORA_A": ["x", "y", GOOD_A]}, decoding=dec)
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertEqual([r.decoding["temperature"] for r in b.requests], [0, 0.7, 0.7])
         self.assertEqual([r.seed for r in b.requests], [10, 11, 12])
 
     def test_absent_key_keeps_temperature(self):
         b, cfgs, s = make({"LORA_A": ["x", GOOD_A]})
-        s.extract(A_INPUT)
+        s.extract(A_INPUT, *rules_for(A_INPUT))
         self.assertEqual({r.decoding["temperature"] for r in b.requests}, {0})
 
     def test_invalid_value_rejected(self):
@@ -462,7 +462,7 @@ class FakeDefaults(unittest.TestCase):
     def test_default_fake_outputs_pass_contract(self):
         b = mr.FakeBackend(); cfgs, hs = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
-        assert_valid("ActionExtraction", s.extract(A_INPUT))
+        assert_valid("ActionExtraction", s.extract(A_INPUT, *rules_for(A_INPUT)))
         r = s.respond(B_INPUT)
         self.assertFalse(r.is_fallback)
         assert_valid("ResponseText", r.text)

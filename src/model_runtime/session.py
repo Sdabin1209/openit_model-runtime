@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from boundary_contracts.action_rules import load_rules
 from boundary_contracts.canonical import file_hash
 
 from .backends import ConstraintBackend, FakeBackend
@@ -20,9 +21,8 @@ from .schema_guard import INPUT_CONTRACT, RELAX_POLICY_VERSION, SUPPORTED_RUNTIM
 from .serving_config import serving_config_hash, validate_serving_config
 
 RUNTIME_VERSION = "0.10.0"
-# 매니페스트 turn_engine_version에 쓰는 고정 표지. 왜: 계약 2.x에서 이 필드는 필수이고(INTERFACES I9: MAJOR.MINOR 비교) turn-engine 코드 의존은 없앴지만(ADR 0021) 값은 v0.4.3으로 고정한다(헤드 D109).
-# 형식은 model_runtime_version처럼 v 없는 "MAJOR.MINOR.PATCH"로 썼다. 계약 LibraryVersion은 비어 있지 않은 문자열이라는 것만 정하고, 값을 받아 비교하는 쪽이 어떤 형식(v 접두사 여부)으로 비교하는지는 이 영역이 읽을 수 없어 미확인이다.
-TURN_ENGINE_MARKER_VERSION = "0.4.3"
+# 매니페스트 계보 표지 action_rules_version의 값. 왜 계약 규칙 데이터에서 읽나: 이 서버가 보증하는 LoRA-A 출력 규칙의 정본이 그 데이터라, 리터럴로 적으면 규칙이 바뀔 때 어긋난다(계약 3.0.0, D109).
+ACTION_RULES_VERSION = load_rules()["rules_version"]
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
 
 # FakeModelSession이 시스템 프롬프트를 따로 받지 않을 때 쓰는 시험용 문장. 학습과 짝인 프롬프트가 아니다.
@@ -79,9 +79,9 @@ class _Session:
         raw, self.last_call_info = self._roles["LORA_B"].raw(self._backend, input)
         return raw
 
-    def extract(self, input: Mapping, flow: Mapping | None = None, fields: Mapping | None = None, *, deadline: float | None = None) -> dict:
-        """flow(QuestionFlowTable)가 있으면 출력이 계약의 LoRA-A 출력 규칙도 지킨다(2.x 동안 없으면 스키마만, HTTP.md I9).
-        fields(QuestionFieldSpec, 계약 2.4.0)가 있으면 값 규칙도 지키며, 규칙에 걸린 출력은 데이터셋 정답 모양으로 바뀌어 나온다."""
+    def extract(self, input: Mapping, flow: Mapping, fields: Mapping, *, deadline: float | None = None) -> dict:
+        """출력은 스키마와 계약의 LoRA-A 출력 규칙(flow: QuestionFlowTable)과 값 규칙(fields: QuestionFieldSpec)을 지킨다(3.0.0: 둘 다 필수).
+        값 규칙에 걸린 출력은 데이터셋 정답 모양으로 바뀌어 나온다."""
         o = self._roles["LORA_A"].call(self._backend, input, flow, fields, deadline)
         self.last_call_info = o.info
         if o.error is not None:

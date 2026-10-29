@@ -14,7 +14,7 @@
 
 공통: 재시도는 `max_attempts`까지, 프롬프트는 첫 시도와 같고 시드만 `기본 시드 + 시도 번호`다(재시도 온도는 `retry_temperature`). `is_fallback`은 모델이 아니라 코드가 채운다. 보호·재시도는 조용히 지나가지 않고 `last_call_info`(시도 횟수, outcome, 보호 건수)와 응답 헤더 `X-Openit-Attempts`·`X-Openit-Protections`에 남긴다. 발화와 출력 원문은 로그·예외·헤더에 담지 않는다. 라이브러리 예외는 인프라·설정·입력 문제에만 쓰는 원칙은 그대로이며, 예외인 `ModelOutputInvalid`는 D75가 정한 것이다.
 
-의미 검증(`targets`가 `values`의 부분집합, `next_item` 규칙, 건너뛰기 순서, `save` 규칙)은 이 영역이 하지 않는다. turn-engine의 `validate_extraction`을 survey-service가 부른다(D75). 이 영역은 스키마(형식)만 검증한다. 스키마의 `allOf/if/then`(action별 규칙)은 사후 검증이 한다(아래 §제약 디코딩).
+의미 검증(`targets`가 `values`의 부분집합, `next_item` 규칙, 건너뛰기 순서, `save` 규칙)은 이 영역이 하지 않는다. 의미 규칙(흐름·값 규칙)은 계약의 기준 검사기(`boundary_contracts.action_rules`)로 이 영역이 검증한다(ADR 0021·0024, 3.0.0부터 요청에 flow·fields가 항상 있다). 형식은 스키마가 검증한다. 스키마의 `allOf/if/then`(action별 규칙)은 사후 검증이 한다(아래 §제약 디코딩).
 
 ## 보호 정책 `protect-2` (이 리포지토리의 해석, `protection.py`)
 정책 버전은 `serving_config.protection_policy_version`에 기록되어 `serving_config_hash`에 반영된다. 바꾸려면 새 버전을 만든다. v1의 `protect-1`은 지원하지 않는다(적재 시 `UnsupportedServingConfig`).

@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
 import struct
@@ -196,7 +195,7 @@ def build(a: argparse.Namespace) -> dict:
     m = {"pipeline_schema_version": PIPELINE_SCHEMA_VERSION, "release_id": a.release_id, "created_at": CREATED_AT, "gate_decision_id": "gpu-session-no-gate",
          "question_set": {"id": "gpu-session-bank", "version": "1", "content_hash": sha256_hash(bank)},
          "lora_a": ref("lora-a-trained", "gpu-session"), "lora_b": ref("lora-b-trained", "gpu-session"),
-         "runtime_contract_version": mr.SUPPORTED_RUNTIME_CONTRACT_VERSION, "turn_engine_version": a.turn_engine_version, "model_runtime_version": mr.RUNTIME_VERSION,
+         "runtime_contract_version": mr.SUPPORTED_RUNTIME_CONTRACT_VERSION, "action_rules_version": a.action_rules_version, "model_runtime_version": mr.RUNTIME_VERSION,
          "adapters": ad,
          "ext": {"model-runtime": {"gpu_session": True, "note": "GPU 세션 측정용 임시 릴리스. 게이트를 거치지 않았고 운영 릴리스가 아니다."}}}
     m["content_hash"] = content_hash(m)
@@ -227,7 +226,7 @@ def main() -> None:
     ap.add_argument("--max-tokens-b", type=int, default=256, help="기본 256은 B 출력(1~3문장)에 넉넉하다는 추정이다. 측정 근거 없음")
     ap.add_argument("--rewrite-base-name", action="store_true", help="adapter_config의 base_model_name_or_path가 다를 때 복사본의 값을 프로파일 기반 모델로 바꾼다")
     ap.add_argument("--overwrite", action="store_true")
-    ap.add_argument("--turn-engine-version", default=os.environ.get("MODEL_RUNTIME_TURN_ENGINE_MARKER", mr.TURN_ENGINE_MARKER_VERSION), help="매니페스트 turn_engine_version 표지(D109, 기본은 라이브러리의 고정 표지)")
+    ap.add_argument("--action-rules-version", default=mr.ACTION_RULES_VERSION, help="매니페스트 action_rules_version 표지(기본은 설치된 계약 규칙 데이터의 rules_version)")
     a = ap.parse_args()
     rep = build(a)
     print(json.dumps({"release": str(Path(a.out) / a.release_id), "warnings": rep["warnings"],

@@ -14,7 +14,7 @@ BC_DIR="$("$PY" -I -c "import boundary_contracts,os;print(os.path.dirname(bounda
 BC_VER="$("$PY" -I -c "import importlib.metadata as m;print(m.version('boundary-contracts'))")"
 TMP="$(mktemp -d)"; trap 'rm -rf -- "${TMP:?}"' EXIT
 K="$TMP/mr-kit"; mkdir -p "$K/src" "$K/pylib" "$K/survey-schema" "$K/scripts"
-cp -r "$ROOT/src/model_runtime" "$K/src/"; cp -r "$BC_DIR" "$K/pylib/"; cp -r "$SCHEMA_ROOT/schemas" "$SCHEMA_ROOT/CONTRACT_VERSION" "$K/survey-schema/"
+cp -r "$ROOT/src/model_runtime" "$K/src/"; cp -r "$BC_DIR" "$K/pylib/"; cp -r "$SCHEMA_ROOT/schemas" "$SCHEMA_ROOT/CONTRACT_VERSION" "$K/survey-schema/"; [ -d "$SCHEMA_ROOT/data" ] && cp -r "$SCHEMA_ROOT/data" "$K/survey-schema/"   # 측정이 쓰는 흐름표(data/question_flow.json)
 cp -r "$ROOT/profiles" "$K/"; cp "$ROOT/requirements-gpu.lock" "$K/"; cp -r "$ROOT/scripts/gpu_session" "$K/scripts/"
 find "$K" -name __pycache__ -type d -prune -exec rm -rf {} +
 { echo "commit: $(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)$([ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] && echo -dirty)";   # 파일에 해시를 직접 쓰지 않고 만드는 시점의 git에서 읽는다. 커밋 안 된 변경이 있으면 -dirty echo "boundary-contracts: $BC_VER"; echo "survey schema CONTRACT_VERSION: $(cat "$SCHEMA_ROOT/CONTRACT_VERSION")"

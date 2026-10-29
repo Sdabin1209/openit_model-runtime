@@ -105,7 +105,8 @@ def main():
             rows = [json.loads(l) for l in (Path(a.samples_root) / role / name).read_text(encoding="utf-8").splitlines()[:a.n]]
             ts, outc, atts, prot, exact, ex = [], {}, [], {}, 0, []
             for i, r in enumerate(rows):
-                o, h, dt = post(f"{base}/v1/releases/{RID}/{path}", r["input"])
+                body = {"input": r["input"], "flow": {"order": [r["input"].get("question_id", "Q0")], "skips": []}, "fields": {"fields": [{"slot": "Q0.placeholder", "data_type": "boolean"}]}} if path == "extract" else r["input"]   # 3.0.0: ExtractRequest(점검용 한 문항 흐름·자리표시 규격)
+                o, h, dt = post(f"{base}/v1/releases/{RID}/{path}", body)
                 ts.append(dt); oc = h["X-Openit-Outcome"]; outc[oc] = outc.get(oc, 0) + 1
                 atts.append(int(h["X-Openit-Attempts"]))
                 for kv in filter(None, h.get("X-Openit-Protections", "").split(",")):

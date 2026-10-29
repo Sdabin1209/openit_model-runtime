@@ -193,14 +193,16 @@ class NeutralQwen3(unittest.TestCase):
             self.assertEqual(m["base_model"]["id"], "Qwen/Qwen3-1.7B")
 
 
-class TurnEngineMarker(unittest.TestCase):
-    """매니페스트의 turn_engine_version 표지(D109: 2.x는 turn-engine v0.4.3 고정 표지)는 하드코딩 "none"이 아니라 한 기준값·인자·환경 변수에서 온다."""
-    def test_neutral_package_lineage_uses_the_marker(self):
+class ActionRulesVersion(unittest.TestCase):
+    """매니페스트의 계보 표지 action_rules_version(계약 3.0.0)은 하드코딩이 아니라 계약 규칙 데이터의 rules_version에서 온다."""
+    def test_neutral_package_lineage_uses_the_contract_rules_version(self):
+        from boundary_contracts.action_rules import load_rules
         with TemporaryDirectory() as t:
             build(Path(t) / "a")
             m = json.loads((Path(t) / "a" / "LORA_A" / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(m["lineage"]["turn_engine_version"], mr.TURN_ENGINE_MARKER_VERSION)
-            self.assertNotEqual(m["lineage"]["turn_engine_version"], "none")
-            build(Path(t) / "b", turn_engine_version="9.9.9")
+            self.assertEqual(m["lineage"]["action_rules_version"], load_rules()["rules_version"])
+            self.assertEqual(mr.ACTION_RULES_VERSION, load_rules()["rules_version"])
+            self.assertNotIn("turn_engine_version", m["lineage"])
+            build(Path(t) / "b", action_rules_version="9")
             m = json.loads((Path(t) / "b" / "LORA_A" / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(m["lineage"]["turn_engine_version"], "9.9.9")
+            self.assertEqual(m["lineage"]["action_rules_version"], "9")

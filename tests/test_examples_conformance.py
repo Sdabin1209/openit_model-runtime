@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from helpers import A_INPUT, B_INPUT, BAD_A, GOOD_A, GOOD_B, SCHEMA_DIR, assert_valid, cfgs_and_hashes
+from helpers import rules_for, A_INPUT, B_INPUT, BAD_A, GOOD_A, GOOD_B, SCHEMA_DIR, assert_valid, cfgs_and_hashes
 from test_runtime import prompts_in
 
 import model_runtime as mr
@@ -30,7 +30,7 @@ class Golden(unittest.TestCase):
         b = mr.FakeBackend.scripted({"LORA_A": [GOOD_A], "LORA_B": [GOOD_B]})
         cfgs, hs = cfgs_and_hashes(b)
         s = mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hs, backend=b)
-        out = s.extract(A_INPUT)
+        out = s.extract(A_INPUT, *rules_for(A_INPUT))
         assert_valid("ActionExtraction", out)
         self.assertEqual(s.respond(B_INPUT), mr.ResponseResult(GOOD_B, False))
 
@@ -75,7 +75,7 @@ class Conformance(unittest.TestCase):
                     cfgs, hs = cfgs_and_hashes(b, {"max_attempts": n}, {"max_attempts": n})
                     s = factory(cfgs, b, hs)
                     if isinstance(expect, tuple):
-                        out = getattr(s, call)(inp)
+                        out = s.extract(inp, *rules_for(inp)) if call == EXTRACT else getattr(s, call)(inp)
                         self.assertEqual((s.last_call_info.attempts, s.last_call_info.outcome), expect)
                         self.assertEqual([r.seed for r in b.requests], [1000 + i for i in range(expect[0])])
                         if call == EXTRACT:
@@ -85,7 +85,7 @@ class Conformance(unittest.TestCase):
                             self.assertEqual(mr.SchemaSet(SCHEMA_DIR).output_violations("LORA_B", out.text), [])
                     else:
                         with self.assertRaises(expect):
-                            getattr(s, call)(inp)
+                            (s.extract(inp, *rules_for(inp)) if call == EXTRACT else getattr(s, call)(inp))
                         if expect is mr.ContractViolation:
                             self.assertEqual(b.requests, [])
 
