@@ -1,0 +1,4 @@
+[project]
+name = "openit-survey-schema"
+version = "1.0.0"
+# 시험 고정물의 패키지 버전(라벨 io.openit.contracts.survey-schema의 출처를 대신한다). 정수 CONTRACT_VERSION(1)과는 별개의 값이다.

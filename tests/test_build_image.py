@@ -53,14 +53,15 @@ else:
 def env(tmp_path):
     stub = tmp_path / "docker"
     stub.write_text(STUB.format(py=sys.executable)); stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
-    ss = tmp_path / "schema"; ss.mkdir(); (ss / "CONTRACT_VERSION").write_text("1\n")
+    ss = tmp_path / "schema"; ss.mkdir(); (ss / "CONTRACT_VERSION").write_text("1\n")   # 정수 계약 번호(모델 런타임 호환). 라벨과 다르다
+    (ss / "pyproject.toml").write_text('[project]\nname = "openit-survey-schema"\nversion = "2.0.0"\n')   # 문진 스키마 패키지 버전: 라벨의 정본
     bc = tmp_path / "bc"; bc.mkdir(); (bc / "boundary_contracts").symlink_to(Path(boundary_contracts.__file__).resolve().parent)   # 계약 소스 트리 모양: 패키지 + pyproject
     (bc / "pyproject.toml").write_text(f'[project]\nname = "boundary-contracts"\nversion = "{PINNED[1:]}"\n')
     return {"stub": stub, "log": tmp_path / "log.json", "ss": ss, "bc": bc, "tmp": tmp_path}
 
 
 def request(env, **over):
-    req = {"source_dir": str(ROOT), "revision": "abc1234", "versions": {"boundary": PINNED, "model_runtime": VERSION, "survey_schema": "v1.1.0"},
+    req = {"source_dir": str(ROOT), "revision": "abc1234", "versions": {"boundary": PINNED, "model_runtime": VERSION, "survey_schema": "v2.0.0"},
            "dependency_sources": {"boundary": str(env["bc"]), "survey_schema": str(env["ss"])}, "image_tag": "model-runtime-test/model-serving:abc1234"}
     for k, v in over.items():
         req[k] = v
@@ -80,7 +81,7 @@ def test_success_last_line_is_build_image_result_and_labels_match_request(env):
     assert not list(validator("BuildImageResult").iter_errors(out))
     assert out["image"] == "model-runtime-test/model-serving:abc1234" and out["image_id"].startswith("sha256:")
     assert out["labels"] == {"io.openit.service": "model-runtime", "io.openit.revision": "abc1234", "io.openit.contracts.boundary": PINNED,
-                             "io.openit.contracts.survey-schema": "1", "io.openit.model-runtime": VERSION}
+                             "io.openit.contracts.survey-schema": "2", "io.openit.model-runtime": VERSION}
     assert json.loads(env["log"].read_text())[0] == "build"
 
 
@@ -145,10 +146,24 @@ def test_request_boundary_differing_from_the_source_tree_fails_before_docker(env
     assert not env["log"].exists()
 
 
-def test_survey_schema_major_differing_from_contract_version_fails(env):
-    q = request(env); q["versions"]["survey_schema"] = "v2.0.0"   # 디렉터리의 CONTRACT_VERSION은 1
+def test_survey_schema_label_is_the_package_major_not_the_integer_contract_version(env):
+    r = run(env, request(env))   # 패키지 2.0.0, CONTRACT_VERSION 1: 라벨은 2다
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout.strip().splitlines()[-1])["labels"]["io.openit.contracts.survey-schema"] == "2"
+    assert "SURVEY_SCHEMA_VERSION=2" in json.loads(env["log"].read_text())
+
+
+def test_survey_schema_major_differing_from_the_package_version_fails_before_docker(env):
+    q = request(env); q["versions"]["survey_schema"] = "v3.0.0"   # 패키지 버전은 2.0.0
     r = run(env, q)
-    assert r.returncode != 0 and "CONTRACT_VERSION" in r.stderr, r.stderr
+    assert r.returncode != 0 and "라벨이 거짓" in r.stderr and "문진 스키마 패키지" in r.stderr, r.stderr
+    assert not env["log"].exists()
+
+
+def test_survey_schema_dir_without_package_version_fails(env):
+    (env["ss"] / "pyproject.toml").unlink()
+    r = run(env, request(env))
+    assert r.returncode != 0 and "pyproject.toml" in r.stderr, r.stderr
     assert not env["log"].exists()
 
 
@@ -156,7 +171,7 @@ def test_labels_come_from_the_actual_sources_not_the_request_text(env):
     r = run(env, request(env))
     assert r.returncode == 0, r.stderr
     build = json.loads(env["log"].read_text())
-    assert f"BOUNDARY_VERSION={PINNED}" in build and "SURVEY_SCHEMA_VERSION=1" in build and f"MODEL_RUNTIME_VERSION={VERSION}" in build
+    assert f"BOUNDARY_VERSION={PINNED}" in build and "SURVEY_SCHEMA_VERSION=2" in build and f"MODEL_RUNTIME_VERSION={VERSION}" in build
 
 
 def test_installed_version_in_the_image_differing_from_the_label_removes_image_and_fails(env):

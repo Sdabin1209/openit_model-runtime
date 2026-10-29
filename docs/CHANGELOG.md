@@ -7,6 +7,7 @@
 - `build-image.sh` 라벨 정직성(U50): 요청·소스 트리·이 영역의 고정이 다르면 빌드 전에 실패하고, 빌드 뒤 이미지 안의 설치 버전이 라벨과 다르면 이미지를 지우고 실패한다.
 - GPU 세션 도구(`measure.py`, `gpu_serve_check.py`, `gpu_probe.py`)는 ExtractRequest로 보낸다. 측정의 칸 규격은 자리표시라 값 규칙을 검사하지 않는다(결과 JSON의 `rules_context`).
 - 계약 핀 v2.7.0 -> **v3.0.0**(`Dockerfile`).
+- 라벨 `io.openit.contracts.survey-schema`는 문진 스키마 **패키지 버전의 주 번호**다(계약 3.0.1, 예: survey-schema-v2.0.0 -> "2"). 정수 `CONTRACT_VERSION`(런타임 호환 번호)과 섞지 않는다. `build-image.sh`는 `dependency_sources.survey_schema/pyproject.toml`의 버전과 이미지 안 `/opt/survey-schema/pyproject.toml`로 확인한다. 시험 고정물 `tests/fixtures/schema/pyproject.toml`을 더했다.
 
 ## 미정(버전은 올리지 않음) — 승격된 계약 스키마의 영역 사본 정리 (U49)
 `docs/change-requests/schemas/` 아래 파일 16개(스키마 5, 예시 10, 스크립트 1)를 분류했다(계약 v2.7.0 패키지의 스키마 이름과 대조).

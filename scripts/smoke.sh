@@ -18,8 +18,8 @@ else
   git clone -q --depth 1 --branch "$BOUNDARY_TAG" git@github.com:Sdabin1209/openit_boundary-contracts.git "$BDIR" && rm -rf "$BDIR/.git" \
     || { echo "boundary-contracts 태그 $BOUNDARY_TAG를 형제 폴더에서도 GitHub에서도 꺼내지 못했다" >&2; exit 1; }
 fi
-# 이미지는 영역 빌드 진입점으로 만든다(deploy가 부르는 것과 같은 경로, ADR 0025). 문진 스키마는 시험 고정물(CONTRACT_VERSION이 정수 N이면 vN.0.0)이다
-SSV="v$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION").0.0"
+# 이미지는 영역 빌드 진입점으로 만든다(deploy가 부르는 것과 같은 경로, ADR 0025). 문진 스키마는 시험 고정물이고 버전은 그 pyproject.toml의 패키지 버전이다
+SSV="v$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/tests/fixtures/schema/pyproject.toml")"
 REQDIR="$(mktemp -d)"; trap 'docker rm -f "$NAME" "${NAME}-ro" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT   # 요청 파일은 계약 소스(빌드 컨텍스트) 밖에 둔다
 REQ="$REQDIR/request.json"
 python3 -c 'import json,sys;a=sys.argv;print(json.dumps({"source_dir":a[1],"revision":a[2],"versions":{"boundary":a[3],"model_runtime":a[4],"survey_schema":a[5]},
