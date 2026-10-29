@@ -10,9 +10,8 @@ from importlib import metadata
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-BC = Path(__file__).resolve().parents[2] / "boundary-contracts"
-sys.path.append(str(BC))   # 뒤에 붙인다: boundary_contracts는 설치된 태그 패키지가 우선이고, conformance만 형제 폴더에서 온다
-try:
+ROOT = Path(__file__).resolve().parents[1]
+try:   # 참조 서버(conformance)도 설치된 태그 패키지에서 온다. 이웃 작업 트리(HEAD)를 import 경로에 얹지 않는다(구조 규칙 1: 이웃이 앞서 가도 이 시험은 변하지 않는다)
     import conformance
     from conformance.servers import ReferenceServer, adapter_digest, ref_of, sealed
     HAVE = True
@@ -64,16 +63,28 @@ class E2E(unittest.TestCase):
             pass
         return svc, f"http://127.0.0.1:{srv.server_address[1]}"
 
-    @unittest.skipUnless((BC / "pyproject.toml").exists(), "형제 boundary-contracts 작업 트리가 없다(새 머신에서는 정상, 이 시험은 형제 폴더와 설치본의 일치만 본다)")
-    def test_reference_checkout_is_the_installed_tag(self):
-        """적합성 시험이 읽는 형제 폴더와 설치된 패키지가 같은 계약 버전이다."""
+    def test_installed_package_is_the_pinned_tag(self):
+        """설치된 계약 패키지가 이 영역의 고정 태그(Dockerfile ARG BOUNDARY_VERSION)다. 이웃 작업 트리의 상태와 비교하지 않는다."""
+        pinned = re.search(r"^ARG BOUNDARY_VERSION=v([0-9][0-9.]*)", (ROOT / "Dockerfile").read_text(encoding="utf-8"), re.M).group(1)
+        self.assertEqual(metadata.version("boundary-contracts"), pinned)
+
+    def test_installed_schemas_equal_the_pinned_tag_content(self):
+        """이웃 리포가 있으면 그 리포의 고정 태그 내용(git show <태그>:경로)과 설치된 스키마가 같다. 이웃 HEAD·작업 트리는 읽지 않는다. 리포나 태그가 없으면 건너뛴다."""
+        import os
+        import subprocess
         import boundary_contracts
-        sibling = re.search(r'^version = "([^"]+)"', (BC / "pyproject.toml").read_text(), re.M).group(1)   # 버전을 여기에 또 적지 않는다
-        self.assertEqual(metadata.version("boundary-contracts"), sibling)
-        self.assertNotEqual(Path(boundary_contracts.__file__).resolve().parents[1], BC)   # 설치된 패키지를 쓰고 있다
+        tag = "v" + metadata.version("boundary-contracts")
+        repo = Path(os.environ["BOUNDARY_REPO"]) if os.environ.get("BOUNDARY_REPO") else next(
+            (p / "boundary-contracts" for p in ROOT.parents if (p / "boundary-contracts" / ".git").exists()), None)
+        if repo is None or subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{tag}^{{commit}}"], capture_output=True).returncode != 0:
+            self.skipTest(f"계약 리포나 태그 {tag}가 없다(새 머신에서는 정상)")
         installed = Path(boundary_contracts.schema_dir())
-        for f in sorted((BC / "schemas").glob("*.json")):   # 참조 서버 쪽 스키마와 설치된 스키마가 같은 내용이다
-            self.assertEqual(f.read_bytes(), (installed / f.name).read_bytes(), f.name)
+        names = sorted(f.name for f in installed.glob("*.json"))
+        self.assertTrue(names)
+        for name in names:
+            shown = subprocess.run(["git", "-C", str(repo), "show", f"{tag}:boundary_contracts/schemas/{name}"], capture_output=True)
+            self.assertEqual(shown.returncode, 0, name)
+            self.assertEqual(shown.stdout, (installed / name).read_bytes(), name)
 
     def test_put_loads_bundle_through_http_reader_and_serves(self):
         with ReferenceServer({"tok": "reader"}) as i4, TemporaryDirectory() as tmp:
