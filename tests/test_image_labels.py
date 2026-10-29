@@ -31,7 +31,7 @@ def render(args: dict) -> dict:
 def entry_args() -> dict:
     """영역 빌드 진입점(scripts/build-image.sh, ADR 0025)이 넘기는 --build-arg 이름과, 요청 값으로 채운 예시 값. 이름이 Dockerfile의 ARG에 없으면 시험이 실패한다."""
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-    values = {"REVISION": "0123abc", "BOUNDARY_VERSION": arg_defaults()["BOUNDARY_VERSION"], "SURVEY_SCHEMA_VERSION": "1", "MODEL_RUNTIME_VERSION": f"v{version}"}
+    values = {"SERVICE_NAME": "model-serving", "REVISION": "0123abc", "BOUNDARY_VERSION": arg_defaults()["BOUNDARY_VERSION"], "SURVEY_SCHEMA_VERSION": "1", "MODEL_RUNTIME_VERSION": f"v{version}"}
     names = re.findall(r'--build-arg "(\w+)=', ENTRY)
     unknown = [n for n in names if n not in arg_defaults()]
     assert not unknown, f"build-image.sh가 Dockerfile에 없는 ARG를 넘긴다: {unknown}"
@@ -49,7 +49,7 @@ class ImageLabels(unittest.TestCase):
 
     def test_defaults_for_optional_args_are_contract_values(self):
         # 빌드 인자를 주지 않아도 되는 라벨(survey-schema)의 기본값이 계약 값이어야 한다(none·unknown 불가, n/a)
-        args = {**arg_defaults(), "REVISION": "0123abc", "MODEL_RUNTIME_VERSION": "v0.0.0"}
+        args = {**arg_defaults(), "SERVICE_NAME": "model-serving", "REVISION": "0123abc", "MODEL_RUNTIME_VERSION": "v0.0.0"}
         self.assertEqual(self.errors(render(args)), [])
 
 

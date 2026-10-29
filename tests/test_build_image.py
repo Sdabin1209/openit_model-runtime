@@ -27,7 +27,7 @@ if a[0] == "build":
 elif a[:2] == ["image", "inspect"]:
     b = json.load(open(log))
     args = {{b[i + 1].split("=", 1)[0]: b[i + 1].split("=", 1)[1] for i, x in enumerate(b) if x == "--build-arg"}}
-    labels = {{"io.openit.service": "model-runtime", "io.openit.revision": args["REVISION"], "io.openit.contracts.boundary": args["BOUNDARY_VERSION"],
+    labels = {{"io.openit.service": args.get("SERVICE_NAME", "model-runtime"), "io.openit.revision": args["REVISION"], "io.openit.contracts.boundary": args["BOUNDARY_VERSION"],
               "io.openit.contracts.survey-schema": args["SURVEY_SCHEMA_VERSION"], "io.openit.model-runtime": args["MODEL_RUNTIME_VERSION"], "org.opencontainers.image.x": "ignored"}}
     for i, x in enumerate(b):
         if x == "--label":
@@ -80,7 +80,7 @@ def test_success_last_line_is_build_image_result_and_labels_match_request(env):
     out = json.loads(r.stdout.strip().splitlines()[-1])
     assert not list(validator("BuildImageResult").iter_errors(out))
     assert out["image"] == "model-runtime-test/model-serving:abc1234" and out["image_id"].startswith("sha256:")
-    assert out["labels"] == {"io.openit.service": "model-runtime", "io.openit.revision": "abc1234", "io.openit.contracts.boundary": PINNED,
+    assert out["labels"] == {"io.openit.service": "model-serving", "io.openit.revision": "abc1234", "io.openit.contracts.boundary": PINNED,
                              "io.openit.contracts.survey-schema": "2", "io.openit.model-runtime": VERSION}
     assert json.loads(env["log"].read_text())[0] == "build"
 
@@ -90,7 +90,9 @@ def test_gpu_variant_passes_variant_arg_and_label(env):
     assert r.returncode == 0, r.stderr
     build = json.loads(env["log"].read_text())
     assert "VARIANT=gpu" in build and "io.openit.variant=gpu" in build
-    assert json.loads(r.stdout.strip().splitlines()[-1])["labels"]["io.openit.variant"] == "gpu"
+    labels = json.loads(r.stdout.strip().splitlines()[-1])["labels"]
+    assert labels["io.openit.variant"] == "gpu"
+    assert labels["io.openit.service"] == "model-serving-gpu" and "SERVICE_NAME=model-serving-gpu" in build   # 서비스 이름은 variant별(deploy 서비스 목록과 같다)
 
 
 def test_build_context_and_args_come_only_from_the_request(env):
@@ -179,3 +181,12 @@ def test_installed_version_in_the_image_differing_from_the_label_removes_image_a
     assert r.returncode != 0 and "라벨이 거짓" in r.stderr and "v0.0.1" in r.stderr, r.stderr
     assert (env["log"].with_name("log.json.rmi")).read_text() == "model-runtime-test/model-serving:abc1234"   # 거짓 라벨 이미지를 남기지 않는다
     assert not r.stdout.strip()   # 결과 한 줄도 내지 않는다
+
+
+def test_service_label_is_the_service_name_not_the_repo_name(env):
+    for variant, want in ((None, "model-serving"), ("gpu", "model-serving-gpu")):
+        q = request(env, **({"variant": variant} if variant else {}))
+        r = run(env, q)
+        assert r.returncode == 0, r.stderr
+        assert json.loads(r.stdout.strip().splitlines()[-1])["labels"]["io.openit.service"] == want
+        assert f"SERVICE_NAME={want}" in json.loads(env["log"].read_text())

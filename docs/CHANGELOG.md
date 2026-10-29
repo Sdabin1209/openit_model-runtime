@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 0.11.1 — 2026-10-30 (이미지 라벨 io.openit.service를 서비스 이름으로)
+PATCH. 라벨 `io.openit.service`가 리포 이름 `model-runtime`이었다. 다른 영역은 서비스 이름을 쓰고 deploy의 서비스 목록·게시도 `model-serving` / `model-serving-gpu`(variant gpu)를 쓰므로 맞춘다.
+- `Dockerfile`에 `ARG SERVICE_NAME`(기본값 없음, 비면 빌드 실패)을 더하고 라벨을 그 값으로 한다. `scripts/build-image.sh`가 variant별로 넘긴다: 기본 `model-serving`, gpu는 `model-serving-gpu`(+ `io.openit.variant=gpu`). 빌드 뒤 라벨 대조에도 포함한다.
+- `/v1/info`의 `service` 필드(RuntimeInfo)는 라벨이 아니라 바꾸지 않았다.
+
 ## 0.11.0 — 2026-10-30 (계약 3.0.0 전환, ADR 0027, U300·U50)
 0.x 규칙에 따라 호환이 깨지는 변경이라 MINOR를 올린다(헤드 지시). 계약 boundary-contracts v3.0.0 대응. 아래 "0.11.0에 포함" 항목들(0.10.0 이후 쌓인 U49·U43·U42/U44·값 규칙·릴리스 서버·계약 핀 변경)도 이 판에 들어 있다.
 **호환 깨짐**: I9 extract 본문은 `ExtractRequest{input, flow, fields}`만 받는다(옛 본문·fields 없는 요청은 400 INVALID_RECORD).

@@ -54,13 +54,14 @@ print("\t".join([src, req["revision"], bc_actual, own, ss_actual, ds["boundary"]
 ' "$REQ")" || die "요청 검증 실패"
 IFS=$'\t' read -r SRC REV BC_V MR_V SS_V BC_DIR SS_DIR VARIANT TAG <<< "$FIELDS"
 [ "$VARIANT" != "-" ] || VARIANT=""
+SERVICE="model-serving"; [ "$VARIANT" = "gpu" ] && SERVICE="model-serving-gpu"   # 라벨 io.openit.service는 서비스(이미지) 이름이다: deploy의 서비스 목록·게시와 같다. 리포 이름(model-runtime)이 아니다
 [ -f "$SRC/Dockerfile" ] || die "source_dir에 Dockerfile이 없다"
 [ -d "$SS_DIR" ] || die "dependency_sources.survey_schema 디렉터리가 없다"
 SS_MAJOR="$SS_V"   # 라벨 io.openit.contracts.survey-schema는 문진 스키마 패키지 버전의 주 번호다(ImageLabels, 계약 3.0.1). 정수 CONTRACT_VERSION과 섞지 않는다
 
 # 2) 빌드. 같은 요청 -> 같은 이미지(인자와 컨텍스트가 요청에서만 온다). 문진 스키마는 이미지에 내장한다(D72).
 ARGS=(--build-context "boundary=$BC_DIR" --build-context "schema=$SS_DIR"
-      --build-arg "REVISION=$REV" --build-arg "BOUNDARY_VERSION=$BC_V" --build-arg "SURVEY_SCHEMA_VERSION=$SS_MAJOR"
+      --build-arg "SERVICE_NAME=$SERVICE" --build-arg "REVISION=$REV" --build-arg "BOUNDARY_VERSION=$BC_V" --build-arg "SURVEY_SCHEMA_VERSION=$SS_MAJOR"
       --build-arg "MODEL_RUNTIME_VERSION=$MR_V")
 EXPECT_VARIANT=""
 if [ "$VARIANT" = "gpu" ]; then ARGS+=(--build-arg VARIANT=gpu --label io.openit.variant=gpu); EXPECT_VARIANT=gpu; fi
@@ -83,9 +84,9 @@ LABELS_JSON="$("$DOCKER" image inspect "$TAG" --format '{{json .Config.Labels}}'
 PYTHONPATH="$BC_SRC" "$PY" -c '
 import json, sys
 from boundary_contracts import validator
-tag, image_id, labels_json, rev, bc, mr, ss, variant = sys.argv[1:9]
+tag, image_id, labels_json, rev, bc, mr, ss, variant, service = sys.argv[1:10]
 labels = {k: v for k, v in json.loads(labels_json).items() if k.startswith("io.openit.")}
-want = {"io.openit.service": "model-runtime", "io.openit.revision": rev, "io.openit.contracts.boundary": bc, "io.openit.model-runtime": mr,
+want = {"io.openit.service": service, "io.openit.revision": rev, "io.openit.contracts.boundary": bc, "io.openit.model-runtime": mr,
         "io.openit.contracts.survey-schema": ss}
 if variant:
     want["io.openit.variant"] = variant
@@ -97,4 +98,4 @@ errs = list(validator("BuildImageResult").iter_errors(result))
 if errs:
     sys.exit("결과가 BuildImageResult를 어긴다: " + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT"
+' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT" "$SERVICE"
