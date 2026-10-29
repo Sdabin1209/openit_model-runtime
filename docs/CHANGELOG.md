@@ -2,7 +2,7 @@
 
 ## 미정(버전은 올리지 않음) — setup-env.sh 결과 한 줄(SetupEnvReport), 계약 v2.6.0 (ADR 0026, U43)
 - `scripts/setup-env.sh`의 표준 출력은 SetupEnvReport JSON 한 줄뿐이다(`environment`에 `.venv`와 `test_command`). 진행 기록(pip 포함)은 표준 오류로 옮겼다. **동작 변화**: 이전에는 완료 문구가 표준 출력으로 나왔다. 실패해도 `status=fail` 보고를 낸다.
-- 계약 핀 v2.5.1 → **v2.6.0**(`Dockerfile`).
+- 계약 핀 v2.5.1 → **v2.7.0**(`Dockerfile`).
 
 ## 미정(버전은 올리지 않음) — 영역 빌드 진입점, 계약 스키마 검증, 계약 v2.5.1 (ADR 0025, U42·U44)
 - `scripts/build-image.sh <요청 JSON>`: 계약 BuildImageRequest를 받아 이미지를 만들고 BuildImageResult 한 줄을 표준 출력 마지막 줄에 낸다(variant: 기본/gpu). 라벨은 요청 값이고 실제 붙은 라벨을 읽어 확인한다. `smoke.sh`가 이 진입점으로 빌드한다.
