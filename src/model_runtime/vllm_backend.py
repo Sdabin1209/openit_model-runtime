@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from boundary_contracts import validator
+
 from .backends import GenerationRequest
 from .errors import BackendNotAvailable, ContractViolation, UnsupportedServingConfig
 
@@ -24,22 +26,15 @@ DEFAULT_SUPPORTED_FEATURES = ("type", "properties", "required", "enum", "const",
                               "additionalProperties", "minLength", "minimum", "pattern", "minItems", "maxItems")
 ROLES = ("LORA_A", "LORA_B")
 
-_ENGINE_KEYS = ("dtype", "max_model_len", "gpu_memory_utilization", "max_num_seqs", "max_loras", "max_lora_rank",
-                "enforce_eager", "quantization", "guided_decoding_backend", "structured_outputs_backend",
-                "disable_log_stats", "tensor_parallel_size")
-
-
 def load_profile(path: Path | str) -> dict:
-    """프로파일 JSON을 읽는다. 키: base_model(선택), engine(vLLM 엔진 인자), 그 밖의 키는 주석으로 무시한다."""
+    """프로파일 JSON을 읽는다. 형식은 계약 RuntimeProfile이 정한다(알려진 키만, 주석은 `_` 키). 위반이면 ContractViolation(값 없이 경로와 키워드만)."""
     try:
         p = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise ContractViolation("프로파일을 읽을 수 없다") from None
-    if not isinstance(p, dict) or not isinstance(p.get("engine", {}), dict):
-        raise ContractViolation("프로파일 형식 위반")
-    bad = set(p.get("engine", {})) - set(_ENGINE_KEYS)
-    if bad:
-        raise ContractViolation(f"프로파일 engine에 알 수 없는 키: {sorted(bad)}")
+    errs = sorted(validator("RuntimeProfile").iter_errors(p), key=lambda e: list(map(str, e.absolute_path)))
+    if errs:
+        raise ContractViolation("프로파일 형식 위반", [("/" + "/".join(map(str, e.absolute_path)), e.validator) for e in errs])
     return p
 
 

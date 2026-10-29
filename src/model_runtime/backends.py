@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
+from boundary_contracts import validator
+
 
 @dataclass(frozen=True)
 class GenerationRequest:
@@ -64,88 +66,59 @@ FAKE_EXTRACTION = {"action": "NEXT", "next_item": "END", "values": []}
 FAKE_RESPONSE_TEXT = "(가짜 응답)"
 
 
-def load_fake_flow(path: str) -> list[str]:
-    """문항 ID 목록 JSON(`["Q1.D01", ...]` 또는 `{"order": [...]}`)을 읽는다. 형식이 틀리면 ValueError."""
+def _read_flow_file(path: str):
+    """문항 흐름 파일을 읽고 계약 RuntimeFlowFile로 검증한다(형식의 정본은 계약, U44). 위반이면 ValueError(값 없이 경로와 키워드만).
+    옛 코드는 모르는 키를 조용히 무시했지만 계약은 거부한다(`skip` 같은 오타가 사라지지 않게)."""
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    order = data.get("order") if isinstance(data, dict) else data
-    if not isinstance(order, list) or not order or not all(isinstance(x, str) and x for x in order) or len(set(order)) != len(order):
-        raise ValueError("문항 순서 파일은 중복 없는 문항 ID 문자열의 비어 있지 않은 목록이어야 한다")
-    return list(order)
+    errs = sorted(validator("RuntimeFlowFile").iter_errors(data), key=lambda e: list(map(str, e.absolute_path)))
+    if errs:
+        raise ValueError("문항 흐름 파일이 RuntimeFlowFile 계약을 어긴다: " + ", ".join(f"/{'/'.join(map(str, e.absolute_path))}:{e.validator}" for e in errs[:5]))
+    return data
+
+
+def _check_items_in_order(items: list, data, what: str) -> None:
+    """key의 문항은 order에 있어야 한다. 스키마가 표현하지 못하는 항목 사이의 대응이라 여기서만 본다."""
+    order = data.get("order") if isinstance(data, dict) else None
+    for c in items:
+        if isinstance(order, list) and c["key"].rsplit(".", 1)[0].split("[")[0] not in order:
+            raise ValueError(f"{what}의 key 문항이 order에 없다")
+
+
+def load_fake_flow(path: str) -> list[str]:
+    """문항 ID 목록 JSON(`["Q1.D01", ...]` 또는 `{"order": [...]}`)의 order를 읽는다. 형식이 틀리면 ValueError."""
+    data = _read_flow_file(path)
+    return list(data["order"] if isinstance(data, dict) else data)
 
 
 def load_fake_flow_spec(path: str) -> tuple[dict, list]:
-    """문항 흐름 파일(객체 형식)의 선택 항목을 읽는다(0.7.1). 목록 형식이거나 항목이 없으면 ({}, []).
-    `slots`: {문항ID: [{"key": "Q4.answer", "type": "boolean"|"integer"}, ...]} (첫 칸만 쓴다).
-    `skips`: survey-service QuestionFlow와 같은 모양 [{"slot", "value", "skip_item"}] (op는 "=="만). 형식이 틀리면 ValueError."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    """문항 흐름 파일(객체 형식)의 `slots`({문항ID: [{"key", "type"}]}, 첫 칸만 쓴다)와 `skips`를 읽는다. 목록 형식이거나 항목이 없으면 ({}, [])."""
+    data = _read_flow_file(path)
     if not isinstance(data, dict):
         return {}, []
-    slots = data.get("slots", {})
-    if not isinstance(slots, dict):
-        raise ValueError("slots는 객체여야 한다")
-    for item, lst in slots.items():
-        if (not isinstance(lst, list) or not lst or not all(isinstance(c, dict) and isinstance(c.get("key"), str) and c.get("type") in ("boolean", "integer") for c in lst)):
-            raise ValueError("slots의 각 문항은 key(문자열)와 type(boolean|integer)을 가진 칸의 비어 있지 않은 목록이어야 한다")
-    skips = data.get("skips", [])
-    if not isinstance(skips, list) or not all(isinstance(r, dict) and isinstance(r.get("slot"), str) and isinstance(r.get("skip_item"), str)
-                                              and "value" in r and r.get("op", "==") == "==" for r in skips):
-        raise ValueError("skips 항목은 slot, value, skip_item을 가져야 한다(op는 ==만)")
-    return slots, list(skips)
+    return data.get("slots", {}), list(data.get("skips", []))
 
 
 def load_fake_corrections(path: str) -> list:
-    """문항 흐름 파일(객체 형식)의 선택 항목 `corrections`를 읽는다(0.7.2). 목록 형식이거나 항목이 없으면 [].
-    `corrections`: [{"contains": "발화에 들어 있는 문구", "key": "Q4.answer", "value": false, "at": "Q5"(선택: 이 question_id일 때만)}].
-    key의 문항은 `order`에 있어야 한다. value는 null이 아닌 boolean|number|string. 형식이 틀리면 ValueError."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    """문항 흐름 파일(객체 형식)의 `corrections`(발화 문구 -> 정정 값)를 읽는다. 목록 형식이거나 항목이 없으면 []."""
+    data = _read_flow_file(path)
     if not isinstance(data, dict):
         return []
-    corr = data.get("corrections", [])
-    order = data.get("order")
-    if not isinstance(corr, list):
-        raise ValueError("corrections는 목록이어야 한다")
-    for c in corr:
-        if not (isinstance(c, dict) and isinstance(c.get("contains"), str) and c["contains"].strip() and isinstance(c.get("key"), str)
-                and isinstance(c.get("value"), (bool, int, float, str)) and (c.get("at") is None or isinstance(c["at"], str))):
-            raise ValueError("corrections 항목은 contains(비어 있지 않은 문자열), key(문자열), value(boolean|number|string)를 가져야 한다")
-        if not _KEY.match(c["key"]):
-            raise ValueError("corrections의 key가 모델 키 문법이 아니다")
-        if isinstance(order, list) and c["key"].rsplit(".", 1)[0].split("[")[0] not in order:
-            raise ValueError("corrections의 key 문항이 order에 없다")
-    return list(corr)
-
-
-_REASK_REASONS = ("MISSING", "OUT_OF_RANGE", "UNKNOWN_UNIT", "VAGUE_QUANTITY", "RANGE_SPANS_OPTIONS", "COUNT_EXCEEDS_DAYS",
-                  "OTHER_BEVERAGE", "BEVERAGE_MISSING", "MISSING_NUMBER", "UNPARSED_VALUE", "INVALID_OPTION")   # ActionExtraction 스키마 allOf의 REASK 허용 reason
+    corr = list(data.get("corrections", []))
+    _check_items_in_order(corr, data, "corrections")
+    return corr
 
 
 def load_fake_reasks(path: str) -> list:
-    """문항 흐름 파일(객체 형식)의 선택 항목 `reasks`를 읽는다(0.7.5). 목록 형식이거나 항목이 없으면 [].
-    `reasks`: [{"contains": "발화에 들어 있는 문구", "key": "Q4.answer", "reason": "MISSING"(선택, 기본 MISSING), "at": "Q4"(선택: 이 question_id일 때만)}].
-    문구가 발화에 있으면 매번(연속으로도) REASK를 낸다. 서비스의 되묻기 한도(REASK_LIMIT) 시험용이다. 형식이 틀리면 ValueError."""
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    """문항 흐름 파일(객체 형식)의 `reasks`(발화 문구 -> REASK, 서비스의 되묻기 한도 시험용)를 읽는다. 목록 형식이거나 항목이 없으면 []."""
+    data = _read_flow_file(path)
     if not isinstance(data, dict):
         return []
-    rs = data.get("reasks", [])
-    order = data.get("order")
-    if not isinstance(rs, list):
-        raise ValueError("reasks는 목록이어야 한다")
-    for r in rs:
-        if not (isinstance(r, dict) and isinstance(r.get("contains"), str) and r["contains"].strip() and isinstance(r.get("key"), str)
-                and r.get("reason", "MISSING") in _REASK_REASONS and (r.get("at") is None or isinstance(r["at"], str))):
-            raise ValueError("reasks 항목은 contains(비어 있지 않은 문자열), key(문자열), reason(REASK 허용값, 선택)을 가져야 한다")
-        if not _KEY.match(r["key"]):
-            raise ValueError("reasks의 key가 모델 키 문법이 아니다")
-        if isinstance(order, list) and r["key"].rsplit(".", 1)[0].split("[")[0] not in order:
-            raise ValueError("reasks의 key 문항이 order에 없다")
-    return list(rs)
+    rs = list(data.get("reasks", []))
+    _check_items_in_order(rs, data, "reasks")
+    return rs
 
 
-_KEY = re.compile(r"^Q[0-9]+(\.D[0-9]{2})?(_[0-9]+)?(\[(soju|beer|spirits|makgeolli|wine)\])?\.[a-z][a-z_]*$")
 _INT = re.compile(r"\d+")
 
 

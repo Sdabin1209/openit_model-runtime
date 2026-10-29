@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 미정(버전은 올리지 않음) — 영역 빌드 진입점, 계약 스키마 검증, 계약 v2.5.1 (ADR 0025, U42·U44)
+- `scripts/build-image.sh <요청 JSON>`: 계약 BuildImageRequest를 받아 이미지를 만들고 BuildImageResult 한 줄을 표준 출력 마지막 줄에 낸다(variant: 기본/gpu). 라벨은 요청 값이고 실제 붙은 라벨을 읽어 확인한다. `smoke.sh`가 이 진입점으로 빌드한다.
+- ServingConfig·RuntimeProfile·RuntimeFlowFile을 영역 안 사본 대신 계약 스키마로 검증한다. **동작 변화**: 프로파일 최상위·흐름 파일의 모르는 키는 거부된다(옛 코드는 무시했다).
+- 계약 핀 v2.4.1 → **v2.5.1**(`Dockerfile`). `smoke.sh`의 정리 trap이 임시 폴더를 지우지 못하던 것을 고쳤다.
+
 ## 미정(버전은 올리지 않음) — 값 규칙 적용(`fields`), 계약 v2.4.0 (ADR 0024, D115)
 - `ExtractRequest.fields`(QuestionFieldSpec)가 있으면 `check_action_extraction` 뒤에 `apply_value_rules`를 적용한다. 규칙에 걸린 출력은 다시 생성 없이 바뀐 모양으로 200, 바꿀 수 없는 위반(`VALUE_TYPE_MISMATCH`, `VALUE_BELOW_MINIMUM`)은 재시도 후 503 OUTPUT_INVALID. `fields`가 없으면 이전 동작.
 - 적용 사유는 로그와 `X-Openit-Protections`(사유별 건수)에 이름만 남긴다. `ModelSession.extract(input, flow=None, fields=None)`.

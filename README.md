@@ -120,6 +120,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0022](docs/adr/0022-wsgi-waitress.md) | 추론 서버를 WSGI 앱 + waitress로(0010 대체), 연결·timeout·본문 상한을 waitress 설정으로 |
 | [0023](docs/adr/0023-release-server-waitress.md) | GPU 세션 키트의 I4 읽기 서버도 WSGI 앱 + waitress로 |
 | [0024](docs/adr/0024-server-applies-value-rules.md) | extract가 요청의 `fields`로 값 규칙(범위·R1~R3)을 적용한다 |
+| [0025](docs/adr/0025-build-entrypoint-and-contract-schemas.md) | 영역 빌드 진입점 `scripts/build-image.sh`(계약 BuildImageRequest/Result)와 ServingConfig·RuntimeProfile·RuntimeFlowFile을 계약 스키마로 검증 |
 
 ## 더 자세한 문서
 

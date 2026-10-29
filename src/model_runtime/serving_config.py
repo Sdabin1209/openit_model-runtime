@@ -1,58 +1,13 @@
 """ServingConfig 형식, 검증, 해시 (INTERFACES I9)."""
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Mapping
 
-import jsonschema
-
+from boundary_contracts import validator
 from boundary_contracts.canonical import sha256_hash
 from .errors import ContractViolation
 
-SERVING_CONFIG_SCHEMA: dict[str, Any] = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["prompt_template_version", "decoding", "max_attempts", "constraint", "output_contract",
-                 "protection_policy_version"],
-    "properties": {
-        "prompt_template_version": {"type": "string", "minLength": 1},
-        "decoding": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["constraint_mode", "temperature", "seed", "max_tokens"],
-            "properties": {
-                "constraint_mode": {"enum": ["constrained", "none"]},
-                "temperature": {"type": "number", "minimum": 0, "maximum": 2},
-                "seed": {"type": "integer", "minimum": 0, "maximum": 2**31 - 1},
-                "max_tokens": {"type": "integer", "minimum": 1},
-                # 재시도(시도 번호 1 이상)에 쓰는 온도. 없으면 temperature 그대로(기존 설정·해시 불변).
-                # 온도 0에서는 시드가 효과가 없어 재시도가 같은 출력을 되풀이하므로 0이면 0 초과 값을 권장한다(docs/history/design-v1.md §2.3).
-                "retry_temperature": {"type": "number", "minimum": 0, "maximum": 2},
-                "top_p": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-            },
-        },
-        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
-        "constraint": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["backend", "backend_version", "supported_features", "relax_policy_version"],
-            "properties": {
-                "backend": {"type": "string", "minLength": 1},
-                "backend_version": {"type": "string", "minLength": 1},
-                "supported_features": {
-                    "type": "array",
-                    "items": {"type": "string", "minLength": 1},
-                    "uniqueItems": True,
-                },
-                "relax_policy_version": {"type": "string", "minLength": 1},
-            },
-        },
-        "output_contract": {"type": "integer", "minimum": 1},
-        "protection_policy_version": {"type": "string", "minLength": 1},   # 출력 보호 규칙(docs/rules.md) 버전
-    },
-}
-
-_VALIDATOR = jsonschema.Draft202012Validator(SERVING_CONFIG_SCHEMA)
+_VALIDATOR = validator("ServingConfig")   # 형식의 정본은 계약 스키마다(영역 안에 사본을 두지 않는다, U44). 해시는 받은 객체 그대로라 모르는 키는 거부된다
 DEFAULT_MAX_ATTEMPTS = 3
 
 

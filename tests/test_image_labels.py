@@ -1,5 +1,5 @@
 """이미지 라벨이 계약 v2.2.0 이후의 ImageLabels(D108)를 지키는지. Docker 없이 Dockerfile의 ARG 기본값·LABEL과
-scripts/smoke.sh가 넘기는 빌드 인자를 읽어 라벨 값을 만들고 계약 검증기로 본다. 실제 이미지 라벨은 smoke.sh가 docker image inspect로 본다."""
+scripts/build-image.sh가 넘기는 빌드 인자 이름을 읽어 라벨 값을 만들고 계약 검증기로 본다. 실제 이미지 라벨은 smoke.sh가 docker image inspect로 본다."""
 import re
 import tomllib
 import unittest
@@ -9,7 +9,7 @@ from boundary_contracts import validator
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-SMOKE = (ROOT / "scripts" / "smoke.sh").read_text(encoding="utf-8")
+ENTRY = (ROOT / "scripts" / "build-image.sh").read_text(encoding="utf-8")
 
 
 def arg_defaults() -> dict:
@@ -28,26 +28,22 @@ def render(args: dict) -> dict:
     return {k: re.sub(r"\$\{(\w+)\}", lambda m: args[m.group(1)] or "", v) for k, v in label_template().items()}
 
 
-def smoke_args() -> dict:
-    """smoke.sh의 --build-arg 값. 셸 변수는 smoke.sh가 계산하는 값과 같은 출처로 채운다."""
+def entry_args() -> dict:
+    """영역 빌드 진입점(scripts/build-image.sh, ADR 0025)이 넘기는 --build-arg 이름과, 요청 값으로 채운 예시 값. 이름이 Dockerfile의 ARG에 없으면 시험이 실패한다."""
     version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-    env = {"MR_VERSION": version, "BOUNDARY_TAG": arg_defaults()["BOUNDARY_VERSION"],
-           "SURVEY": (ROOT / "tests/fixtures/schema/CONTRACT_VERSION").read_text().strip()}
-    out = {"REVISION": "0123abc"}   # smoke.sh는 git rev-parse --short HEAD를 넘긴다
-    for name, expr in re.findall(r'--build-arg (\w+)="(\$\(cat "[^"]*"\)|[^"]*)"', SMOKE):
-        if name == "REVISION":
-            continue
-        expr = re.sub(r'\$\(cat "[^"]*CONTRACT_VERSION"\)', env["SURVEY"], expr)
-        out[name] = re.sub(r"\$(\w+)", lambda m: env[m.group(1)], expr)
-    return out
+    values = {"REVISION": "0123abc", "BOUNDARY_VERSION": "v2.5.1", "SURVEY_SCHEMA_VERSION": "1", "MODEL_RUNTIME_VERSION": f"v{version}", "TURN_ENGINE_VERSION": "n/a"}
+    names = re.findall(r'--build-arg "(\w+)=', ENTRY)
+    unknown = [n for n in names if n not in arg_defaults()]
+    assert not unknown, f"build-image.sh가 Dockerfile에 없는 ARG를 넘긴다: {unknown}"
+    return {n: values[n] for n in names}
 
 
 class ImageLabels(unittest.TestCase):
     def errors(self, labels):
         return [f"{'/'.join(map(str, e.absolute_path))}: {e.message}" for e in validator("ImageLabels").iter_errors(labels)]
 
-    def test_smoke_build_labels_satisfy_contract(self):
-        labels = render({**arg_defaults(), **smoke_args()})
+    def test_entrypoint_build_labels_satisfy_contract(self):
+        labels = render({**arg_defaults(), **entry_args()})
         self.assertEqual(self.errors(labels), [], labels)
         self.assertRegex(labels["io.openit.model-runtime"], r"^v\d+\.\d+\.\d+$")
 

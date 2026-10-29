@@ -18,9 +18,13 @@ else
   git clone -q --depth 1 --branch "$BOUNDARY_TAG" git@github.com:Sdabin1209/openit_boundary-contracts.git "$BDIR" && rm -rf "$BDIR/.git" \
     || { echo "boundary-contracts 태그 $BOUNDARY_TAG를 형제 폴더에서도 GitHub에서도 꺼내지 못했다" >&2; exit 1; }
 fi
-docker build -q --build-context boundary="$BDIR" --build-context schema="$HERE/tests/fixtures/schema" --build-arg REVISION="$(git -C "$HERE" rev-parse --short HEAD)" \
-  --build-arg BOUNDARY_VERSION="$BOUNDARY_TAG" --build-arg MODEL_RUNTIME_VERSION="v$MR_VERSION" \
-  --build-arg SURVEY_SCHEMA_VERSION="$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION")" -t "$TAG" "$HERE" >/dev/null
+# 이미지는 영역 빌드 진입점으로 만든다(deploy가 부르는 것과 같은 경로, ADR 0025). 문진 스키마는 시험 고정물(CONTRACT_VERSION이 정수 N이면 vN.0.0)이다
+SSV="v$(cat "$HERE/tests/fixtures/schema/CONTRACT_VERSION").0.0"
+REQDIR="$(mktemp -d)"; trap 'docker rm -f "$NAME" "${NAME}-ro" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT   # 요청 파일은 계약 소스(빌드 컨텍스트) 밖에 둔다
+REQ="$REQDIR/request.json"
+python3 -c 'import json,sys;a=sys.argv;print(json.dumps({"source_dir":a[1],"revision":a[2],"versions":{"boundary":a[3],"model_runtime":a[4],"survey_schema":a[5]},
+  "dependency_sources":{"boundary":a[6],"survey_schema":a[7]},"image_tag":a[8]}))' "$HERE" "$(git -C "$HERE" rev-parse --short HEAD)" "$BOUNDARY_TAG" "v$MR_VERSION" "$SSV" "$BDIR" "$HERE/tests/fixtures/schema" "$TAG" > "$REQ"
+PYTHON="${PYTHON:-$( [ -x "$HERE/.venv/bin/python" ] && echo "$HERE/.venv/bin/python" || echo python3)}" bash "$HERE/scripts/build-image.sh" "$REQ" | tail -1 | tee "$REQDIR/result.json"
 docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
   "$TAG" >/dev/null
 PORT="$(docker port "$NAME" 8080/tcp | head -1 | sed 's/.*://')"; URL="http://127.0.0.1:$PORT"
@@ -40,7 +44,7 @@ echo "PUT without I4: $code"; [ "$code" = 503 ] || { echo "503이어야 한다" 
 docker exec "$NAME" python -c "import os,tempfile;tempfile.TemporaryFile(dir=os.environ['MODEL_RUNTIME_BUNDLE_DIR'])" && echo "bundle dir writable"
 NAME2="$NAME-ro"
 docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
-trap 'docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true' EXIT
+trap 'docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT
 PORT2="$(docker port "$NAME2" 8080/tcp | head -1 | sed 's/.*://')"
 for i in $(seq 1 20); do curl -sf "http://127.0.0.1:$PORT2/healthz" >/dev/null && break; sleep 1; done
 code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz")"; cat /tmp/ro.$$; echo; rm -f /tmp/ro.$$
