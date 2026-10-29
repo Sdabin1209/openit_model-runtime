@@ -1,6 +1,7 @@
 # 변경 이력
 
-## 미정(버전은 올리지 않음, 헤드가 정한다) — 계약 3.0.0 전환 (ADR 0027, U300·U50)
+## 0.11.0 — 2026-10-30 (계약 3.0.0 전환, ADR 0027, U300·U50)
+0.x 규칙에 따라 호환이 깨지는 변경이라 MINOR를 올린다(헤드 지시). 계약 boundary-contracts v3.0.0 대응. 아래 "0.11.0에 포함" 항목들(0.10.0 이후 쌓인 U49·U43·U42/U44·값 규칙·릴리스 서버·계약 핀 변경)도 이 판에 들어 있다.
 **호환 깨짐**: I9 extract 본문은 `ExtractRequest{input, flow, fields}`만 받는다(옛 본문·fields 없는 요청은 400 INVALID_RECORD).
 - `ModelSession.extract(input, flow, fields)`, `ExtractRole.call(backend, input, flow, fields)`: flow·fields 필수. 규칙·값 규칙 보증의 "없을 때" 분기를 지웠다.
 - 계보 표지 `turn_engine_version` -> `action_rules_version`(값은 계약 규칙 데이터의 `rules_version`, `model_runtime.ACTION_RULES_VERSION`). 이미지 라벨 `io.openit.turn-engine`과 `ARG TURN_ENGINE_VERSION` 제거. `TURN_ENGINE_MARKER_VERSION`·`--turn-engine-version`·`MODEL_RUNTIME_TURN_ENGINE_MARKER`는 `ACTION_RULES_VERSION`·`--action-rules-version`으로 바뀌었고 환경 변수는 없앴다.
@@ -9,7 +10,7 @@
 - 계약 핀 v2.7.0 -> **v3.0.0**(`Dockerfile`).
 - 라벨 `io.openit.contracts.survey-schema`는 문진 스키마 **패키지 버전의 주 번호**다(계약 3.0.1, 예: survey-schema-v2.0.0 -> "2"). 정수 `CONTRACT_VERSION`(런타임 호환 번호)과 섞지 않는다. `build-image.sh`는 `dependency_sources.survey_schema/pyproject.toml`의 버전과 이미지 안 `/opt/survey-schema/pyproject.toml`로 확인한다. 시험 고정물 `tests/fixtures/schema/pyproject.toml`을 더했다.
 
-## 미정(버전은 올리지 않음) — 승격된 계약 스키마의 영역 사본 정리 (U49)
+### 0.11.0에 포함 — 승격된 계약 스키마의 영역 사본 정리 (U49)
 `docs/change-requests/schemas/` 아래 파일 16개(스키마 5, 예시 10, 스크립트 1)를 분류했다(계약 v2.7.0 패키지의 스키마 이름과 대조).
 
 | 파일 | 분류 | 처리 | 근거 |
@@ -23,21 +24,21 @@
 
 지운 파일 **16개**(스키마 5 + 예시 10 + verify.py 1). 남긴 파일은 **0개**, (나)(계약에 없는 영역 소유 스키마)는 **0개**였다. 사본을 읽는 시험·스크립트·링크는 없었다(`CR-006-boundary-schemas.md`의 본문 서술만 남아 맨 위에 처리됨 표지를 달았다).
 
-## 미정(버전은 올리지 않음) — setup-env.sh 결과 한 줄(SetupEnvReport), 계약 v2.6.0 (ADR 0026, U43)
+### 0.11.0에 포함 — setup-env.sh 결과 한 줄(SetupEnvReport), 계약 v2.6.0 (ADR 0026, U43)
 - `scripts/setup-env.sh`의 표준 출력은 SetupEnvReport JSON 한 줄뿐이다(`environment`에 `.venv`와 `test_command`). 진행 기록(pip 포함)은 표준 오류로 옮겼다. **동작 변화**: 이전에는 완료 문구가 표준 출력으로 나왔다. 실패해도 `status=fail` 보고를 낸다.
 - 계약 핀 v2.5.1 → **v2.7.0**(`Dockerfile`).
 
-## 미정(버전은 올리지 않음) — 영역 빌드 진입점, 계약 스키마 검증, 계약 v2.5.1 (ADR 0025, U42·U44)
+### 0.11.0에 포함 — 영역 빌드 진입점, 계약 스키마 검증, 계약 v2.5.1 (ADR 0025, U42·U44)
 - `scripts/build-image.sh <요청 JSON>`: 계약 BuildImageRequest를 받아 이미지를 만들고 BuildImageResult 한 줄을 표준 출력 마지막 줄에 낸다(variant: 기본/gpu). 라벨은 요청 값이고 실제 붙은 라벨을 읽어 확인한다. `smoke.sh`가 이 진입점으로 빌드한다.
 - ServingConfig·RuntimeProfile·RuntimeFlowFile을 영역 안 사본 대신 계약 스키마로 검증한다. **동작 변화**: 프로파일 최상위·흐름 파일의 모르는 키는 거부된다(옛 코드는 무시했다).
 - 계약 핀 v2.4.1 → **v2.5.1**(`Dockerfile`). `smoke.sh`의 정리 trap이 임시 폴더를 지우지 못하던 것을 고쳤다.
 
-## 미정(버전은 올리지 않음) — 값 규칙 적용(`fields`), 계약 v2.4.0 (ADR 0024, D115)
+### 0.11.0에 포함 — 값 규칙 적용(`fields`), 계약 v2.4.0 (ADR 0024, D115)
 - `ExtractRequest.fields`(QuestionFieldSpec)가 있으면 `check_action_extraction` 뒤에 `apply_value_rules`를 적용한다. 규칙에 걸린 출력은 다시 생성 없이 바뀐 모양으로 200, 바꿀 수 없는 위반(`VALUE_TYPE_MISMATCH`, `VALUE_BELOW_MINIMUM`)은 재시도 후 503 OUTPUT_INVALID. `fields`가 없으면 이전 동작.
 - 적용 사유는 로그와 `X-Openit-Protections`(사유별 건수)에 이름만 남긴다. `ModelSession.extract(input, flow=None, fields=None)`.
 - 계약 핀 v2.3.0 → **v2.4.0**(`Dockerfile`). 시험 `tests/test_value_rules.py`.
 
-## 미정(버전은 올리지 않음) — GPU 세션 키트의 release_server.py를 waitress로 (ADR 0023)
+### 0.11.0에 포함 — GPU 세션 키트의 release_server.py를 waitress로 (ADR 0023)
 `scripts/gpu_session/release_server.py`를 `ThreadingHTTPServer`에서 WSGI 앱 + waitress로 바꾼다. 응답 내용은 같고 번들은 chunked로 나가며 SIGTERM에 종료 코드 0으로 끝난다. 새 의존 없음(waitress는 추론 서버와 같은 잠금 파일에 있다). 시험 `tests/test_release_server.py`.
 
 ## 0.10.0 — 2026-10-29 (추론 서버를 WSGI + waitress로, 단위 4a, D111)
