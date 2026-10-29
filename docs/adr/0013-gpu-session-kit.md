@@ -14,7 +14,7 @@ H1~H4(OPEN_GAPS)와 boundary.md '실측 절차'는 Qwen3-8B + 학습된 LoRA A·
 5. **측정 중 요청 상한을 푼다**(`REQUEST_DEADLINE_S`/`QUEUE_WAIT_S` 600초). 기본 3.5초 상한을 켜 두면 느린 호출이 `ENGINE_TIMEOUT`으로 잘려 실제 지연 분포를 못 잰다. 상한이 켜진 동작은 `--production-limits`로 따로 본다.
 6. **측정 도구는 이 영역 안에 둔다(`measure.py`).** deploy의 probe-serving은 읽기 전용으로만 봤고 p95·max·respond·정답 비교가 없다. 정답 비교는 C1 val의 assistant 메시지를 쓴다. 발화·출력 원문은 결과 파일에 남기지 않는다.
 7. **서버 접속은 헤드가 한다.** 키트는 로컬(가짜 백엔드, 가짜 nvidia-smi)에서 시험 가능해야 하고 pytest(`tests/test_gpu_session.py`)로 고정한다.
-8. **I4는 최소 읽기 서버(`release_server.py`)로 대신한다.** 추론 서버는 번들을 I4(HTTP.md)에서 받는다. boundary-contracts의 참조 서버(`conformance`)는 설치 패키지에 들어 있지 않아 서버에 따로 올려야 하므로 쓰지 않는다. 루프백 전용, 읽기 전용, 표준 라이브러리만.
+8. **I4는 최소 읽기 서버(`release_server.py`)로 대신한다**(구현은 [ADR 0023](0023-release-server-waitress.md)에서 waitress로 바뀜). 추론 서버는 번들을 I4(HTTP.md)에서 받는다. boundary-contracts의 참조 서버(`conformance`)는 설치 패키지에 들어 있지 않아 서버에 따로 올려야 하므로 쓰지 않는다. 루프백 전용, 읽기 전용, 표준 라이브러리만.
 
 ## 왜 (따른 표준과 근거)
 - 공통 규칙 '자기 리포지토리 안에서만 일한다'와 서버 쓰기 규칙(~/dabin만) -> 캐시·임시·번들·결과를 모두 `~/dabin/mr-session`으로 보낸다(`VLLM_CACHE_ROOT`, `XDG_CACHE_HOME`, `TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR`, `TMPDIR` 등). HOME은 그대로 둔다. 쓰기 경로가 허용 폴더 밖이면 시작을 거부한다. `HF_HUB_OFFLINE=1`로 허브에 쓰거나 내려받지 않게 한다(모델은 읽기 전용 HF 캐시에 있다).

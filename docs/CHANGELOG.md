@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 미정(버전은 올리지 않음) — GPU 세션 키트의 release_server.py를 waitress로 (ADR 0023)
+`scripts/gpu_session/release_server.py`를 `ThreadingHTTPServer`에서 WSGI 앱 + waitress로 바꾼다. 응답 내용은 같고 번들은 chunked로 나가며 SIGTERM에 종료 코드 0으로 끝난다. 새 의존 없음(waitress는 추론 서버와 같은 잠금 파일에 있다). 시험 `tests/test_release_server.py`.
+
 ## 0.10.0 — 2026-10-29 (추론 서버를 WSGI + waitress로, 단위 4a, D111)
 MINOR(서버 구현 교체). I9 경로·인증·본문·오류 본문·헤더는 그대로이고 엔진 직렬화 락과 호출별 시간 예산(extract 3.0/respond 2.0)도 그대로다. ADR 0022(0010 대체).
 - 지운 것: `BoundedServer`(연결 상한 직접 구현), `make_handler`(`BaseHTTPRequestHandler` 서브클래스), `ThreadingHTTPServer` 사용. 대신 `make_app(svc)`(WSGI, PEP 3333)와 `make_server(...)`(waitress 설정)가 있다.
