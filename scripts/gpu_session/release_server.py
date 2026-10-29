@@ -87,15 +87,16 @@ def main() -> None:
     # channel_timeout 120은 추론 서버의 번들 읽기 timeout 기본값(MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S 120)과 맞췄다. cleanup_interval 1은 추론 서버(ADR 0022)와 같다.
     srv = waitress.create_server(make_app(Path(a.root)), host="127.0.0.1", port=a.port, threads=4, connection_limit=8, channel_timeout=120,
                                  cleanup_interval=1, ident="release-server")
+    # 포트 파일은 "준비됐다"는 신호다. 그 전에 종료 신호 처리부터 걸어 둔다(걸기 전에 신호를 받으면 종료 코드 -15로 죽는다)
+    def stop(*_):   # 우아한 종료: 추론 서버와 같다(ADR 0022). run()이 SystemExit을 받으면 진행 중인 요청을 마치고 돌아온다
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     port = srv.effective_port
     if a.port_file:
         Path(a.port_file).write_text(str(port))
     print(f"release_server 127.0.0.1:{port} root={a.root}", flush=True)
 
-    def stop(*_):   # 우아한 종료: 추론 서버와 같다(ADR 0022). run()이 SystemExit을 받으면 진행 중인 요청을 마치고 돌아온다
-        raise SystemExit(0)
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
     try:
         srv.run()
     finally:
