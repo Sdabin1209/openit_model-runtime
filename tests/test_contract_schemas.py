@@ -57,3 +57,41 @@ class FlowFileFollowsContract(unittest.TestCase):
         for bad in ({"order": ["Q1.D01"], "skip": []}, {"order": []}, ["Q1", "Q1"], {"order": ["Q1"], "slots": {"Q1": [{"key": "Q1.x", "type": "string"}]}}):
             with self.assertRaises(ValueError, msg=bad):
                 self.load(bad)
+
+
+class ResponsesFollowContract(unittest.TestCase):
+    """계약 클라이언트(2.5.1)가 검증하는 두 응답을 서버에서 직접 확인한다: GET /v1/info는 RuntimeInfo, 적재 상태는 ReleaseLoadStatus."""
+
+    def test_info_and_release_status_pass_contract_schemas(self):
+        from boundary_contracts import validator
+        from test_server import call, start
+        with TemporaryDirectory() as t:
+            srv, url, svc, _ = start(t)
+            try:
+                s, info, _ = call(url, "/v1/info")
+                self.assertEqual(s, 200)
+                self.assertEqual([e.message for e in validator("RuntimeInfo").iter_errors(info)], [], "적재 전")
+                s, st, _ = call(url, "/v1/releases/r1")
+                self.assertEqual([e.message for e in validator("ReleaseLoadStatus").iter_errors(st)], [], "ABSENT")
+                call(url, "/v1/releases/r1", method="PUT")
+                s, st, _ = call(url, "/v1/releases/r1")
+                self.assertEqual((st["state"], [e.message for e in validator("ReleaseLoadStatus").iter_errors(st)]), ("LOADED", []))
+                s, info, _ = call(url, "/v1/info")
+                self.assertEqual([e.message for e in validator("RuntimeInfo").iter_errors(info)], [], "적재 후")
+            finally:
+                srv.shutdown()
+
+    def test_failed_status_passes(self):
+        from boundary_contracts import validator
+        from boundary_contracts.errors import BoundaryError
+        from test_server import call, start
+        with TemporaryDirectory() as t:
+            srv, url, svc, _ = start(t, plan={"bad": BoundaryError("FAILED_PRECONDITION", "승인 없음")})
+            try:
+                call(url, "/v1/releases/bad", method="PUT")
+                from helpers import wait_until
+                wait_until(lambda: call(url, "/v1/releases/bad")[1]["state"] == "FAILED")
+                st = call(url, "/v1/releases/bad")[1]
+                self.assertEqual((st["state"], [e.message for e in validator("ReleaseLoadStatus").iter_errors(st)]), ("FAILED", []))
+            finally:
+                srv.shutdown()
