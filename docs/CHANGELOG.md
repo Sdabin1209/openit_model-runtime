@@ -3,6 +3,7 @@
 ## 0.11.4 — 2026-10-30 (vllm 백엔드 import 경로 수정, link v0.4.1)
 PATCH. `server.py`의 vllm 백엔드 공장(`build_service`의 `factory`)이 `from .vllm_backend import ...`로 이동 전 경로를 가리켜 `MODEL_RUNTIME_BACKEND=vllm`에서 ModuleNotFoundError가 났다(GPU 경로라 시험이 못 잡았다). `.components.vllm_backend`로 고쳤다.
 - 재발 방지: `tests/test_imports_resolve.py`가 패키지의 모든 .py를 AST로 훑어 함수 안의 늦은 import까지 모든 상대·절대 `model_runtime` import가 실제 모듈과 이름으로 풀리는지 본다. 같은 종류의 다른 결함은 없었다.
+- wheel에 `model_runtime.prompts`·`model_runtime.schema_guard`가 빠져 있었다(pyproject의 패키지 목록을 손으로 썼다). 패키지 탐색을 `setup.py`의 `find_packages("src")`로 바꿨다(리포 루트 `schemas/`를 `model_runtime.schemas`로 더해야 해서 pyproject의 `packages.find`로는 안 된다). package-data는 그대로다. `tests/test_wheel_public_names.py`가 wheel을 깨끗한 복사본에서 빌드해 새 venv에 설치하고 `__all__`의 모든 공개 이름과 두 하위 모듈이 import되는지 본다. Dockerfile은 `setup.py`도 복사한다.
 - 통신 기반 openit-link v0.4.0 -> v0.4.1(Dockerfile ARG LINK_VERSION).
 
 ## 0.11.3 — 2026-10-30 (영역 구조 개편, ADR 0028, U400)

@@ -14,15 +14,8 @@ dependencies = ["jsonschema>=4.18", "waitress>=3.0", "boundary-contracts"]   # w
 dev = ["pytest"]   # 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다
 vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU 시험 뒤에 고정한다(scripts/gpu_check.sh가 설치 버전을 기록).
 
-[tool.setuptools]
-# 왜: 스키마의 정본은 리포 루트 schemas/(DESIGN.md 3절)다. 컴포넌트가 실행 중에 읽어야 하므로 설치물에도 같은 파일을 model_runtime/schemas로 넣는다(복사본을 리포에 두지 않는다)
-packages = ["model_runtime", "model_runtime.components", "model_runtime.wiring", "model_runtime.types", "model_runtime.schemas", "model_runtime.schemas.examples"]
-
-[tool.setuptools.package-dir]
-"" = "src"
-"model_runtime.schemas" = "schemas"
-"model_runtime.schemas.examples" = "schemas/examples"
-
+# 패키지 목록은 손으로 쓰지 않는다: setup.py가 find_packages("src")로 찾고, 리포 루트 schemas/만 model_runtime.schemas로 더한다
+# (pyproject의 [tool.setuptools.packages.find]를 쓰면 src 밖의 schemas/를 설치물에 넣을 수 없어 setup.py에 둔다. tests/test_wheel_public_names.py가 wheel을 실제로 설치해 확인한다)
 [tool.setuptools.package-data]
 model_runtime = ["data/*.json"]
 "model_runtime.schemas" = ["*.json"]

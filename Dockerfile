@@ -24,7 +24,7 @@ ENV CC=gcc HOME=/var/lib/model-runtime/home XDG_CACHE_HOME=/var/lib/model-runtim
     TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 HF_HUB_DISABLE_TELEMETRY=1
 COPY --from=boundary . /tmp/boundary-contracts
 COPY --from=link . /tmp/openit-link
-COPY pyproject.toml /app/pyproject.toml
+COPY pyproject.toml setup.py /app/
 COPY src /app/src
 COPY schemas /app/schemas
 COPY profiles /app/profiles
