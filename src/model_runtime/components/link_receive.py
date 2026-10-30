@@ -60,12 +60,10 @@ def make_app(svc) -> App:
 
     def ready():
         ok, why = svc.readiness()
-        # 인증을 켠 실행의 /readyz는 인증하지 않으므로 사유를 응답에 싣지 않는다(내부 주소·예외 이름 노출 최소화, MR-10). 사유는 로그에만 남긴다(주소의 호스트:포트와 예외 이름뿐)
-        if not ok:
-            log.warning("not ready: %s", why)
         if ok:
             return True, {"status": "ready"}
-        return False, ({"status": "not ready"} if svc.tokens else {"status": "not ready", "reason": why})   # 인증이 꺼진 개발용 실행(토큰 없음)에서는 이전처럼 사유를 응답에 싣는다
+        log.warning("not ready: %s", why)   # 사유는 호스트:포트와 예외 이름뿐이다(비밀 없음)
+        return False, {"status": "not ready", "reason": why}
 
     routes = [
         Route("GET", "/v1/info", info, roles=anyone),
@@ -74,20 +72,8 @@ def make_app(svc) -> App:
         Route("POST", "/v1/releases/{release_id}/extract", extract, roles=infer_roles, request_schema="ExtractRequest", response_schema="ActionExtraction", max_body=MAX_BODY),
         Route("POST", "/v1/releases/{release_id}/respond", respond, roles=infer_roles, request_schema="ResponseRequest", max_body=MAX_BODY),
     ]
-    return _guard(App(routes, role_of, ready=ready))
-
-
-def _guard(app: App):
-    """통신 기반 라이브러리가 아직 못 다루는 하나를 막는다: 깊게 중첩된 JSON은 파이썬 JSON 해석기가 RecursionError를 내는데 라이브러리는 ValueError만 잡는다.
-    앱이 응답을 시작하기 전에 난 오류라서 여기서 계약대로 400 INVALID_RECORD를 낸다(변경 요청: docs/change-requests/CR-007-link-json-recursion.md)."""
-    def wsgi(environ, start_response):
-        try:
-            return app(environ, start_response)
-        except RecursionError:
-            status, headers, data = app._error(BoundaryError("INVALID_RECORD", "본문이 JSON이 아니다"))
-            start_response(f"{status} Bad Request", list(headers.items()))
-            return [data]
-    return wsgi
+    # 토큰을 켠 실행: 인증되지 않은 /readyz에는 사유를 감추고 토큰이 있는 호출에는 전체를 준다(link 0.3.0). 토큰이 없는 개발용 실행은 모두에게 전체를 준다
+    return App(routes, role_of, ready=ready, ready_public=(lambda info: {k: v for k, v in info.items() if k != "reason"}) if svc.tokens else None)
 
 
 def make_server(svc, host: str, port: int, *, max_connections: int = MAX_CONNECTIONS):
