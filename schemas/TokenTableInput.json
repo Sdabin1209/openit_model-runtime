@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TokenTableInput",
+  "description": "token_table의 입력: `역할=토큰,역할=토큰` 글자(비밀 파일에서 읽은 값)와 무인증 허용 여부.",
+  "type": "object",
+  "properties": {
+    "raw": {
+      "type": "string"
+    },
+    "allow_empty": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "raw",
+    "allow_empty"
+  ],
+  "additionalProperties": false
+}

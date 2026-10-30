@@ -111,13 +111,13 @@ class Auth(unittest.TestCase):   # MR-1 역할, MR-10 readyz 노출
         _, url, _, _ = self.srv(tokens="survey-service=SS")
         self.assertEqual(call(url, "/v1/releases/r1", method="PUT", token="SS")[0], 200)
 
-    def test_unauthenticated_readyz_hides_reason_but_authenticated_shows_it(self):
+    def test_readyz_never_shows_reason_in_the_response(self):
         _, url, svc, _ = self.srv(tokens="survey=SS")
         svc.engine_error = "RuntimeError"
         s, b, _ = call(url, "/readyz")
         self.assertEqual((s, b), (503, {"status": "not ready"}))
-        s, b, _ = call(url, "/readyz", token="SS")
-        self.assertEqual(s, 503); self.assertIn("RuntimeError", b["reason"])
+        s, b, _ = call(url, "/readyz", token="SS")   # 통신 기반 라이브러리(D118)의 /readyz는 인증하지 않아 사유는 로그로만 낸다(CR-007)
+        self.assertEqual((s, b), (503, {"status": "not ready"}))
         self.assertEqual(call(url, "/healthz")[0], 200)
 
 

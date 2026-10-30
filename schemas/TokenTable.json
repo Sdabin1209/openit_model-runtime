@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TokenTable",
+  "description": "token_table의 출력: 역할 -> 토큰.",
+  "type": "object",
+  "additionalProperties": {
+    "type": "string",
+    "minLength": 1
+  }
+}

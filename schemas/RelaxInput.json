@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RelaxInput",
+  "description": "constraint_relax의 입력: 계약 출력 스키마와 백엔드가 강제하는 키워드 목록.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "object"
+    },
+    "supported_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema",
+    "supported_features"
+  ],
+  "additionalProperties": false
+}

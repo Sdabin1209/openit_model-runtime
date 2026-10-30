@@ -6,8 +6,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import model_runtime as mr
-from model_runtime import backends, serving_config, vllm_backend
-from model_runtime.errors import ContractViolation
+from model_runtime.components import fake_backend as backends, serving_config_check as serving_config, vllm_backend
+from model_runtime import ContractViolation
 
 ROOT = Path(__file__).resolve().parents[1]
 

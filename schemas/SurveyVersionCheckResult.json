@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurveyVersionCheckResult",
+  "description": "survey_version_check의 출력.",
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "contract_version"
+  ],
+  "additionalProperties": false
+}

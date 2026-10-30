@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptText",
+  "description": "prompt_render의 출력: 채팅 형식으로 조립된 프롬프트 문자열.",
+  "type": "string",
+  "minLength": 1
+}

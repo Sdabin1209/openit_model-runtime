@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServingConfigCheckInput",
+  "description": "serving_config_check의 입력. serving_config의 형식은 계약 ServingConfig가 정하고(컴포넌트가 계약 검증기로 먼저 본다), 이 스키마는 이 영역이 지원하는 값(템플릿·계약·보호·완화 버전)만 덧붙여 제한한다.",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "serving_config": {
+      "type": "object",
+      "required": [
+        "prompt_template_version",
+        "output_contract",
+        "protection_policy_version",
+        "constraint"
+      ],
+      "properties": {
+        "prompt_template_version": {
+          "enum": [
+            "prompt-4"
+          ]
+        },
+        "output_contract": {
+          "const": 1
+        },
+        "protection_policy_version": {
+          "enum": [
+            "protect-2"
+          ]
+        },
+        "constraint": {
+          "type": "object",
+          "required": [
+            "relax_policy_version"
+          ],
+          "properties": {
+            "relax_policy_version": {
+              "const": "relax-3"
+            }
+          }
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supported_features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "supported_features"
+      ],
+      "additionalProperties": false
+    },
+    "expected_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "role",
+    "serving_config",
+    "backend",
+    "expected_hash"
+  ],
+  "additionalProperties": false
+}

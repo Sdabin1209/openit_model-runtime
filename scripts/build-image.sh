@@ -59,8 +59,17 @@ SERVICE="model-serving"; [ "$VARIANT" = "gpu" ] && SERVICE="model-serving-gpu"  
 [ -d "$SS_DIR" ] || die "dependency_sources.survey_schema 디렉터리가 없다"
 SS_MAJOR="$SS_V"   # 라벨 io.openit.contracts.survey-schema는 문진 스키마 패키지 버전의 주 번호다(ImageLabels, 계약 3.0.1). 정수 CONTRACT_VERSION과 섞지 않는다
 
+# 통신 기반 라이브러리 openit-link(D118)의 소스: 태그의 정본은 Dockerfile의 ARG LINK_VERSION. 형제 폴더(LINK_REPO)에서 git archive로, 없으면 GitHub 태그 clone으로 꺼낸다.
+LINK_TAG="$(sed -n 's/^ARG LINK_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$SRC/Dockerfile" | head -1)"
+[ -n "$LINK_TAG" ] || die "Dockerfile에서 ARG LINK_VERSION을 읽지 못했다"
+LINK_DIR="$(mktemp -d)"; trap 'rm -rf "$LINK_DIR"' EXIT
+if ! { git -C "${LINK_REPO:-$SRC/../link}" archive "$LINK_TAG" 2>/dev/null | tar -x -C "$LINK_DIR" 2>/dev/null && [ -f "$LINK_DIR/pyproject.toml" ]; }; then
+  rm -rf "$LINK_DIR"; LINK_DIR="$(mktemp -d)"
+  git clone -q --depth 1 --branch "$LINK_TAG" git@github.com:Sdabin1209/openit_link.git "$LINK_DIR" && rm -rf "$LINK_DIR/.git" || die "openit-link $LINK_TAG를 꺼내지 못했다"
+fi
+
 # 2) 빌드. 같은 요청 -> 같은 이미지(인자와 컨텍스트가 요청에서만 온다). 문진 스키마는 이미지에 내장한다(D72).
-ARGS=(--build-context "boundary=$BC_DIR" --build-context "schema=$SS_DIR"
+ARGS=(--build-context "boundary=$BC_DIR" --build-context "schema=$SS_DIR" --build-context "link=$LINK_DIR"
       --build-arg "SERVICE_NAME=$SERVICE" --build-arg "REVISION=$REV" --build-arg "BOUNDARY_VERSION=$BC_V" --build-arg "SURVEY_SCHEMA_VERSION=$SS_MAJOR"
       --build-arg "MODEL_RUNTIME_VERSION=$MR_V")
 EXPECT_VARIANT=""

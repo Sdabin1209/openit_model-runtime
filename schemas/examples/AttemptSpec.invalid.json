@@ -1,0 +1,11 @@
+{
+  "role": "LORA_A",
+  "prompt": "p",
+  "constraint_schema": null,
+  "decoding": {
+    "seed": 1
+  },
+  "max_attempts": 0,
+  "input": {},
+  "deadline": null
+}

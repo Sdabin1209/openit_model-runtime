@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExtractOutcome",
+  "description": "extract_role의 출력. 끝내 형식을 못 지키면 result가 null이고 invalid에 시도 횟수와 오류 이름이 있다(값을 지어내지 않는다, D75). 예외로 바꾸는 것은 wiring의 몫이다.",
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "info": {
+      "$ref": "CallInfo.json"
+    },
+    "invalid": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "attempts": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "attempts",
+            "errors"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "result",
+    "info",
+    "invalid"
+  ],
+  "additionalProperties": false
+}

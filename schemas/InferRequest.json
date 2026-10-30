@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InferRequest",
+  "description": "release_registry 추론의 입력. body는 HTTP 본문(계약 ExtractRequest 또는 ResponseRequest)이며 형식 판정은 registry가 계약으로 한다.",
+  "type": "object",
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "op": {
+      "enum": [
+        "extract",
+        "respond"
+      ]
+    },
+    "body": true
+  },
+  "required": [
+    "release_id",
+    "op",
+    "body"
+  ],
+  "additionalProperties": false
+}

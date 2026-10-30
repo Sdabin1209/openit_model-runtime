@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RelaxResult",
+  "description": "constraint_relax의 출력: 백엔드가 받을 수 있게 완화한 스키마와 뺀 키워드 기록(relax-3).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "object"
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "removed"
+  ],
+  "additionalProperties": false
+}

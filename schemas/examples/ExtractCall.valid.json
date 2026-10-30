@@ -1,0 +1,13 @@
+{
+  "prompt": "p",
+  "input": {},
+  "flow": {},
+  "fields": {},
+  "decoding": {
+    "seed": 1
+  },
+  "max_attempts": 3,
+  "constraint_schema": null,
+  "relaxed": [],
+  "deadline": null
+}

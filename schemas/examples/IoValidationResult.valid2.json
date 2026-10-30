@@ -1,0 +1,8 @@
+{
+  "violations": [
+    {
+      "path": "/action",
+      "keyword": "enum"
+    }
+  ]
+}

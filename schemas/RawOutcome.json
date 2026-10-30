@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RawOutcome",
+  "description": "역할 컴포넌트 run_raw의 출력: 재시도를 거친 원시 결과(평가용)와 호출 메타데이터.",
+  "type": "object",
+  "properties": {
+    "raw": {
+      "$ref": "RawResult.json"
+    },
+    "info": {
+      "$ref": "CallInfo.json"
+    }
+  },
+  "required": [
+    "raw",
+    "info"
+  ],
+  "additionalProperties": false
+}

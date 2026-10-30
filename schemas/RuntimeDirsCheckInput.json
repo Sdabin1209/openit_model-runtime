@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuntimeDirsCheckInput",
+  "description": "runtime_dirs_check의 입력: 시작 때 쓸 수 있어야 하는 디렉터리들.",
+  "type": "object",
+  "properties": {
+    "bundle_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hf_home": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runtime_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "bundle_dir",
+    "hf_home",
+    "runtime_dirs"
+  ],
+  "additionalProperties": false
+}

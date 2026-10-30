@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CallInfo",
+  "description": "마지막 호출의 메타데이터(원문 없음). outcome: ok | fallback | invalid | raw. protections는 (이름, 건수) 쌍.",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "relaxed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outcome": {
+      "enum": [
+        "ok",
+        "fallback",
+        "invalid",
+        "raw"
+      ],
+      "default": "ok"
+    },
+    "protections": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    }
+  },
+  "required": [
+    "role",
+    "attempts",
+    "relaxed"
+  ],
+  "additionalProperties": false
+}

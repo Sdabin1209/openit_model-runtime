@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttemptSpec",
+  "description": "retry_loop의 입력: 재시도 반복 한 번의 정의. deadline은 time.monotonic 기준 마감(없으면 null)이다.",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "constraint_schema": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "decoding": {
+      "type": "object",
+      "required": [
+        "seed"
+      ],
+      "$comment": "serving_config.decoding(계약 ServingConfig가 모양을 정한다). 여기서는 시드가 있다는 것만 요구한다"
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "input": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "deadline": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "role",
+    "prompt",
+    "constraint_schema",
+    "decoding",
+    "max_attempts",
+    "input",
+    "deadline"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IoValidationInput",
+  "description": "io_validate의 입력: 역할 한 개의 입력 또는 출력 계약(ActionExtractionInput/ActionExtraction, ResponseRequest/ResponseText)으로 value를 검증해 달라는 요청.",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "direction": {
+      "enum": [
+        "input",
+        "output"
+      ]
+    },
+    "value": true
+  },
+  "required": [
+    "role",
+    "direction",
+    "value"
+  ],
+  "additionalProperties": false
+}

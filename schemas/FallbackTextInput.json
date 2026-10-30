@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FallbackTextInput",
+  "description": "fallback_text의 입력: ResponseRequest(문장 재료)와 출력 보호 정책 버전. 요청은 호출자가 계약으로 이미 검증했다.",
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "known": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ask": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hold": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "next": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "policy_version": {
+      "enum": [
+        "protect-2"
+      ]
+    }
+  },
+  "required": [
+    "request",
+    "policy_version"
+  ],
+  "additionalProperties": false
+}

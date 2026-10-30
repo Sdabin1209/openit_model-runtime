@@ -24,12 +24,13 @@ LAUNCH = textwrap.dedent("""
     sys.path[:0] = [os.environ["TESTS_DIR"]]
     from test_server import StubReader
     import model_runtime as mr
+    from model_runtime.components import fake_backend
     from model_runtime import server
     delay = float(os.environ["DELAY"])
     def responder(req):
         if req.role == "LORA_A":
             time.sleep(delay)
-            return json.dumps(mr.backends.FAKE_EXTRACTION)
+            return json.dumps(fake_backend.FAKE_EXTRACTION)
         return "문장입니다."
     real = server.build_service
     def build(env, reader_factory=None):

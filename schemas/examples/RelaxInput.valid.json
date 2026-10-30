@@ -1,0 +1,8 @@
+{
+  "schema": {
+    "type": "object"
+  },
+  "supported_features": [
+    "type"
+  ]
+}

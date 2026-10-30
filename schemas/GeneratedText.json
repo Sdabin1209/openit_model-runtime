@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeneratedText",
+  "description": "백엔드 컴포넌트의 출력: 모델이 낸 글자 그대로.",
+  "type": "string"
+}

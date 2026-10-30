@@ -1,0 +1,11 @@
+{
+  "result": {
+    "action": "NEXT"
+  },
+  "info": {
+    "role": "LORA_A",
+    "attempts": 1,
+    "relaxed": []
+  },
+  "invalid": null
+}

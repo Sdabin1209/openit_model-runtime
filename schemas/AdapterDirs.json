@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AdapterDirs",
+  "description": "역할 -> 어댑터 디렉터리. 역할 집합은 LORA_A, LORA_B 둘뿐이다(ADR 0003).",
+  "type": "object",
+  "properties": {
+    "LORA_A": {
+      "type": "string"
+    },
+    "LORA_B": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "LORA_A",
+    "LORA_B"
+  ],
+  "additionalProperties": false
+}

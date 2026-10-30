@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExtractCall",
+  "description": "extract_role의 입력: LoRA-A 호출 한 번. 프롬프트는 prompt_render가 이미 만들었고 input·flow·fields는 계약(ActionExtractionInput, QuestionFlowTable, QuestionFieldSpec)으로 검증된 값이다.",
+  "type": "object",
+  "properties": {
+    "prompt": {
+      "type": "string"
+    },
+    "input": {
+      "type": "object"
+    },
+    "flow": {
+      "type": "object"
+    },
+    "fields": {
+      "type": "object"
+    },
+    "decoding": {
+      "type": "object",
+      "required": [
+        "seed"
+      ],
+      "$comment": "serving_config.decoding(계약 ServingConfig가 모양을 정한다). 여기서는 시드가 있다는 것만 요구한다"
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "constraint_schema": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "relaxed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "deadline": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "prompt",
+    "input",
+    "flow",
+    "fields",
+    "decoding",
+    "max_attempts",
+    "constraint_schema",
+    "relaxed",
+    "deadline"
+  ],
+  "additionalProperties": false
+}

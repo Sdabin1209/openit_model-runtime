@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServingConfigCheckResult",
+  "description": "serving_config_check의 출력: 받은 설정 그대로 JCS 해시.",
+  "type": "object",
+  "properties": {
+    "serving_config_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "serving_config_hash"
+  ],
+  "additionalProperties": false
+}

@@ -4,21 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-runtime"
-version = "0.11.2"
+version = "0.11.3"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
 # boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@<태그>  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
-dependencies = ["jsonschema>=4.10", "waitress>=3.0", "boundary-contracts"]   # waitress: 추론 서버의 WSGI 서버(ADR 0022)
+dependencies = ["jsonschema>=4.18", "waitress>=3.0", "boundary-contracts"]   # waitress: 추론 서버의 WSGI 서버(ADR 0022)
 
 [project.optional-dependencies]
 dev = ["pytest"]   # 출력 규칙 시험은 계약의 check_action_extraction과 문진 스키마의 흐름표를 쓴다
 vllm = ["vllm"]   # 첫 백엔드 의존(지연 import). 정확한 버전은 GPU 시험 뒤에 고정한다(scripts/gpu_check.sh가 설치 버전을 기록).
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+# 왜: 스키마의 정본은 리포 루트 schemas/(DESIGN.md 3절)다. 컴포넌트가 실행 중에 읽어야 하므로 설치물에도 같은 파일을 model_runtime/schemas로 넣는다(복사본을 리포에 두지 않는다)
+packages = ["model_runtime", "model_runtime.components", "model_runtime.wiring", "model_runtime.types", "model_runtime.schemas", "model_runtime.schemas.examples"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+"model_runtime.schemas" = "schemas"
+"model_runtime.schemas.examples" = "schemas/examples"
 
 [tool.setuptools.package-data]
-model_runtime = ["data/*.json"]   # 모방 컴포넌트의 규칙표(비편집 설치에서도 따라가게)
+model_runtime = ["data/*.json"]
+"model_runtime.schemas" = ["*.json"]
+"model_runtime.schemas.examples" = ["*.json"]   # 모방 컴포넌트의 규칙표(비편집 설치에서도 따라가게)
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]

@@ -1,0 +1,11 @@
+{
+  "result": {
+    "text": "a",
+    "is_fallback": false
+  },
+  "info": {
+    "role": "LORA_B",
+    "attempts": 1,
+    "relaxed": []
+  }
+}

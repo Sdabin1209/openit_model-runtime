@@ -1,0 +1,8 @@
+{
+  "role": "LORA_B",
+  "template_version": "prompt-4",
+  "system_prompt": "시스템",
+  "input": {
+    "ask": "a"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AdapterConfig",
+  "description": "PEFT 어댑터 디렉터리의 adapter_config.json에서 이 영역이 쓰는 부분(vllm_backend가 읽는다). 순위 r은 1 이상의 정수다.",
+  "type": "object",
+  "required": [
+    "r"
+  ],
+  "properties": {
+    "r": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

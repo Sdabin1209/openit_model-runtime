@@ -1,0 +1,10 @@
+{
+  "prompt": "p",
+  "input": {},
+  "decoding": {
+    "seed": 1
+  },
+  "max_attempts": 3,
+  "protection_policy_version": "protect-9",
+  "deadline": null
+}

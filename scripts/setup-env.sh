@@ -18,10 +18,13 @@ trap 'rc=$?; [ "$rc" -eq 0 ] || report fail "$rc"' EXIT   # 어디서 실패하�
 TAG="$(sed -n 's/^ARG BOUNDARY_VERSION=\(v[0-9][0-9.]*\).*/\1/p' Dockerfile | head -1)"
 [ -n "$TAG" ] || { echo "setup-env: Dockerfile에서 ARG BOUNDARY_VERSION 값을 읽지 못했다" >&2; exit 2; }
 BC_URL="git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@${TAG}"
+LINK_TAG="$(sed -n 's/^ARG LINK_VERSION=\(v[0-9][0-9.]*\).*/\1/p' Dockerfile | head -1)"   # 통신 기반 라이브러리(D118). 정본은 Dockerfile의 ARG LINK_VERSION
+[ -n "$LINK_TAG" ] || { echo "setup-env: Dockerfile에서 ARG LINK_VERSION 값을 읽지 못했다" >&2; exit 2; }
+LINK_URL="git+ssh://git@github.com/Sdabin1209/openit_link.git@${LINK_TAG}"
 
 [ -x .venv/bin/python ] || python3 -m venv .venv >&2   # 있으면 재사용한다(멱등)
 
-install() { .venv/bin/python -m pip install -q pytest jsonschema "$BC_URL" -e . >&2; }
+install() { .venv/bin/python -m pip install -q pytest jsonschema "$BC_URL" "$LINK_URL" -e . >&2; }
 if ! install; then
   echo "setup-env: 설치 실패(네트워크 또는 GitHub 접근 문제일 수 있다). 5초 뒤 한 번 재시도한다" >&2
   sleep 5

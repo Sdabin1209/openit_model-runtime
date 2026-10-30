@@ -7,6 +7,7 @@ import unittest
 from tempfile import TemporaryDirectory
 
 import model_runtime as mr
+from model_runtime.components import fake_backend
 from helpers import A_INPUT, B_INPUT, SCHEMA_DIR
 from model_runtime import server
 from test_server import call, start
@@ -46,7 +47,7 @@ class Budget(unittest.TestCase):
 
     def hang(self, req):
         self.gate.wait(30)
-        return json.dumps(mr.backends.FAKE_EXTRACTION) if req.role == "LORA_A" else "문장입니다."
+        return json.dumps(fake_backend.FAKE_EXTRACTION) if req.role == "LORA_A" else "문장입니다."
 
     def timed(self, url, path, body):
         t = time.monotonic(); s, b, h = call(url, path, body); return s, b, h, time.monotonic() - t

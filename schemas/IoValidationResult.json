@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IoValidationResult",
+  "description": "io_validate의 출력: 위반 목록(JSON 포인터 경로, 키워드). 값은 싣지 않는다. 빈 목록이면 통과.",
+  "type": "object",
+  "properties": {
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "keyword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "keyword"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "violations"
+  ],
+  "additionalProperties": false
+}

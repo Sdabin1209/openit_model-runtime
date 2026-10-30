@@ -1,0 +1,11 @@
+{
+  "role": "LORA_B",
+  "prompt": "p",
+  "constraint_schema": null,
+  "decoding": {
+    "seed": 1
+  },
+  "seed": 1,
+  "attempt": 0,
+  "input": null
+}

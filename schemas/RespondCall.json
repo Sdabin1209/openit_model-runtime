@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RespondCall",
+  "description": "respond_role의 입력: LoRA-B 호출 한 번.",
+  "type": "object",
+  "properties": {
+    "prompt": {
+      "type": "string"
+    },
+    "input": {
+      "type": "object"
+    },
+    "decoding": {
+      "type": "object",
+      "required": [
+        "seed"
+      ],
+      "$comment": "serving_config.decoding(계약 ServingConfig가 모양을 정한다). 여기서는 시드가 있다는 것만 요구한다"
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "protection_policy_version": {
+      "enum": [
+        "protect-2"
+      ]
+    },
+    "deadline": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "prompt",
+    "input",
+    "decoding",
+    "max_attempts",
+    "protection_policy_version",
+    "deadline"
+  ],
+  "additionalProperties": false
+}

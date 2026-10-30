@@ -20,13 +20,14 @@
 
 | 경로 | 역할 |
 | --- | --- |
-| `src/model_runtime/session.py`, `prompts.py`, `serving_config.py` | `load`, 세션(extract/respond), 프롬프트 조립, 서빙 설정과 해시 |
-| `src/model_runtime/roles.py` | LoRA-A·LoRA-B 두 컴포넌트(`ExtractRole`, `RespondRole`)와 공용 재시도(ADR 0017) |
-| `src/model_runtime/backends.py`, `vllm_backend.py`, `mimic.py` | 가짜 백엔드, vLLM 백엔드(제약 디코딩), 데모용 모방 백엔드(`MODEL_RUNTIME_BACKEND=mimic`, ADR 0018, 규칙표 `data/mimic_rules.json`) |
-| `src/model_runtime/protection.py`, `fallback.py`, `schema_guard.py`, `errors.py` | 출력 보호, 대체 문장, 스키마 검사, 예외 |
-| `src/model_runtime/server.py` | HTTP 추론 서버 |
+| `schemas/`, `schemas/examples/` | 영역 내부 타입의 JSON Schema와 통과·거부 예시, "스키마 밖 조건" 표(`schemas/README.md`) |
+| `src/model_runtime/types/` | `schemas/`에서 생성한 코드 타입(손으로 고치지 않는다, 생성 명령은 아래 "실행 방법") |
+| `src/model_runtime/components/` | 컴포넌트(파일 하나에 업무 하나). 프롬프트 조립, 입출력 검증, 제약 스키마 완화, 서빙 설정 검사, 재시도, LoRA-A·B 역할, 가짜·모방·vLLM 백엔드, 릴리스 레지스트리, 통신(`link_receive`, `link_release_fetch`). 표는 `docs/components.md` |
+| `src/model_runtime/wiring/` | 컴포넌트 연결과 주입: `load`·세션, 스키마 문지기, 서비스 조립 |
+| `src/model_runtime/server.py` | 진입점과 환경 변수 읽기(컴포넌트 아님) |
+| `src/model_runtime/__init__.py`, `prompts/`, `schema_guard/` | 공개 API(다른 영역이 import하는 이름)를 새 위치에서 다시 내보낸다 |
 | `profiles/` | 하드웨어별 설정: `gpu-12g.json`, `rtx4090-24g.json`, `gpu-dev-12g.json`(Qwen2.5-1.5B, 중립 어댑터·파이프라인 시험 전용, 파일의 `status`) |
-| `tests/`, `scripts/` | 시험(가짜 백엔드·vLLM 모킹 포함), 스모크와 GPU 점검 스크립트 |
+| `tests/`, `scripts/` | 시험(가짜 백엔드·vLLM 모킹, 구조 검사 `tests/test_structure.py` 포함), 스모크와 GPU 점검 스크립트 |
 | `Dockerfile`, `requirements-{cpu,gpu}.lock` | 이미지 두 변형(CPU/fake, GPU/vLLM)과 잠금 파일 |
 
 ```mermaid
@@ -51,6 +52,8 @@ flowchart LR
 bash scripts/setup-env.sh
 # 2) 시험
 .venv/bin/python -m pytest -q
+# 2-1) 코드 타입 생성(schemas/ -> src/model_runtime/types/, datamodel-code-generator는 requirements-codegen.lock으로 고정). 손으로 고치지 않는다
+bash scripts/gen-types.sh
 # 3) 이미지 빌드와 스모크 (CPU/fake, 빈 포트를 Docker가 배정)
 scripts/smoke.sh
 # 4) 서버 (이미지 없이). 스키마 경로가 필요하다

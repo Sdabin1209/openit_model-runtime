@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RawResult",
+  "description": "재시도를 거친 모델 출력(평가용).",
+  "type": "object",
+  "properties": {
+    "output": true,
+    "valid": {
+      "type": "boolean"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "output",
+    "valid"
+  ],
+  "additionalProperties": false
+}

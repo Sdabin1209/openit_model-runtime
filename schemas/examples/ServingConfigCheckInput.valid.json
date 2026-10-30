@@ -1,0 +1,31 @@
+{
+  "role": "LORA_A",
+  "serving_config": {
+    "prompt_template_version": "prompt-4",
+    "decoding": {
+      "constraint_mode": "constrained",
+      "temperature": 0,
+      "seed": 1000,
+      "max_tokens": 512
+    },
+    "max_attempts": 3,
+    "constraint": {
+      "backend": "fake",
+      "backend_version": "1",
+      "supported_features": [
+        "type"
+      ],
+      "relax_policy_version": "relax-3"
+    },
+    "output_contract": 1,
+    "protection_policy_version": "protect-2"
+  },
+  "backend": {
+    "name": "fake",
+    "version": "1",
+    "supported_features": [
+      "type"
+    ]
+  },
+  "expected_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}

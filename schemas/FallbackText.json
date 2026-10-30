@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FallbackText",
+  "description": "fallback_text의 출력: 재료를 이어 붙인 대체 문장(코드가 채운다, D36).",
+  "type": "string",
+  "minLength": 1
+}

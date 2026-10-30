@@ -13,6 +13,7 @@ from boundary_contracts.canonical import file_hash
 from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, extract_body, serve_app, wait_until
 
 import model_runtime as mr
+from model_runtime.components import fake_backend
 from model_runtime import server
 
 
@@ -93,12 +94,12 @@ class Server(unittest.TestCase):
         self.assertEqual((s, body["state"], body["error"]), (200, "LOADED", None))
         self.assertEqual(call(url, "/v1/releases/r1")[1]["state"], "LOADED")
         s, out, h = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertEqual((s, out, h["X-Openit-Outcome"], h["X-Openit-Attempts"]), (200, mr.backends.FAKE_EXTRACTION, "ok", "1"))
+        self.assertEqual((s, out, h["X-Openit-Outcome"], h["X-Openit-Attempts"]), (200, fake_backend.FAKE_EXTRACTION, "ok", "1"))
         self.assertTrue(h["Content-Type"].startswith("application/json"))
         self.assertNotIn("X-Openit-Protections", h)
         assert_valid("ActionExtraction", out)
         s, out, h = call(url, "/v1/releases/r1/respond", B_INPUT)   # 문장 그대로의 text/plain(JSON으로 감싸지 않는다)
-        self.assertEqual((s, out, h["X-Openit-Outcome"]), (200, mr.backends.FAKE_RESPONSE_TEXT, "ok"))
+        self.assertEqual((s, out, h["X-Openit-Outcome"]), (200, fake_backend.FAKE_RESPONSE_TEXT, "ok"))
         self.assertTrue(h["Content-Type"].startswith("text/plain"))
         info = call(url, "/v1/info")[1]
         self.assertEqual(info["loaded"], ["r1"]); self.assertEqual(set(info["serving_config_hash"]), {"LORA_A", "LORA_B"})
@@ -395,7 +396,7 @@ class FaultCells(unittest.TestCase):
         def hang(req):
             if req.role == "LORA_A":
                 gate.wait(30)
-            return json.dumps(mr.backends.FAKE_EXTRACTION)
+            return json.dumps(fake_backend.FAKE_EXTRACTION)
         url, svc = self.up(hang, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
         t = time.monotonic()
         s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
@@ -416,7 +417,7 @@ class FaultCells(unittest.TestCase):
     def test_slow_engine_within_deadline_is_normal(self):
         def slow(req):
             time.sleep(0.2)
-            return json.dumps(mr.backends.FAKE_EXTRACTION) if req.role == "LORA_A" else "괜찮은 문장입니다."
+            return json.dumps(fake_backend.FAKE_EXTRACTION) if req.role == "LORA_A" else "괜찮은 문장입니다."
         url, _ = self.up(slow, MODEL_RUNTIME_EXTRACT_DEADLINE_S="2.0")
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
@@ -435,7 +436,7 @@ class FaultCells(unittest.TestCase):
         def maybe_dead(req):
             if state["dead"]:
                 raise RuntimeError("EngineCore died")
-            return json.dumps(mr.backends.FAKE_EXTRACTION)
+            return json.dumps(fake_backend.FAKE_EXTRACTION)
         url, _ = self.up(maybe_dead)
         s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
         self.assertEqual((s, b["code"], b["retryable"]), (503, "UNAVAILABLE", True))

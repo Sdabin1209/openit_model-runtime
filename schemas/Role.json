@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Role",
+  "description": "어댑터(역할) 이름. 한 엔진에 두 어댑터를 올리는 구조(ADR 0003)의 조회 키다.",
+  "enum": [
+    "LORA_A",
+    "LORA_B"
+  ]
+}

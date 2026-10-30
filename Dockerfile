@@ -7,6 +7,7 @@
 # 넣으면 MODEL_RUNTIME_SCHEMA_DIR 없이 /opt/survey-schema/schemas를 쓴다. 라벨 io.openit.contracts.survey-schema에 정수 버전을 밝힌다.
 # (2.0.0: 모델 입출력 스키마는 boundary-contracts 패키지에 들어 있어 이 디렉터리에서 읽지 않는다. CONTRACT_VERSION만 쓴다.)
 FROM scratch AS schema
+FROM scratch AS link
 FROM python:3.12-slim
 ARG VARIANT=cpu
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 MODEL_RUNTIME_HOST=0.0.0.0 MODEL_RUNTIME_PORT=8080 MODEL_RUNTIME_BUNDLE_DIR=/var/lib/model-runtime/bundles HF_HOME=/var/lib/model-runtime/hf
@@ -22,11 +23,13 @@ ENV CC=gcc HOME=/var/lib/model-runtime/home XDG_CACHE_HOME=/var/lib/model-runtim
     TORCHINDUCTOR_CACHE_DIR=/var/lib/model-runtime/cache/torchinductor TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton \
     TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 HF_HUB_DISABLE_TELEMETRY=1
 COPY --from=boundary . /tmp/boundary-contracts
+COPY --from=link . /tmp/openit-link
 COPY pyproject.toml /app/pyproject.toml
 COPY src /app/src
+COPY schemas /app/schemas
 COPY profiles /app/profiles
 COPY --from=schema / /opt/survey-schema
-RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app && rm -rf /tmp/boundary-contracts \
+RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /tmp/openit-link && pip install --no-deps /app && rm -rf /tmp/boundary-contracts /tmp/openit-link \
     && useradd --uid 10001 --create-home runtime \
     && mkdir -p /var/lib/model-runtime/bundles /var/lib/model-runtime/hf /var/lib/model-runtime/home /var/lib/model-runtime/cache/vllm \
        /var/lib/model-runtime/cache/torchinductor /var/lib/model-runtime/cache/triton /var/lib/model-runtime/cache/torch \
@@ -34,7 +37,8 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /app 
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
 ARG SERVICE_NAME   # 기본값 없음: 라벨 io.openit.service는 리포 이름이 아니라 서비스(이미지) 이름이다(model-serving, GPU 변형은 model-serving-gpu). 영역 빌드 진입점 scripts/build-image.sh가 variant별로 넘긴다
-ARG BOUNDARY_VERSION=v3.0.2
+ARG BOUNDARY_VERSION=v3.1.1
+ARG LINK_VERSION=v0.1.0   # 통신 기반 라이브러리 openit-link(D118) 태그의 정본. 설치는 build-image.sh가 이 태그로 꺼낸 소스에서 한다(라벨 아님)
 ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). 라벨 값은 v 접두사를 붙인다(ImageLabels, D108). scripts/smoke.sh가 pyproject에서 읽어 v를 붙여 넘긴다
 # 값이 없다는 표기는 n/a 하나다(계약 ImageLabels: none·unknown 불가)
 ARG SURVEY_SCHEMA_VERSION=n/a

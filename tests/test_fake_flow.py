@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from helpers import rules_for, A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, cfgs_and_hashes, question_flow_table, rule_violations, skips_of
 
 import model_runtime as mr
+from model_runtime.components import fake_backend
 from model_runtime import server
 
 def _flow():
@@ -47,11 +48,11 @@ class FakeFlow(unittest.TestCase):
             out = s.extract(a_input(qid), *rf(a_input(qid), ORDER_FLOW))
             assert_valid("ActionExtraction", out)
             self.assertEqual((out["action"], out["next_item"], out["values"]), ("NEXT", want, []))
-        self.assertEqual(s.respond(B_INPUT).text, mr.backends.FAKE_RESPONSE_TEXT)
+        self.assertEqual(s.respond(B_INPUT).text, fake_backend.FAKE_RESPONSE_TEXT)
 
     def test_without_config_output_is_legacy_fixed(self):   # 호환
         out = session().extract(a_input("Q1.D01"), *rules_for(a_input("Q1.D01")))   # 한 문항 흐름(끝)이면 고정 출력도 규칙을 지킨다
-        self.assertEqual(out, mr.backends.FAKE_EXTRACTION)
+        self.assertEqual(out, fake_backend.FAKE_EXTRACTION)
 
     def test_fixed_extraction_wins_over_flow(self):
         fixed = {"action": "NEXT", "next_item": "Q3", "values": []}

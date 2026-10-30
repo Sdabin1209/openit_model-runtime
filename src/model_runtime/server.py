@@ -1,4 +1,5 @@
-"""model-runtime 추론 서버 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62). WSGI 앱 + waitress(ADR 0022).
+"""model-runtime 추론 서버의 진입점·설정 읽기 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62). 컴포넌트가 아니며 업무 규칙을 두지 않는다.
+HTTP 면은 components/link_receive(통신 기반 라이브러리 openit_link 위), 적재·추론은 components/release_registry, 연결은 wiring/service다. 환경 변수는 이 파일만 읽는다.
 
 경로: PUT /v1/releases/{id}(적재 신호, 멱등) · GET /v1/releases/{id}(상태) · POST /v1/releases/{id}/extract(LoRA-A, JSON)|respond(LoRA-B, text/plain) ·
 GET /v1/info · GET /healthz · GET /readyz. 서버가 I4(HttpReleaseReader)에서 번들을 스스로 읽어 적재한다.
@@ -20,480 +21,38 @@ MODEL_RUNTIME_PUT_ROLES(적재 PUT을 허용할 역할 목록, 없으면 인증�
 MODEL_RUNTIME_CONN_TIMEOUT_S(15), MODEL_RUNTIME_SHUTDOWN_GRACE_S(5). 각 기본값의 근거: docs/adr/."""
 from __future__ import annotations
 
-import hmac
 import json
 import logging
-import math
 import os
-import re
-import shutil
 import signal
 import sys
-import tempfile
-import threading
 import time
-import urllib.request
-from urllib.parse import urlsplit
-from http import HTTPStatus
 from pathlib import Path
 from typing import Callable, Mapping
 
-import waitress
-from boundary_contracts import SecretError, read_secret, secret_source, validator
+from boundary_contracts import SecretError, read_secret, secret_source
 from boundary_contracts.errors import BoundaryError
 
-from . import (RUNTIME_VERSION, SUPPORTED_RUNTIME_CONTRACT_VERSION, ContractVersionMismatch, ContractViolation,
-               FakeBackend, ModelOutputInvalid, ModelRuntimeError, ServingConfigMismatch, SystemPromptMismatch,
-               UnsupportedServingConfig, load, serving_config_hash)
-from .mimic import mimic_backend_from_files
-from .backends import load_fake_corrections, load_fake_flow, load_fake_flow_spec, load_fake_reasks, make_default_responder
-from .errors import BackendNotAvailable
-from .prompts import DEFAULT_TEMPLATE_VERSION, DEPRECATED_TEMPLATE_VERSIONS, SUPPORTED_TEMPLATE_VERSIONS
-from .protection import PROTECTION_POLICIES
-from .errors import violation_names
-from .schema_guard import RELAX_POLICY_VERSION
+from .components.fake_backend import FakeBackend, make_default_responder
+from .components.flow_file_load import load_fake_corrections, load_fake_flow, load_fake_flow_spec, load_fake_reasks
+from .components.link_receive import INFER_DENY_ROLES, MAX_BODY, MAX_CONNECTIONS, make_app, make_server
+from .components.link_release_fetch import reader_factory_from_env
+from .components.release_registry import (CONN_TIMEOUT_S, DEFAULT_DEADLINES_S, MAX_FAILED_KEPT, MAX_INPUT_CHARS, MAX_LOADING, Release, STATUS, to_boundary)
+from .components.token_table import run as _parse_tokens
+from .wiring.backends import mimic_backend_from_files
+from .wiring.schema_gate import gate
+from .wiring.service import Service
 
 log = logging.getLogger("model_runtime.server")
-MAX_BODY = 4 * 1024 * 1024      # 본문 상한. 입력 상한(MAX_INPUT_CHARS)이 더 작아 이 값은 파싱 전 거친 방어선이다 (ADR 0012, 4MiB 근거 기록 없음)
-MAX_INPUT_CHARS = 2500          # 입력(JSON 직렬화)의 문자 수 상한. 왜: max_model_len 4096 토큰 - 출력 512 - 시스템 프롬프트 약 1000(가정)을 1자=1토큰으로 보수 환산한 추정, 토큰 수 측정 안 함 (ADR 0012)
-CONN_TIMEOUT_S = 15.0           # 왜: 느린 클라이언트·유휴 keep-alive가 스레드를 쥐지 못하게. 값 15는 측정·표준 근거 없는 초기값 (ADR 0012)
-MAX_CONNECTIONS = 32            # 왜: 엔진 호출이 직렬이라(ADR 0005) 많이 받아도 대기만 길어진다. 값 32는 초기값, 부하 측정 안 함 (ADR 0012)
-MAX_LOADING = 2                 # 왜: 적재는 디스크·GPU 메모리를 쓰는 무거운 작업. 값 2는 초기값 (ADR 0012)
-MAX_FAILED_KEPT = 16            # 왜: 실패 항목이 메모리에 무한히 쌓이지 않게(감사 MR-4). 값 16은 초기값 (ADR 0012)
-INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
 DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
-DEFAULT_DEADLINES_S = {"extract": 3.0, "respond": 2.0}   # 왜: 계약 CONVENTIONS '시간 상한 사슬' 2.2.0 표. 한 턴이 extract→respond 두 번이라 합 5.0s + 서버 처리 여유 1.0s = 턴 마감 6s. 측정하지 않은 배분값 (ADR 0020)
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
-          "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
+from .components import token_table as _tt
+_token_table = gate(_tt, ValueError)
 
 
 def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
     """`역할=토큰,역할=토큰`. 빈 역할·빈 토큰·형식 위반·역할/토큰 중복은 시작 거부(ValueError, 메시지에 값이 없다)."""
-    out: dict = {}
-    for kv in [x for x in (raw or "").split(",") if x.strip()]:
-        role, sep, tok = kv.partition("=")
-        role, tok = role.strip(), tok.strip()
-        if not sep or not role or not tok:
-            raise ValueError("MODEL_RUNTIME_TOKENS 항목은 `역할=토큰` 형식이고 역할과 토큰이 비어 있으면 안 된다")
-        if role in out or tok in out.values():
-            raise ValueError("MODEL_RUNTIME_TOKENS에 같은 역할 또는 같은 토큰이 두 번 있다")
-        out[role] = tok
-    if not out and not allow_empty:
-        raise ValueError("MODEL_RUNTIME_TOKENS(또는 _FILE)가 필요하다. 인증 없이 열려면 개발용으로만 MODEL_RUNTIME_ALLOW_NO_AUTH=1")
-    return out
-
-
-def to_boundary(e: Exception) -> BoundaryError:
-    """적재 중 예외를 BoundaryError로. 원문 없이 종류만 담는다."""
-    if isinstance(e, BoundaryError):
-        return e
-    if isinstance(e, (ServingConfigMismatch, UnsupportedServingConfig, ContractViolation)) and not isinstance(e, BackendNotAvailable):
-        return BoundaryError("FAILED_PRECONDITION", f"{type(e).__name__}: {str(e)[:200]}")
-    if isinstance(e, SystemPromptMismatch):
-        return BoundaryError("INTEGRITY_ERROR", f"{e.role}의 시스템 프롬프트 파일이 없거나 해시가 다르다")
-    if isinstance(e, ContractVersionMismatch):
-        return BoundaryError("UNSUPPORTED_VERSION", "문진 스키마 버전을 지원하지 않는다")
-    return BoundaryError("UNAVAILABLE", f"{type(e).__name__}")
-
-
-class Release:
-    def __init__(self):
-        self.state, self.error, self.session, self.hashes, self.prompt_hashes = "LOADING", None, None, None, None
-        self.done = threading.Event()
-
-
-class Service:
-    def __init__(self, *, schema_dir: Path, bundle_dir: Path, base_backend_factory: Callable[[], object],
-                 reader_factory: Callable[[], object], backend_name: str, tokens: Mapping[str, str] | None = None,
-                 queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
-                 release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
-                 hf_home: str | None = None, runtime_dirs: list[str] | None = None,
-                 deadlines: Mapping[str, float] | None = None, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 호출별 상한 extract 3.0s·respond 2.0s: 계약 표(합 5.0s + 여유 1.0s = 턴 마감 6s, ADR 0020, 실측 안 함). 30s: 초기값, 근거 기록 없음
-                 max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
-        self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
-        self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
-        self.test_hooks = dict(test_hooks or {})
-        self.release_url, self.release_required, self.probe_ttl_s = release_url, release_required, probe_ttl_s
-        self._probe = (0.0, None)   # (시각, 사유 또는 None)
-        self.schema_dir, self.bundle_dir = Path(schema_dir), Path(bundle_dir)
-        self.reader_factory, self.backend_name = reader_factory, backend_name
-        self.tokens = dict(tokens or {})
-        self.queue_wait_s, self.put_wait_s, self.max_releases = queue_wait_s, put_wait_s, max_releases
-        self.releases: dict[str, Release] = {}      # 삽입 순서 = 적재 순서
-        self.rlock = threading.Lock()                # 릴리스 표
-        self.engine_lock = threading.Lock()          # 엔진 직렬화
-        self.pending = 0                             # 실행 중 + 대기 중
-        self.avg_s = 0.5                             # 호출 시간 지수 이동 평균
-        self.deadlines = dict(DEFAULT_DEADLINES_S if deadlines is None else deadlines)   # 호출별 총 상한(op → 초)
-        self.backend_retry_s = backend_retry_s   # 백엔드 기동 재시도 간격(0이면 재시도 없음). 출력 재시도와 무관하다
-        self.max_input_chars, self.max_loading, self.conn_timeout_s = max_input_chars, max_loading, conn_timeout_s
-        self.put_roles = None if put_roles is None else frozenset(put_roles)   # None이면 인증된 모든 역할이 적재 신호를 보낼 수 있다(survey-service가 404에서 PUT으로 다시 적재한다)
-        self.overdue = False          # 상한을 넘긴 엔진 호출이 아직 끝나지 않았다(엔진이 멈췄을 수 있다)
-        self.engine_error = None      # 마지막 추론이 엔진 예외로 끝났으면 예외 이름(성공하면 None)
-        self._closing = False
-        self.base = None
-        self.ready, self.not_ready_reason = False, "백엔드를 올리는 중"
-        self.bundle_error = self._check_bundle_dir() or self._check_hf_cache() or self._check_runtime_dirs()
-        if self.bundle_error:
-            log.error("%s", self.bundle_error)
-            self.not_ready_reason = self.bundle_error
-            return   # 백엔드를 올리지 않는다. /readyz는 503과 이유를 낸다
-        threading.Thread(target=self._start_backend, args=(base_backend_factory,), daemon=True).start()
-
-    def _check_bundle_dir(self) -> str | None:
-        """번들 캐시를 만들고 쓸 수 있는지 시작할 때 확인한다. 볼륨을 처음 마운트해도 동작해야 한다."""
-        try:
-            self.bundle_dir.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryFile(dir=self.bundle_dir):
-                pass
-            for d in self.bundle_dir.glob(".bundle-*"):   # 이전 실행이 중단되며 남긴 적재 임시 폴더(지금은 적재 중인 것이 없다)
-                shutil.rmtree(d, ignore_errors=True)
-        except OSError as e:
-            return f"번들 디렉터리 {self.bundle_dir}에 쓸 수 없다({type(e).__name__}). 볼륨 소유자를 uid {os.getuid()}로 하거나 MODEL_RUNTIME_BUNDLE_DIR를 바꾼다"
-        return None
-
-    def _check_runtime_dirs(self) -> str | None:
-        """HOME·XDG/vLLM/torch/triton 캐시 디렉터리를 mkdir -p로 보장한다(볼륨 마운트가 이미지의 디렉터리를 가린다). 못 쓰면 사유."""
-        for d in self.runtime_dirs:
-            try:
-                d.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryFile(dir=d):
-                    pass
-            except OSError:
-                return f"runtime dir not writable: {d} (uid {os.getuid()})"
-        return None
-
-    def _check_hf_cache(self) -> str | None:
-        """모델 캐시(HF_HOME)를 만들고 쓸 수 있는지 확인한다. 이미지가 준비한 경로가 아닌 곳에 볼륨을 마운트하면 root 소유라 실패한다."""
-        if self.hf_home is None:
-            return None
-        try:
-            self.hf_home.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryFile(dir=self.hf_home):
-                pass
-        except OSError:
-            return f"hf cache not writable: {self.hf_home} (uid {os.getuid()})"
-        return None
-
-    def readiness(self) -> tuple[bool, str | None]:
-        """요청을 받을 수 있는가: 백엔드·번들 디렉터리·I4 서버 도달성. 사유에는 주소의 호스트:포트만 담는다(토큰·경로 없음).
-        /healthz는 이것과 무관하게 프로세스가 살아 있으면 200이다."""
-        if not self.ready:
-            return False, self.not_ready_reason
-        if self.overdue:
-            return False, "추론 엔진이 요청 상한을 넘겨 응답하지 않는다"
-        if self.engine_error:
-            return False, f"추론 엔진 호출이 실패했다({self.engine_error})"
-        if self.release_required and not self.release_url:
-            return False, "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다"
-        if self.release_url:
-            t, why = self._probe
-            if time.time() - t >= self.probe_ttl_s:
-                try:
-                    with urllib.request.urlopen(self.release_url.rstrip("/") + "/healthz", timeout=2):
-                        why = None
-                except Exception as e:   # noqa: BLE001
-                    u = urlsplit(self.release_url)
-                    why = f"release 서버({u.hostname}:{u.port or ''})에 닿지 못한다({type(e).__name__})"
-                self._probe = (time.time(), why)
-            if why:
-                return False, why
-        return True, None
-
-    def close(self):
-        """종료 시 엔진을 내린다(시그널 처리에서 부른다). 내리지 않으면 EngineCore가 GPU 메모리를 쥔 채 남는다."""
-        self.ready = False
-        self._closing = True
-        with self.rlock:
-            self.releases.clear()
-        close = getattr(self.base, "close", None)
-        if close:
-            close()
-
-    def _start_backend(self, factory):
-        while not self._closing:
-            try:
-                self.base = factory()
-                self.ready, self.not_ready_reason = True, None
-                return
-            except Exception as e:   # noqa: BLE001
-                self.not_ready_reason = type(e).__name__
-                log.error("백엔드를 올리지 못함: %s", type(e).__name__)
-            if self.backend_retry_s <= 0:
-                return
-            time.sleep(self.backend_retry_s)   # 모델 내려받기 실패 등은 돌아오면 사람 개입 없이 /readyz가 200이 된다(FAULT_POLICY 12)
-
-    # --- 적재 ---
-    def put(self, rid: str):
-        """(상태 코드, 본문). 멱등: LOADED면 200, LOADING이면 대기 후 상태, FAILED·ABSENT면 새로 시도한다."""
-        if not self.ready:
-            return 503, BoundaryError("UNAVAILABLE", self.not_ready_reason or "서버가 아직 준비되지 않았다").to_record()
-        if self.release_required and not self.release_url:
-            return 503, BoundaryError("UNAVAILABLE", "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다").to_record()
-        with self.rlock:
-            r = self.releases.get(rid)
-            if r is None or r.state == "FAILED":
-                if sum(1 for v in self.releases.values() if v.state == "LOADING") >= self.max_loading:
-                    return 503, BoundaryError("UNAVAILABLE", "적재가 몰려 있다. 잠시 후 다시 보낸다").to_record()
-                self.releases.pop(rid, None)
-                failed = [k for k, v in self.releases.items() if v.state == "FAILED"]
-                for k in failed[:-(MAX_FAILED_KEPT - 1)] if len(failed) >= MAX_FAILED_KEPT else []:
-                    del self.releases[k]   # 실패 항목이 무한히 쌓이지 않게 오래된 것부터 버린다
-                r = self.releases[rid] = Release()
-                threading.Thread(target=self._load, args=(rid, r), daemon=True).start()
-        r.done.wait(self.put_wait_s)
-        if r.state == "LOADED":
-            return 200, self.status_body(rid, r)
-        if r.state == "LOADING":
-            return 202, self.status_body(rid, r)
-        return STATUS[r.error.code], r.error.to_record()
-
-    def _load(self, rid: str, r: Release):
-        try:
-            bundle = self.reader_factory().load_bundle(rid, dest=self.bundle_dir)
-            m = bundle.manifest
-            if m["runtime_contract_version"] != SUPPORTED_RUNTIME_CONTRACT_VERSION:
-                raise BoundaryError("UNSUPPORTED_VERSION", "runtime_contract_version을 지원하지 않는다")
-            if m["model_runtime_version"].split(".")[:2] != RUNTIME_VERSION.split(".")[:2]:
-                raise BoundaryError("UNSUPPORTED_VERSION", "model_runtime_version의 MAJOR.MINOR가 이 서버와 다르다")
-            cfgs = {k: m["adapters"][k]["serving_config"] for k in ("LORA_A", "LORA_B")}
-            hs = {k: m["adapters"][k]["serving_config_hash"] for k in cfgs}
-            prompts = {k: m["adapters"][k]["system_prompt"] for k in cfgs}   # 패키지의 시스템 프롬프트(파일은 어댑터 디렉터리 안, D75)
-            backend = self.base.bind(bundle.adapters) if hasattr(self.base, "bind") else self.base   # 어댑터 사전 검사 포함
-            session = load(bundle.adapters, cfgs, schema_dir=self.schema_dir, expected_serving_config_hashes=hs,
-                           system_prompts=prompts, backend=backend)
-            with self.rlock:
-                r.session, r.hashes, r.state = session, dict(session.serving_config_hashes), "LOADED"
-                r.prompt_hashes = dict(session.system_prompt_hashes)
-                loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
-                for k in loaded[:-self.max_releases] if len(loaded) > self.max_releases else []:
-                    del self.releases[k]
-                    self._drop_bundle(k)   # 내려간 릴리스의 번들 파일도 지운다(MR-9)
-            log.info("적재 완료 release=%s", rid)
-        except Exception as e:   # noqa: BLE001  실패는 이 릴리스에만 기록한다. 다른 릴리스는 그대로다
-            r.error, r.state = to_boundary(e), "FAILED"
-            self._drop_bundle(rid)
-            log.warning("적재 실패 release=%s code=%s", rid, r.error.code)
-        finally:
-            r.done.set()
-
-    def _drop_bundle(self, rid: str) -> None:
-        """번들 디렉터리 아래의 릴리스 폴더를 지운다. ID 형식과 경로가 번들 디렉터리 바로 아래일 때만."""
-        if not ID_RE.match(rid):
-            return
-        d = self.bundle_dir / rid
-        if d.parent == self.bundle_dir and d.is_dir() and not d.is_symlink():
-            shutil.rmtree(d, ignore_errors=True)
-
-    def status_body(self, rid: str, r: Release | None):
-        if r is None:
-            return {"release_id": rid, "state": "ABSENT", "error": None}
-        return {"release_id": rid, "state": r.state, "error": r.error.to_record() if r.error else None}
-
-    def get(self, rid: str):
-        with self.rlock:
-            return self.status_body(rid, self.releases.get(rid))
-
-    def info(self):
-        with self.rlock:
-            loaded = [k for k, v in self.releases.items() if v.state == "LOADED"]
-            hashes = self.releases[loaded[-1]].hashes if loaded else {}
-            prompt_hashes = self.releases[loaded[-1]].prompt_hashes if loaded else {}
-        base = self.base
-        expect = None
-        if base is not None:   # 매니페스트의 serving_config가 맞춰야 하는 값(deploy·model-lab이 참고한다)
-            expect = {"constraint": {"backend": base.name, "backend_version": base.version,
-                                     "supported_features": sorted(base.supported_features),
-                                     "relax_policy_version": RELAX_POLICY_VERSION},
-                      "prompt_template_versions": sorted(SUPPORTED_TEMPLATE_VERSIONS),
-                      "prompt_template_version_default": DEFAULT_TEMPLATE_VERSION,   # 새 매니페스트는 이 값을 쓴다(D77)
-                      "deprecated_prompt_template_versions": sorted(DEPRECATED_TEMPLATE_VERSIONS),
-                      "protection_policy_versions": sorted(PROTECTION_POLICIES),
-                      "output_contract": SUPPORTED_RUNTIME_CONTRACT_VERSION}
-        return {"service": "model-runtime", "runtime_version": RUNTIME_VERSION,
-                "supported_contract_versions": [SUPPORTED_RUNTIME_CONTRACT_VERSION], "backend": self.backend_name,
-                "loaded": loaded, "serving_config_hash": hashes,   # 해시는 가장 최근에 적재한 릴리스의 것
-                "system_prompt_sha256": prompt_hashes,   # 가장 최근에 적재한 릴리스의 패키지 프롬프트 해시(D75)
-                "serving_config_expectation": expect, "test_hooks": self.test_hooks}
-
-    # --- 추론 ---
-    @staticmethod
-    def split_extract_body(body):
-        """extract 본문을 (input, flow, fields)로 나눈다. 3.0.0: 본문은 계약 ExtractRequest{input, flow, fields}뿐이다(옛 ActionExtractionInput 본문과 fields 없는 요청은 거부).
-        형식은 계약 스키마로 판정한다. 아니면 ContractViolation(400 INVALID_RECORD)."""
-        if not validator("ExtractRequest").is_valid(body):
-            raise ContractViolation("extract 본문이 ExtractRequest{input, flow, fields}가 아니다")
-        return body["input"], body["flow"], body["fields"]
-
-    def infer(self, rid: str, op: str, body):
-        """op: extract | respond. (상태, 본문, 헤더). extract의 본문은 dict, respond의 본문은 문장(str). 대기가 길 것 같으면 503."""
-        with self.rlock:
-            r = self.releases.get(rid)
-            if r is None or r.state != "LOADED":
-                return 404, BoundaryError("NOT_FOUND", "적재되지 않은 릴리스").to_record(), {}
-            if self.pending > 0 and (self.pending + 1) * self.avg_s > self.queue_wait_s:
-                return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
-            self.pending += 1
-        try:
-            flow = fields = None
-            if op == "extract":
-                body, flow, fields = self.split_extract_body(body)   # 이후 body는 모델 입력(input)이다
-            # 한도는 모델 입력에만 건다: flow는 프롬프트에 들어가지 않으므로 컨텍스트를 쓰지 않는다(2500자 근거는 ADR 0012)
-            if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
-                return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
-            limit_s = self.deadlines[op]
-            deadline = time.monotonic() + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
-            if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
-                return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
-            res: dict = {}
-            done = threading.Event()
-
-            def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
-                try:
-                    t = time.time()
-                    out = r.session.extract(body, flow, fields, deadline=deadline) if op == "extract" else r.session.respond(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
-                    info = r.session.last_call_info
-                    self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
-                    res["ok"] = (out, info)
-                except BaseException as e:   # noqa: BLE001
-                    res["err"] = e
-                finally:
-                    self.engine_lock.release()
-                    self.overdue = False
-                    done.set()
-            threading.Thread(target=work, daemon=True).start()
-            if not done.wait(max(0.0, deadline - time.monotonic())):
-                self.overdue = True
-                log.error("추론이 호출 상한 %.1fs를 넘겼다(op=%s)", limit_s, op)
-                return 503, BoundaryError("UNAVAILABLE", "추론이 요청 상한을 넘겼다", {"reason": "ENGINE_TIMEOUT"}).to_record(), {}
-            if "err" in res:
-                raise res["err"]
-            out, info = res["ok"]
-            self.engine_error = None
-            headers = {"X-Openit-Outcome": info.outcome, "X-Openit-Attempts": str(info.attempts)}
-            if info.protections:
-                headers["X-Openit-Protections"] = ",".join(f"{k}:{v}" for k, v in info.protections)
-            return 200, (out.text if op == "respond" else out), headers
-        except ContractViolation as e:
-            return 400, BoundaryError("INVALID_RECORD", str(e)).to_record(), {}
-        except ModelOutputInvalid as e:   # D75: 값을 지어내지 않는다. 호출자(survey-service)가 한 번 다시 보낸다
-            log.warning("OUTPUT_INVALID attempts=%s violations=%s", e.attempts, ",".join(violation_names(e.errors)))
-            return 503, BoundaryError("UNAVAILABLE", "모델 출력이 ActionExtraction 형식을 지키지 못했다",
-                                      {"reason": "OUTPUT_INVALID", "attempts": e.attempts,
-                                       "violations": violation_names(e.errors)}).to_record(), {}
-        except ValueError as e:   # 엔진이 입력(프롬프트 길이 등)을 거부: 요청 하나의 문제다. /readyz를 건드리지 않는다(MR-3)
-            log.warning("엔진이 입력을 거부함 %s", type(e).__name__)
-            return 400, BoundaryError("INVALID_RECORD", "입력을 처리할 수 없다(길이 등)").to_record(), {}
-        except Exception as e:   # noqa: BLE001 (엔진 사망 등)
-            log.error("추론 실패 %s", type(e).__name__)
-            self.engine_error = type(e).__name__   # 엔진 사망 등: 다음 추론이 성공할 때까지 /readyz 503
-            return 503, BoundaryError("UNAVAILABLE", "추론 실패").to_record(), {}
-        finally:
-            with self.rlock:
-                self.pending -= 1
-
-
-def make_app(svc: Service):
-    """추론 서버의 WSGI 앱(PEP 3333). HTTP 구문 분석·연결 관리·스레드 풀은 waitress가 하고 이 앱은 경로, 인증, 본문 검사, 응답 모양만 안다(ADR 0022)."""
-    status_line = {c: f"{c} {HTTPStatus(c).phrase}" for c in (200, 202, 400, 401, 403, 404, 412, 422, 503)}
-
-    def respond(start_response, status: int, body, headers: Mapping[str, str] | None = None):
-        """body가 str이면 text/plain(respond의 문장 그대로), 아니면 JSON."""
-        if isinstance(body, str):
-            data, ctype = body.encode("utf-8"), "text/plain; charset=utf-8"
-        else:
-            data, ctype = json.dumps(body, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
-        start_response(status_line.get(status) or f"{status} {HTTPStatus(status).phrase}",
-                       [("Content-Type", ctype), ("Content-Length", str(len(data))), *(headers or {}).items()])
-        return [data]
-
-    def err(start_response, code: str, message: str, *, status: int | None = None, headers: Mapping[str, str] | None = None):
-        return respond(start_response, status or STATUS[code], BoundaryError(code, message).to_record(), headers)
-
-    def role_of(environ) -> str | None:
-        """Bearer 토큰의 역할. 토큰 설정이 없으면(개발용 무인증) "dev". 모든 토큰을 상수 시간 비교한다."""
-        if not svc.tokens:
-            return "dev"
-        auth = environ.get("HTTP_AUTHORIZATION", "")
-        if not auth.startswith("Bearer "):
-            return None
-        got, found = auth[7:].encode("utf-8"), None
-        for role, tok in svc.tokens.items():
-            if hmac.compare_digest(got, tok.encode("utf-8")):
-                found = role
-        return found
-
-    def length_of(environ) -> int | None:
-        """Content-Length. 없으면 0. 숫자가 아니거나 음수, Transfer-Encoding이 있으면 None. (숫자가 아닌 값은 waitress가 먼저 400으로 거절한다)"""
-        if environ.get("HTTP_TRANSFER_ENCODING"):
-            return None
-        raw = (environ.get("CONTENT_LENGTH") or "0").strip() or "0"
-        return int(raw) if raw.isdigit() else None
-
-    def route(environ, start_response):
-        method, p = environ["REQUEST_METHOD"], environ.get("PATH_INFO", "")
-        log.info("%s %s", method, re.sub(r"/releases/[^/]+", "/releases/{id}", p))
-        if method == "GET" and p == "/healthz":
-            return respond(start_response, 200, {"status": "ok"})
-        role = role_of(environ)
-        if method == "GET" and p == "/readyz":
-            ok, why = svc.readiness()
-            if ok:
-                return respond(start_response, 200, {"status": "ready"})
-            # 인증 없이 부르는 쪽(점검 스크립트, 이웃)에는 사유를 주지 않는다(내부 주소·예외 이름 노출 최소화, MR-10)
-            return respond(start_response, 503, {"status": "not ready", "reason": why} if role else {"status": "not ready"})
-        if role is None:
-            # 토큰이 없거나 틀리면 401 + WWW-Authenticate: Bearer, 권한 없음만 403 (CONVENTIONS 6절, D106; RFC 9110 15.5.2·11.6.1, RFC 6750 3절). code는 둘 다 PERMISSION_DENIED
-            return err(start_response, "PERMISSION_DENIED", "토큰이 없거나 맞지 않다", status=401, headers={"WWW-Authenticate": "Bearer"})
-        if method == "GET" and p == "/v1/info":
-            return respond(start_response, 200, svc.info())
-        m = re.fullmatch(r"/v1/releases/([^/]+)(?:/(extract|respond))?", p)
-        if not m:
-            return err(start_response, "NOT_FOUND", "경로가 없다")
-        rid, op = m.groups()
-        if not ID_RE.match(rid):
-            return err(start_response, "INVALID_RECORD", "release_id 형식 위반")
-        if op is None and method == "PUT":
-            if svc.put_roles is not None and role != "dev" and role not in svc.put_roles:
-                return err(start_response, "PERMISSION_DENIED", "이 토큰의 역할은 적재를 할 수 없다")
-            n = length_of(environ)
-            if n is None or n > MAX_BODY:
-                return err(start_response, "INVALID_RECORD", "본문 크기가 맞지 않다")
-            return respond(start_response, *svc.put(rid))
-        if op is None and method == "GET":
-            return respond(start_response, 200, svc.get(rid))
-        if op and method == "POST":
-            if role in INFER_DENY_ROLES:
-                return err(start_response, "PERMISSION_DENIED", "이 토큰의 역할은 추론을 할 수 없다")
-            n = length_of(environ)
-            if not n or n > MAX_BODY:
-                return err(start_response, "INVALID_RECORD", "본문 크기가 맞지 않다")
-            try:
-                body = json.loads(environ["wsgi.input"].read(n))
-            except (ValueError, RecursionError):   # 깊게 중첩된 JSON은 RecursionError
-                return err(start_response, "INVALID_RECORD", "JSON이 아니다")
-            return respond(start_response, *svc.infer(rid, op, body))
-        return err(start_response, "NOT_FOUND", "경로가 없다")
-
-    def app(environ, start_response):
-        try:
-            return route(environ, start_response)
-        except Exception as e:   # noqa: BLE001  처리하지 못한 예외도 내부 정보 없이 끝낸다
-            log.error("요청 처리 실패 %s", type(e).__name__)
-            return respond(start_response, 503, BoundaryError("UNAVAILABLE", "요청을 처리하지 못했다").to_record())
-    return app
-
-
-def make_server(svc: Service, host: str, port: int, *, max_connections: int = MAX_CONNECTIONS):
-    """waitress 서버(아직 시작 전). 값의 출처는 ADR 0022.
-    threads=max_connections: 추론 요청 하나가 엔진 직렬화 락을 기다리며 스레드를 최대 호출 상한(3.0초)까지 쥐므로, 스레드가 연결 수보다 적으면 /healthz가 그 뒤에 줄 선다.
-    channel_timeout: 헤더를 끝내지 않거나 유휴인 연결을 닫는다(waitress는 정수 초만 받는다). cleanup_interval 1초: 기본 30초면 실제로 닫히는 시각이 timeout보다 최대 30초 늦다.
-    max_request_body_size=MAX_BODY: 이 크기를 넘는 본문은 waitress가 413으로 거절한다(읽기 전에)."""
-    return waitress.create_server(make_app(svc), host=host, port=port, threads=max_connections, connection_limit=max_connections,
-                                  channel_timeout=max(1, math.ceil(svc.conn_timeout_s)), cleanup_interval=1, max_request_body_size=MAX_BODY,
-                                  ident="model-runtime")
+    return _token_table({"raw": raw, "allow_empty": allow_empty})
 
 
 def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None) -> Service:
@@ -506,7 +65,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     except SecretError as e:
         raise SystemExit(str(e))   # 메시지에는 이름과 경로만 있다
     try:   # 인증은 기본 닫힘(MR-1): 토큰이 없으면 시작을 거부한다. 개발용으로만 MODEL_RUNTIME_ALLOW_NO_AUTH=1
-        tokens = parse_tokens(raw_tokens, allow_empty=env.get("MODEL_RUNTIME_ALLOW_NO_AUTH") == "1")
+        tokens = _token_table({"raw": raw_tokens, "allow_empty": env.get("MODEL_RUNTIME_ALLOW_NO_AUTH") == "1"})
     except ValueError as e:
         raise SystemExit(str(e))
     if not tokens:
@@ -551,9 +110,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         raise SystemExit("MODEL_RUNTIME_BACKEND는 vllm, fake, mimic 중 하나")
     custom_reader = reader_factory
     if reader_factory is None:
-        def reader_factory():
-            from boundary_contracts.clients.releases import HttpReleaseReader
-            return HttpReleaseReader(env["MODEL_RUNTIME_RELEASE_URL"], read_secret("MODEL_RUNTIME_RELEASE_TOKEN", environ=env) or "", timeout=float(env.get("MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S", "120")))
+        reader_factory = reader_factory_from_env(env)
     offline = env.get("HF_HUB_OFFLINE", "").lower() in ("1", "true", "yes")
     hf_home = None if (backend_name != "vllm" or offline) else (env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
     dirs = [env[k] for k in ("HOME", "XDG_CACHE_HOME", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TORCH_HOME")

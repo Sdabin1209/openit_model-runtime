@@ -25,6 +25,7 @@ from helpers import extract_body, A_FIELDS, A_FLOW, A_INPUT, B_INPUT, B_START, S
 from test_server import call
 
 import model_runtime as mr
+from model_runtime.components import fake_backend
 from model_runtime import server
 
 PROMPTS = {"LORA_A": "시험용 LoRA-A 시스템 프롬프트".encode(), "LORA_B": "시험용 LoRA-B 시스템 프롬프트".encode()}
@@ -142,7 +143,7 @@ class E2E(unittest.TestCase):
             self.assertEqual(cm.exception.code, "INVALID_RECORD")
             # respond: 문장 그대로
             r = c.respond("rel-0001", B_START)
-            self.assertEqual((r.output, r.outcome, r.is_fallback), (mr.backends.FAKE_RESPONSE_TEXT, "ok", False))
+            self.assertEqual((r.output, r.outcome, r.is_fallback), (fake_backend.FAKE_RESPONSE_TEXT, "ok", False))
             # respond 대체 문장은 헤더로 알린다
             sess = svc.releases["rel-0001"].session
             sess._backend = mr.FakeBackend.scripted({"LORA_A": ["아님"], "LORA_B": [""]})

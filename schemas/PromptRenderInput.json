@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptRenderInput",
+  "description": "prompt_render의 입력. input은 호출자가 이미 계약(ActionExtractionInput/ResponseRequest)으로 검증한 값이다(R7). 템플릿 버전은 학습 데이터와 글자 단위로 같은 prompt-4 하나뿐이다(ADR 0011).",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "template_version": {
+      "enum": [
+        "prompt-4"
+      ]
+    },
+    "system_prompt": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "input": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "role",
+    "template_version",
+    "system_prompt",
+    "input"
+  ],
+  "additionalProperties": false
+}

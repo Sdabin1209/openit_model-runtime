@@ -1,0 +1,12 @@
+{
+  "raw": {
+    "output": "x",
+    "valid": true
+  },
+  "info": {
+    "role": "LORA_B",
+    "attempts": 1,
+    "relaxed": [],
+    "outcome": "raw"
+  }
+}

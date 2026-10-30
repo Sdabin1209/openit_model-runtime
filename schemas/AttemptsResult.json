@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttemptsResult",
+  "description": "retry_loop의 출력: 마지막 시도의 값, 오류 이름 목록(원문 없음), 시도 횟수.",
+  "type": "object",
+  "properties": {
+    "output": true,
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "output",
+    "errors",
+    "attempts"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FlowFileRef",
+  "description": "flow_file_load의 입력: 문항 흐름 파일 경로.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}

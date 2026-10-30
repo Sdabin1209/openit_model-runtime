@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResponseResult",
+  "description": "respond의 결과. is_fallback은 모델이 아니라 코드가 채운다(D36).",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    },
+    "is_fallback": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "text",
+    "is_fallback"
+  ],
+  "additionalProperties": false
+}

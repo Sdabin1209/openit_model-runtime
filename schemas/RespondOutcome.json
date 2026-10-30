@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RespondOutcome",
+  "description": "respond_role의 출력. 못 지키면 대체 문장(is_fallback=true).",
+  "type": "object",
+  "properties": {
+    "result": {
+      "$ref": "ResponseResult.json"
+    },
+    "info": {
+      "$ref": "CallInfo.json"
+    }
+  },
+  "required": [
+    "result",
+    "info"
+  ],
+  "additionalProperties": false
+}

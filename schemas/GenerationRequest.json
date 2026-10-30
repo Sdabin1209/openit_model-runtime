@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GenerationRequest",
+  "description": "백엔드 컴포넌트(fake/mimic/vllm)의 입력: 모델 한 번 호출. input은 모델 입력 객체이며 가짜·모방 백엔드가 문항을 읽는 데만 쓴다.",
+  "type": "object",
+  "properties": {
+    "role": {
+      "enum": [
+        "LORA_A",
+        "LORA_B"
+      ]
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "constraint_schema": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "decoding": {
+      "type": "object",
+      "required": [
+        "seed"
+      ],
+      "$comment": "serving_config.decoding(계약 ServingConfig가 모양을 정한다). 여기서는 시드가 있다는 것만 요구한다"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "role",
+    "prompt",
+    "constraint_schema",
+    "decoding",
+    "seed",
+    "attempt",
+    "input"
+  ],
+  "additionalProperties": false
+}

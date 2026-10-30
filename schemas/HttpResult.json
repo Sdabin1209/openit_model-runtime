@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HttpResult",
+  "description": "release_registry 작업의 출력: HTTP 상태, 본문(JSON 값 또는 문장), 응답 헤더. 오류 본문은 계약 BoundaryError.",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 599
+    },
+    "body": true,
+    "headers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "status",
+    "body"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurveyVersionCheckInput",
+  "description": "survey_version_check의 입력: 문진 스키마 CONTRACT_VERSION 파일의 글자. 지원하는 정수 버전은 1 하나다(brief 3절).",
+  "type": "object",
+  "properties": {
+    "contract_version_text": {
+      "type": "string",
+      "pattern": "^\\s*1\\s*$"
+    }
+  },
+  "required": [
+    "contract_version_text"
+  ],
+  "additionalProperties": false
+}
