@@ -100,7 +100,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         factory = lambda: mimic
     elif backend_name == "vllm":
         def factory():
-            from .vllm_backend import VLLMBackend, load_profile
+            from .components.vllm_backend import VLLMBackend, load_profile
             prof = load_profile(env["MODEL_RUNTIME_PROFILE"]) if env.get("MODEL_RUNTIME_PROFILE") else {}
             for k, v in prof.get("env", {}).items():   # 프로파일이 정한 엔진용 환경(예: VLLM_USE_FLASHINFER_SAMPLER)
                 if not k.startswith(("_",)):

@@ -2,7 +2,7 @@
 
 갱신: 2026-10-30 (24차, 0.11.3)
 
-- 24차(0.11.3, U400, 브랜치 wo-400): 영역 구조 개편(ADR 0028, docs/components.md). 컴포넌트 19개, schemas/ 39개(스키마 밖 조건 8건), types/ 생성, 구조 검사 통과(헤드 structure-check.py와 tests/test_structure.py). 계약 v3.1.1, openit-link v0.4.0 위로 link_receive를 다시 썼다. 시험 347 통과 2 건너뜀(이전과 같은 두 건; 새 clone+새 venv에서도 재현), 이미지 빌드와 smoke.sh 통과. **남은 일**: GPU 시험은 하지 않았다(vLLM 백엔드는 모킹 시험만).
+- 24차(0.11.3, U400, 브랜치 wo-400): 영역 구조 개편(ADR 0028, docs/components.md). 컴포넌트 19개, schemas/ 39개(스키마 밖 조건 8건), types/ 생성, 구조 검사 통과(헤드 structure-check.py와 tests/test_structure.py). 계약 v3.1.1, openit-link v0.4.1 위로 link_receive를 다시 썼다. 시험 347 통과 2 건너뜀(이전과 같은 두 건; 새 clone+새 venv에서도 재현), 이미지 빌드와 smoke.sh 통과. **남은 일**: GPU 시험은 하지 않았다(vLLM 백엔드는 모킹 시험만).
 
 - 23차(0.7.3, 감사 MR-1/2/3/4/9/10/14/15/16 + FAULT_MATRIX A4·B1·B3 + ADR D89): CHANGELOG 0.7.3. 새 venv 187 통과 5 건너뜀, smoke 통과. **미확인**: 실제 모델 지연(요청 상한 3.5s 초기값), 토크나이저의 특수 토큰 해석, 24GB 적재, deploy가 새 기본값(토큰·ALLOW_FAKE)으로 도는지.
 

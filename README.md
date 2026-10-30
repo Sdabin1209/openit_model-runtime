@@ -69,7 +69,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 현행 버전은 `src/model_runtime/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
 - 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- **시험 상태(정본, 개수는 이 한 곳)**: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command): **347 통과, 2 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1), 계약 v3.1.1, 통신 기반 openit-link v0.4.0(U400), 이 개발 PC 한 환경에서 잰 값이다(GPU 시험은 하지 않았다). 깨끗한 두 번째 환경에서는 재현하지 않았다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
+- **시험 상태(정본, 개수는 이 한 곳)**: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command): **347 통과, 2 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1), 계약 v3.1.1, 통신 기반 openit-link v0.4.1(U400), 이 개발 PC 한 환경에서 잰 값이다(GPU 시험은 하지 않았다). 깨끗한 두 번째 환경에서는 재현하지 않았다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
 

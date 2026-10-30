@@ -1,5 +1,10 @@
 # 변경 이력
 
+## 0.11.4 — 2026-10-30 (vllm 백엔드 import 경로 수정, link v0.4.1)
+PATCH. `server.py`의 vllm 백엔드 공장(`build_service`의 `factory`)이 `from .vllm_backend import ...`로 이동 전 경로를 가리켜 `MODEL_RUNTIME_BACKEND=vllm`에서 ModuleNotFoundError가 났다(GPU 경로라 시험이 못 잡았다). `.components.vllm_backend`로 고쳤다.
+- 재발 방지: `tests/test_imports_resolve.py`가 패키지의 모든 .py를 AST로 훑어 함수 안의 늦은 import까지 모든 상대·절대 `model_runtime` import가 실제 모듈과 이름으로 풀리는지 본다. 같은 종류의 다른 결함은 없었다.
+- 통신 기반 openit-link v0.4.0 -> v0.4.1(Dockerfile ARG LINK_VERSION).
+
 ## 0.11.3 — 2026-10-30 (영역 구조 개편, ADR 0028, U400)
 PATCH(공개 이름·HTTP 경로·헤더·라벨 키는 그대로, 서버가 MAJOR.MINOR로 번들을 거르므로 MINOR를 올리지 않는다). 계약 고정 v3.0.2 -> v3.1.1, 통신 기반 openit-link v0.4.0 추가.
 - `src/model_runtime/`를 `components/`(19개), `wiring/`, `types/`(스키마에서 생성)로 나눴다. 표는 `docs/components.md`. 영역 내부 타입 JSON Schema는 `schemas/`.
