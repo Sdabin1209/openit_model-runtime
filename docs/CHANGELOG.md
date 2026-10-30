@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.2 — 2026-10-30
+계약 고정을 boundary-contracts v3.0.2로 올렸다(`Dockerfile`; 3.0.2는 SurveyServiceEnv 하나만 바로잡았다). 코드·시험 변경 없음. 버전 점검이 모든 이미지의 계약 라벨이 같은 값이기를 요구해 올린다.
+
 ## 0.11.1 — 2026-10-30 (이미지 라벨 io.openit.service를 서비스 이름으로)
 PATCH. 라벨 `io.openit.service`가 리포 이름 `model-runtime`이었다. 다른 영역은 서비스 이름을 쓰고 deploy의 서비스 목록·게시도 `model-serving` / `model-serving-gpu`(variant gpu)를 쓰므로 맞춘다.
 - `Dockerfile`에 `ARG SERVICE_NAME`(기본값 없음, 비면 빌드 실패)을 더하고 라벨을 그 값으로 한다. `scripts/build-image.sh`가 variant별로 넘긴다: 기본 `model-serving`, gpu는 `model-serving-gpu`(+ `io.openit.variant=gpu`). 빌드 뒤 라벨 대조에도 포함한다.
