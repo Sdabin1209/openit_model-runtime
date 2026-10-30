@@ -60,10 +60,12 @@ def make_app(svc) -> App:
 
     def ready():
         ok, why = svc.readiness()
-        # /readyz는 인증하지 않으므로 사유를 응답에 싣지 않는다(내부 주소·예외 이름 노출 최소화, MR-10). 사유는 로그에만 남긴다(주소의 호스트:포트와 예외 이름뿐)
+        # 인증을 켠 실행의 /readyz는 인증하지 않으므로 사유를 응답에 싣지 않는다(내부 주소·예외 이름 노출 최소화, MR-10). 사유는 로그에만 남긴다(주소의 호스트:포트와 예외 이름뿐)
         if not ok:
             log.warning("not ready: %s", why)
-        return ok, ({"status": "ready"} if ok else {"status": "not ready"})
+        if ok:
+            return True, {"status": "ready"}
+        return False, ({"status": "not ready"} if svc.tokens else {"status": "not ready", "reason": why})   # 인증이 꺼진 개발용 실행(토큰 없음)에서는 이전처럼 사유를 응답에 싣는다
 
     routes = [
         Route("GET", "/v1/info", info, roles=anyone),

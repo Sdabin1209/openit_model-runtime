@@ -47,7 +47,7 @@ class FlowFileFollowsContract(unittest.TestCase):
     def load(self, data):
         with TemporaryDirectory() as t:
             p = Path(t) / "f.json"; p.write_text(json.dumps(data), encoding="utf-8")
-            return backends.load_fake_flow(str(p)), backends.load_fake_flow_spec(str(p))
+            return mr.load_fake_flow(str(p)), mr.load_fake_flow_spec(str(p))
 
     def test_both_formats_pass(self):
         self.assertEqual(self.load(["Q1.D01", "Q1.D02"])[0], ["Q1.D01", "Q1.D02"])

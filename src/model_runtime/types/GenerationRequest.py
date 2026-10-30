@@ -15,4 +15,4 @@ class GenerationRequest:
     decoding: dict[str, Any]
     seed: int
     attempt: int
-    input: dict[str, Any] | None
+    input: dict[str, Any] | None = None

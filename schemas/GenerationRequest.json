@@ -37,7 +37,8 @@
       "type": [
         "object",
         "null"
-      ]
+      ],
+      "default": null
     }
   },
   "required": [
@@ -46,8 +47,7 @@
     "constraint_schema",
     "decoding",
     "seed",
-    "attempt",
-    "input"
+    "attempt"
   ],
   "additionalProperties": false
 }

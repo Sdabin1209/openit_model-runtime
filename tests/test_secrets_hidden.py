@@ -54,7 +54,7 @@ class SecretsHidden(unittest.TestCase):
     def test_release_token_read_from_file(self):
         from model_runtime import server
         seen = {}
-        import boundary_contracts.clients.releases as rel
+        import openit_link.clients as rel
         orig = rel.HttpReleaseReader
         rel.HttpReleaseReader = lambda url, token, timeout: seen.setdefault("t", token)
         self.addCleanup(setattr, rel, "HttpReleaseReader", orig)

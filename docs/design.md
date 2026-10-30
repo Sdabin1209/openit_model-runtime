@@ -1,5 +1,7 @@
 # model-runtime 설계 (현행)
 
+> 2026-10-30(U400): 코드 배치가 컴포넌트·스키마·wiring으로 바뀌었다. 파일 이름이 이 문서의 옛 모듈(session.py, roles.py 등)과 다르면 `docs/components.md`의 표와 ADR 0028을 따른다. 설계 내용(재시도, 제약 디코딩, 출력 보호)은 같다.
+
 현행 API는 `extract`(`ActionExtractionInput` -> `ActionExtraction`, JSON)와 `respond`(`ResponseRequest` -> `ResponseText`, 문장 그대로의 텍스트)다. 버전은 `src/model_runtime/session.py`의 `RUNTIME_VERSION`, 계약 태그는 `deploy/scripts/lib.sh`의 `BOUNDARY_TAG`가 정본이다. 입출력 스키마는 `boundary_contracts` 패키지(`load_schema`, `validator`)에서 읽는다. 호출 경로의 세부는 [boundary.md](boundary.md), 운영은 [runbook.md](runbook.md)에 있다.
 
 | 항목 | 현행 |
