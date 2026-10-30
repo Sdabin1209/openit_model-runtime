@@ -56,7 +56,7 @@ def cfgs_and_hashes(backend, a=None, b=None):
     return cfgs, {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
 
 
-def wait_until(pred, timeout=5.0):
+def wait_until(pred, timeout=20.0):   # 부하에서 느려질 뿐 틀리지 않게 넉넉히(조건이 참이 되면 바로 돌아온다)
     """고정 sleep 대신 조건이 참이 될 때까지 기다린다(상한 안에서 짧게 폴링). 마지막 판정을 돌려준다."""
     end = time.monotonic() + timeout
     while time.monotonic() < end:

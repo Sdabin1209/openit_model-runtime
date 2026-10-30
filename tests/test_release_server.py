@@ -33,7 +33,7 @@ def start(root, tmp_path):
     pf = tmp_path / "port"
     p = subprocess.Popen([sys.executable, str(SERVER), str(root), "--port", "0", "--port-file", str(pf)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                          env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
-    assert wait_until(lambda: pf.exists() and pf.read_text().strip().isdigit(), 15), p.stderr.read() if p.poll() is not None else "port file 없음"
+    assert wait_until(lambda: pf.exists() and pf.read_text().strip().isdigit(), 60), p.stderr.read() if p.poll() is not None else "port file 없음"
     return p, f"http://127.0.0.1:{pf.read_text().strip()}"
 
 
@@ -79,4 +79,4 @@ def test_sigterm_exits_zero(tmp_path):
     root = prepared(tmp_path)
     p, url = start(root, tmp_path)
     p.send_signal(signal.SIGTERM)
-    assert p.wait(timeout=15) == 0
+    assert p.wait(timeout=60) == 0

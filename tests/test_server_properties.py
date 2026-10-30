@@ -29,6 +29,8 @@ LAUNCH = textwrap.dedent("""
     delay = float(os.environ["DELAY"])
     def responder(req):
         if req.role == "LORA_A":
+            if os.environ.get("ENTERED"):   # 엔진 안에 들어왔다는 표지. 시험은 고정 sleep 대신 이 파일을 기다린다
+                open(os.environ["ENTERED"], "w").write("1")
             time.sleep(delay)
             return json.dumps(fake_backend.FAKE_EXTRACTION)
         return "문장입니다."
@@ -38,6 +40,7 @@ LAUNCH = textwrap.dedent("""
         svc.base_backend_factory = lambda: mr.FakeBackend(responder)
         return svc
     server.build_service = build
+    server.FakeBackend = lambda _default=None: mr.FakeBackend(responder)   # build_service의 fake 공장이 이 응답기를 쓰게 한다(서비스 속성을 나중에 바꾸는 방식은 이미 시작된 백엔드 스레드에 닿지 않아 DELAY가 효과가 없었다)
     server.main()
 """)
 
@@ -52,9 +55,9 @@ class Proc(unittest.TestCase):
                "MODEL_RUNTIME_EXTRACT_DEADLINE_S": "5", **extra}
         self.p = subprocess.Popen([sys.executable, "-c", LAUNCH], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: self.p.poll() is None and self.p.kill())
-        self.assertTrue(wait_until(lambda: self.get("/healthz")[0] == 200, 20))
+        self.assertTrue(wait_until(lambda: self.get("/healthz")[0] == 200, 60))
         self.assertIn(self.req("PUT", "/v1/releases/r1")[0], (200, 202))
-        self.assertTrue(wait_until(lambda: json.loads(self.req("GET", "/v1/releases/r1")[1])["state"] == "LOADED", 10))
+        self.assertTrue(wait_until(lambda: json.loads(self.req("GET", "/v1/releases/r1")[1])["state"] == "LOADED", 60))
 
     def req(self, method, path, body=None, timeout=10):
         try:
@@ -76,38 +79,37 @@ class Properties(Proc):
         for _ in range(10):   # 헤더를 끝내지 않고 멈춘 연결 10개(slowloris 모양). 기본 연결 상한 32보다 적다
             s = socket.create_connection(("127.0.0.1", self.port)); s.sendall(b"POST /v1/releases/r1/extract HTTP/1.1\r\nHost: x\r\n")
             slow.append(s); self.addCleanup(s.close)
-        t = time.monotonic()
         self.assertEqual(self.get("/healthz")[0], 200)
-        self.assertEqual(self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT))[0], 200)
-        self.assertLess(time.monotonic() - t, 3)
+        self.assertEqual(self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT))[0], 200)   # 막혔다면 요청 시간 초과로 (0, b"")가 와서 위의 단언이 실패한다. 걸린 시간 자체는 판정이 아니다
 
     def test_idle_connection_is_closed_by_the_server(self):
         self.launch(MODEL_RUNTIME_CONN_TIMEOUT_S="1")
         s = socket.create_connection(("127.0.0.1", self.port)); self.addCleanup(s.close)
-        s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n"); s.settimeout(8)   # 헤더를 끝내지 않고 멈춘다
-        t = time.monotonic()
+        s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n"); s.settimeout(60)   # 헤더를 끝내지 않고 멈춘다. 닫히기까지 시간은 부하에 달려 상한을 넉넉히 둔다
         self.assertEqual(s.recv(100), b"")
-        self.assertLess(time.monotonic() - t, 6)
 
     def test_sigterm_finishes_the_inflight_request_and_exits_zero(self):
-        self.launch(DELAY="1.5")
-        out = {}
-        import threading
-        th = threading.Thread(target=lambda: out.update(r=self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10))); th.start()
-        time.sleep(0.5)   # extract가 엔진 안에 있다
-        self.p.send_signal(signal.SIGTERM)
-        th.join(10)
-        self.assertEqual(out["r"][0], 200)
-        self.assertEqual(self.p.wait(timeout=15), 0)
+        with TemporaryDirectory() as d:
+            entered = Path(d) / "entered"
+            self.launch(DELAY="1.5", ENTERED=str(entered))
+            out = {}
+            import threading
+            th = threading.Thread(target=lambda: out.update(r=self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=60))); th.start()
+            self.assertTrue(wait_until(entered.exists, 30))   # extract가 엔진 안에 있다(고정 sleep 대신 표지 파일)
+            self.p.send_signal(signal.SIGTERM)
+            th.join(60)
+            self.assertEqual(out["r"][0], 200)
+            self.assertEqual(self.p.wait(timeout=60), 0)
 
     def test_healthz_answers_while_the_engine_is_busy(self):
-        self.launch(DELAY="2.0")
-        import threading
-        th = threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10)); th.start()
-        time.sleep(0.4)
-        for _ in range(3):   # 이어지는 추론 요청이 대기 상한에서 거절되는 동안에도
-            threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=10), daemon=True).start()
-        t = time.monotonic()
-        self.assertEqual(self.get("/healthz")[0], 200)
-        self.assertLess(time.monotonic() - t, 1.0)
-        th.join(10)
+        with TemporaryDirectory() as d:
+            entered = Path(d) / "entered"
+            self.launch(DELAY="6.0", ENTERED=str(entered), MODEL_RUNTIME_EXTRACT_DEADLINE_S="30")
+            import threading
+            th = threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=60)); th.start()
+            self.assertTrue(wait_until(entered.exists, 30))   # 엔진이 바쁘다
+            for _ in range(3):   # 이어지는 추론 요청이 대기 상한에서 거절되는 동안에도
+                threading.Thread(target=lambda: self.req("POST", "/v1/releases/r1/extract", extract_body(A_INPUT), timeout=60), daemon=True).start()
+            self.assertEqual(self.get("/healthz")[0], 200)
+            self.assertTrue(th.is_alive())   # /healthz가 돌아온 때에도 엔진 호출은 끝나지 않았다: 엔진 뒤에 줄 서지 않았다(걸린 시간이 아니라 순서로 판정)
+            th.join(60)

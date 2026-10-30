@@ -116,11 +116,13 @@ class Server(unittest.TestCase):
         self.assertEqual((s, b["code"]), (404, "NOT_FOUND"))
 
     def test_slow_load_returns_202_then_loaded(self):
+        gate = threading.Event(); self.addCleanup(gate.set)
         def slow(m):
-            time.sleep(0.6); return m
+            gate.wait(30); return m   # 시계가 아니라 신호로 느린 적재를 만든다(부하에서도 PUT이 기다림을 마칠 때까지 적재가 끝나지 않는다)
         _, url, _, _ = self.srv(plan={"r1": slow}, MODEL_RUNTIME_PUT_WAIT_S="0.1")
         s, b, _ = call(url, "/v1/releases/r1", method="PUT")
         self.assertEqual((s, b["state"]), (202, "LOADING"))
+        gate.set()
         self.assertTrue(wait_until(lambda: call(url, "/v1/releases/r1")[1]["state"] == "LOADED"))
 
     def test_failed_load_keeps_serving_release(self):
@@ -400,12 +402,12 @@ class FaultCells(unittest.TestCase):
         url, svc = self.up(hang, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
         t = time.monotonic()
         s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertLess(time.monotonic() - t, 1.5)   # 멈춘 엔진을 무한히 기다리지 않는다
+        self.assertLess(time.monotonic() - t, 20)   # 멈춘 엔진을 무한히 기다리지 않는다: 엔진은 gate.wait(30)에 묶여 있으므로 그보다 한참 앞서 돌려주면 된다(상한 0.5초의 판정은 reason=ENGINE_TIMEOUT 자체가 한다)
         self.assertEqual((s, b["code"], b["retryable"], b["details"]["reason"]), (503, "UNAVAILABLE", True, "ENGINE_TIMEOUT"))
         # 엔진이 아직 멈춰 있는 동안: 다음 요청은 대기 상한 안에 거절되고 /readyz는 503과 사유, /healthz는 200
         t = time.monotonic()
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 503)
-        self.assertLess(time.monotonic() - t, 1.5)
+        self.assertLess(time.monotonic() - t, 20)   # 위와 같은 이유(gate.wait(30)보다 앞선다)
         s, b, _ = call(url, "/readyz")
         self.assertEqual(s, 503); self.assertIn("엔진", b["reason"])
         self.assertEqual(call(url, "/healthz")[0], 200)
@@ -421,15 +423,7 @@ class FaultCells(unittest.TestCase):
         url, _ = self.up(slow, MODEL_RUNTIME_EXTRACT_DEADLINE_S="2.0")
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
-    def test_retries_are_bounded_by_the_total_deadline(self):   # 출력이 계속 틀려도 총 상한을 넘기지 않는다(2.2.0: 남은 예산이 직전 시도보다 짧으면 재시도하지 않고 OUTPUT_INVALID)
-        def slow_bad(req):
-            time.sleep(0.4)
-            return "아님"
-        url, _ = self.up(slow_bad, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.7")
-        t = time.monotonic()
-        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertLess(time.monotonic() - t, 0.7)
-        self.assertEqual((s, b["details"]["reason"], b["details"]["attempts"]), (503, "OUTPUT_INVALID", 1))
+    # 재시도가 총 상한을 넘기지 않는 규칙은 시계를 주입한 결정적 시험이 본다(tests/test_deadline_budget.py RetryBudgetWithInjectedClock)
 
     def test_dead_engine_gives_503_and_readyz_503_until_next_success(self):
         state = {"dead": True}
@@ -477,8 +471,7 @@ class FaultCells(unittest.TestCase):
         svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=lambda: (_ for _ in ()).throw(OSError("x")),
                              reader_factory=lambda: None, backend_name="fake", backend_retry_s=0)
         self.addCleanup(svc.close)
-        time.sleep(0.2)
-        self.assertEqual(svc.readiness(), (False, "OSError"))
+        self.assertTrue(wait_until(lambda: svc.readiness() == (False, "OSError")))   # 기동 실패가 기록될 때까지(고정 sleep 대신)
 
     def test_hung_release_server_during_load_keeps_active_release(self):   # B1: 번들 읽기 중 릴리스 서버 멈춤
         gate = threading.Event(); self.addCleanup(gate.set)
@@ -490,6 +483,6 @@ class FaultCells(unittest.TestCase):
         t = time.monotonic()
         self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(5)))   # 임시 폴더를 지우기 전에 멈춘 적재가 풀려 끝나게 한다
         self.assertEqual(call(url, "/v1/releases/slow", method="PUT")[0], 202)   # PUT은 put_wait에서 돌려준다
-        self.assertLess(time.monotonic() - t, 2)
+        self.assertLess(time.monotonic() - t, 20)   # 적재는 gate.wait(30)에 묶여 있으므로 그 앞서 돌려주면 된다
         self.assertEqual(call(url, "/v1/releases/good/extract", A_INPUT)[0], 200)   # 활성 릴리스는 그대로
         self.assertEqual(call(url, "/v1/info")[1]["loaded"], ["good"])

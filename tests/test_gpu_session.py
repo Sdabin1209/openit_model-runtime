@@ -298,7 +298,7 @@ def test_options_without_value_exit_2_instead_of_hanging(tmp_path):   # 인자 �
     for script, opts in (("preflight.sh", ("--until", "--max-used-mib", "--min-free-mib")),
                          ("run_session.sh", ("--until", "--work", "--adapter-a", "--c1-dir", "--backend"))):
         for o in opts:
-            r = subprocess.run(["bash", str(KIT / script), o], capture_output=True, text=True, timeout=10, env={**os.environ, "NVIDIA_SMI": smi(tmp_path, 1)})
+            r = subprocess.run(["bash", str(KIT / script), o], capture_output=True, text=True, timeout=60, env={**os.environ, "NVIDIA_SMI": smi(tmp_path, 1)})
             assert r.returncode == 2 and "값이 필요" in r.stderr, (script, o, r.returncode)
 
 
@@ -327,7 +327,7 @@ def test_pod_run_refuses_without_upload_confirmation(tmp_path):   # 데이터 �
     ad = tmp_path / "a"; ad.mkdir(); (ad / "adapter_config.json").write_text("{}"); (ad / "adapter_model.safetensors").write_bytes(b"x")
     c1 = tmp_path / "c"; c1.mkdir(); (c1 / "lora_a_val.jsonl").write_text("{}\n"); (c1 / "lora_b_val.jsonl").write_text("{}\n")
     r = subprocess.run(["bash", str(KIT / "pod_run.sh"), "--ssh", "-p 1 nobody@127.0.0.1", "--adapter-a", str(ad), "--adapter-b", str(ad), "--c1-dir", str(c1)],
-                       capture_output=True, text=True, timeout=30)
+                       capture_output=True, text=True, timeout=120)
     assert r.returncode == 3 and "아무것도 보내지 않았다" in r.stdout
 
 
@@ -497,7 +497,7 @@ def test_run_session_plan_runs_stages_on_one_server_and_records_gpu(tmp_path):
     assert res["summary"]["extract@1"]["calls"] == 2 and res["summary"]["respond@2"]["calls"] == 3
     assert set(res["stage_gpu"]) == {"after_load", "after_concurrency_1", "after_concurrency_2"}
     assert (run / "logs" / "server.log").exists() and not list((run / "logs").glob("server.attempt*"))   # 서버는 한 번만 떴다
-    both = subprocess.run([*cmd, "--plan", "1:2", "--n-a", "3"], capture_output=True, text=True, env=env, timeout=60)
+    both = subprocess.run([*cmd, "--plan", "1:2", "--n-a", "3"], capture_output=True, text=True, env=env, timeout=180)
     assert both.returncode == 64 and "같이 쓰지 않는다" in both.stderr
 
 

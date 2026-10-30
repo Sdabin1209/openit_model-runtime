@@ -60,12 +60,15 @@ class StartupPolicy(unittest.TestCase):   # MR-1, 운영에서 fake 차단
             def close(self): pass
         orig = server.make_server
         server.make_server = lambda svc, host, port, **kw: seen.update(addr=(host, port)) or Fake()
+        saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}   # main()은 종료 신호 처리기를 이 프로세스에 건다. 시험이 끝나면 되돌린다(남으면 뒤 시험 중의 신호가 SystemExit(0)이 된다)
         try:
             with TemporaryDirectory() as t:
                 server.main({**BASE, "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_TOKENS": "survey=abc", "MODEL_RUNTIME_BUNDLE_DIR": t,
                              "MODEL_RUNTIME_SHUTDOWN_GRACE_S": "0"})
         finally:
             server.make_server = orig
+            for sig, h in saved.items():
+                signal.signal(sig, h)
         self.assertEqual(seen["addr"][0], "127.0.0.1")
         self.assertIn("MODEL_RUNTIME_HOST=0.0.0.0", (Path(__file__).parents[1] / "Dockerfile").read_text())   # 컨테이너는 이미지가 연다
 
@@ -81,9 +84,9 @@ class StartupPolicy(unittest.TestCase):   # MR-1, 운영에서 fake 차단
                         return http.client.HTTPConnection("127.0.0.1", port, timeout=1).request("GET", "/healthz") is None
                     except OSError:
                         return False
-                self.assertTrue(wait_until(up, 15))
+                self.assertTrue(wait_until(up, 60))
                 p.send_signal(signal.SIGTERM)
-                self.assertEqual(p.wait(timeout=10), 0)
+                self.assertEqual(p.wait(timeout=60), 0)
             finally:
                 if p.poll() is None:
                     p.kill()
@@ -203,7 +206,7 @@ class Resources(unittest.TestCase):   # MR-4
         (srv, url, svc, _), host, port = self.srv(MODEL_RUNTIME_CONN_TIMEOUT_S="1")
         s = socket.create_connection((host, port)); self.addCleanup(s.close)
         s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 헤더를 끝내지 않고 멈춘다
-        s.settimeout(5)
+        s.settimeout(60)   # 닫힘 자체를 보는 시험이다. 닫히기까지 걸리는 시간은 부하에 따라 달라 상한을 넉넉히 둔다(안 닫히면 60초 뒤 실패)
         self.assertEqual(s.recv(100), b"")   # 서버가 시간 초과로 연결을 닫았다(스레드 반환). waitress는 정수 초만 받아 1초이고 정리 주기 1초라 최대 2초쯤 걸린다
 
     def test_connection_cap_queues_extra_connection_until_a_slot_frees(self):
@@ -214,8 +217,7 @@ class Resources(unittest.TestCase):   # MR-4
         srv = serve_app(svc, max_connections=3); self.addCleanup(srv.shutdown)   # 3: 듣는 소켓과 제어 소켓이 슬롯 둘을 쓴다(waitress 내부)
         host, port = srv.server_address
         hold = socket.create_connection((host, port)); self.addCleanup(hold.close)
-        hold.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 슬롯 하나를 쥔다
-        time.sleep(0.2)
+        hold.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 슬롯 하나를 쥔다. 연결은 먼저 맺은 순서대로 받아지므로(커널 대기열 FIFO) 기다리는 시간이 필요 없다
         s = socket.create_connection((host, port)); self.addCleanup(s.close); s.settimeout(1)
         s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
         with self.assertRaises(socket.timeout):
@@ -223,7 +225,7 @@ class Resources(unittest.TestCase):   # MR-4
         hold.sendall(b"\r\n")
         self.assertTrue(hold.recv(200).startswith(b"HTTP/1.1 200"))
         hold.close()
-        s.settimeout(5)
+        s.settimeout(60)
         self.assertTrue(s.recv(200).startswith(b"HTTP/1.1 200"))   # 슬롯이 돌아오자 처리됐다
 
     def test_concurrent_loads_are_capped_and_failed_entries_pruned(self):
