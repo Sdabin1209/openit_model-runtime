@@ -4,7 +4,7 @@
 PATCH(공개 이름·HTTP 경로·헤더·라벨 키는 그대로, 서버가 MAJOR.MINOR로 번들을 거르므로 MINOR를 올리지 않는다). 계약 고정 v3.0.2 -> v3.1.1, 통신 기반 openit-link v0.1.0 추가.
 - `src/model_runtime/`를 `components/`(19개), `wiring/`, `types/`(스키마에서 생성)로 나눴다. 표는 `docs/components.md`. 영역 내부 타입 JSON Schema는 `schemas/`.
 - `server.py`는 진입점과 설정 읽기만 남고 HTTP 면은 `components/link_receive.py`(openit_link 위), 릴리스 적재·추론은 `components/release_registry.py`다.
-- 달라진 동작: 인증을 켠 `/readyz`는 사유를 응답에 싣지 않고 로그로만 낸다. 인증 없이 없는 경로를 부르면 404다(이전 401). 토큰이 없는 개발용 실행의 `/readyz`는 이전처럼 사유를 낸다.
+- 달라진 동작: 인증을 켠 `/readyz`는 사유를 응답에 싣지 않고 로그로만 낸다. 인증 없이 없는 경로를 부르면 404다(이전 401). 토큰이 없는 개발용 실행의 `/readyz`는 이전처럼 사유를 낸다. 틀린 본문은 릴리스가 적재되지 않았어도 400이다(이전에는 404가 먼저; 라이브러리가 본문 계약 검증을 먼저 한다).
 - 옛 모듈 경로 `model_runtime.{backends,errors,fallback,mimic,protection,results,roles,session,serving_config,vllm_backend}`는 없어졌다(공개 API 아님). `model_runtime.prompts`·`model_runtime.schema_guard`와 최상위 이름은 유지한다.
 
 ## 0.11.2 — 2026-10-30

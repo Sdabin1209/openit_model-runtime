@@ -35,7 +35,8 @@ code="$(curl -s -o /tmp/rz.$$ -w '%{http_code}' "$URL/readyz")"; cat /tmp/rz.$$;
 [ "$code" = 503 ] || { echo "I4에 닿지 못하면 readyz 503이어야 한다: $code" >&2; exit 1; }
 curl -sf "$URL/v1/info"; echo
 curl -sf "$URL/v1/releases/smoke-1"; echo
-code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/v1/releases/smoke-1/extract" -H 'Content-Type: application/json' -d '{}')"
+# 본문은 계약(ResponseRequest)을 지키는 것이어야 404까지 닿는다(통신 기반 라이브러리가 본문 계약 검증을 경로 처리보다 먼저 한다: 틀린 본문은 400)
+code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/v1/releases/smoke-1/respond" -H 'Content-Type: application/json' -d '{"action":"START","topic":"뇌졸중 진단과 약","next":{"type":"NEXT","question_id":"Q1.D01","text":"혹시 뇌졸중으로 진단받으셨나요?"}}')"
 [ "$code" = 404 ] || { echo "적재 안 된 릴리스는 404여야 한다: $code" >&2; exit 1; }
 # I4 서버가 없으므로 적재는 UNAVAILABLE(503)로 끝나야 한다(경로와 오류 형식 확인). 전체 한 바퀴는 tests/test_server_e2e.py와 gpu_check.sh serve가 확인한다.
 code="$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$URL/v1/releases/smoke-1")"
