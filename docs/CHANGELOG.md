@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.9 — 2026-10-31 (고정 버전 정렬)
+PATCH. Dockerfile 고정을 계약 v3.1.1 -> v3.1.2, openit-link v0.4.1 -> v0.4.3으로 올렸다(deploy 기준표와 같게). 동작 변경 없음.
+
 ## 0.11.8 — 2026-10-31 (노출 선언 라벨, 단조 시계, 정리)
 PATCH. 이미지 라벨 `io.openit.exposure`를 단다: `deploy-exposure.json`(서비스 model-serving, 모든 경로 `auth.kind=denied`)을 `scripts/build-image.sh`가 라벨로 달기 전에 계약 `Exposure`로 검증하고, GPU 변형은 서비스 이름을 `model-serving-gpu`로 바꾼다(어기면 docker를 부르지 않는다). `release_registry`의 호출 시간(avg_s)·readyz 캐시 간격을 벽시계 `time()`이 아니라 주입한 단조 시계로 잰다(`RealClock.time` 삭제, readyz 확인 시각의 초기값은 None). 쓰이지 않던 `DEFAULT_MAX_ATTEMPTS`, `server.parse_tokens`를 지웠다. 주석·머리말의 옛 값(호출 상한 3.0초, 계약 v2.5.0)을 실제로 맞췄다.
 

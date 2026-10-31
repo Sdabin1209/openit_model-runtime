@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 영역 빌드 진입점(계약 boundary-contracts v3.1.1의 BuildImageRequest/BuildImageResult, 태그의 정본은 Dockerfile ARG BOUNDARY_VERSION, OPEN_GAPS U42, ADR 0025).
+# 영역 빌드 진입점(계약 boundary-contracts v3.1.2의 BuildImageRequest/BuildImageResult, 태그의 정본은 Dockerfile ARG BOUNDARY_VERSION, OPEN_GAPS U42, ADR 0025).
 # 사용: bash scripts/build-image.sh <요청 JSON 파일>   (영역 리포 루트에서)
 # 표준 출력의 마지막 줄만 BuildImageResult JSON 한 줄이다. 진행 기록은 표준 오류. 종료 0 성공.
 # 환경 변수: DOCKER(없으면 docker), PYTHON(없으면 python3; jsonschema가 있어야 한다. 계약 패키지는 요청의 dependency_sources.boundary에서 읽는다).

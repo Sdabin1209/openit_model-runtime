@@ -37,8 +37,8 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /tmp/
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
 ARG SERVICE_NAME   # 기본값 없음: 라벨 io.openit.service는 리포 이름이 아니라 서비스(이미지) 이름이다(model-serving, GPU 변형은 model-serving-gpu). 영역 빌드 진입점 scripts/build-image.sh가 variant별로 넘긴다
-ARG BOUNDARY_VERSION=v3.1.1
-ARG LINK_VERSION=v0.4.1   # 통신 기반 라이브러리 openit-link(D118) 태그의 정본. 설치는 build-image.sh가 이 태그로 꺼낸 소스에서 한다(라벨 아님)
+ARG BOUNDARY_VERSION=v3.1.2
+ARG LINK_VERSION=v0.4.3   # 통신 기반 라이브러리 openit-link(D118) 태그의 정본. 설치는 build-image.sh가 이 태그로 꺼낸 소스에서 한다(라벨 아님)
 ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). 라벨 값은 v 접두사를 붙인다(ImageLabels, D108). scripts/smoke.sh가 pyproject에서 읽어 v를 붙여 넘긴다
 # 값이 없다는 표기는 n/a 하나다(계약 ImageLabels: none·unknown 불가)
 ARG SURVEY_SCHEMA_VERSION=n/a
