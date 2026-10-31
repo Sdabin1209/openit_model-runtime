@@ -29,7 +29,7 @@ MAX_INPUT_CHARS = 2500          # 입력(JSON 직렬화)의 문자 수 상한. �
 CONN_TIMEOUT_S = 15.0           # 왜: 느린 클라이언트·유휴 keep-alive가 스레드를 쥐지 못하게. 값 15는 측정·표준 근거 없는 초기값 (ADR 0012)
 MAX_LOADING = 2                 # 왜: 적재는 디스크·GPU 메모리를 쓰는 무거운 작업. 값 2는 초기값 (ADR 0012)
 MAX_FAILED_KEPT = 16            # 왜: 실패 항목이 메모리에 무한히 쌓이지 않게(감사 MR-4). 값 16은 초기값 (ADR 0012)
-DEFAULT_DEADLINES_S = {"extract": 3.0, "respond": 2.0}   # 왜: 계약 CONVENTIONS '시간 상한 사슬' 2.2.0 표. 한 턴이 extract→respond 두 번이라 합 5.0s + 서버 처리 여유 1.0s = 턴 마감 6s. 측정하지 않은 배분값 (ADR 0020)
+DEFAULT_DEADLINES_S = {"extract": 3.0, "respond": 5.0}   # 왜: 계약 CONVENTIONS '시간 상한 사슬' 표(D119, 2026-10-30 사용자 결정: respond 2.0 -> 5.0). 한 턴이 extract→respond 두 번이라 합 8.0s + 서버 처리 여유 1.0s = 턴 마감 9s. 측정하지 않은 값 (ADR 0030, 0020 대체)
 SUPPORTED_RUNTIME_CONTRACT_VERSION = 1   # 문진 스키마 정수 버전(brief 3절). survey_version_check와 같은 값이어야 한다(tests/test_structure.py)
 STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CONFLICT": 409, "FAILED_PRECONDITION": 412,
           "UNSUPPORTED_VERSION": 422, "INTEGRITY_ERROR": 422, "UNAVAILABLE": 503}
@@ -61,7 +61,7 @@ class Service:
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
-                 deadlines: Mapping[str, float] | None = None, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 호출별 상한 extract 3.0s·respond 2.0s: 계약 표(합 5.0s + 여유 1.0s = 턴 마감 6s, ADR 0020, 실측 안 함). 30s: 초기값, 근거 기록 없음
+                 deadlines: Mapping[str, float] | None = None, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 호출별 상한 extract 3.0s·respond 5.0s: 계약 표(합 8.0s + 여유 1.0s = 턴 마감 9s, D119, ADR 0030, 실측 안 함). 30s: 초기값, 근거 기록 없음
                  max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)

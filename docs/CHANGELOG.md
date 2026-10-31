@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.6 — 2026-10-31 (respond 호출 상한 기본 5.0초, ADR 0030, D119)
+PATCH(설정 기본값). `MODEL_RUNTIME_RESPOND_DEADLINE_S` 기본 2.0 -> 5.0(계약 표: extract 3.0·respond 5.0, 턴 마감 9초). 와이어 형식·응답·헤더는 그대로. 시험의 기본값 단언을 맞췄다.
+
 ## 0.11.5 — 2026-10-31 (시계 주입, ADR 0029, U422)
 PATCH. 동작은 같다(와이어 형식·HTTP 응답·헤더·라벨 그대로). `release_registry`와 `retry_loop`가 `time`을 직접 읽지 않고 시계를 인자로 받는다(`wiring/clock.py`의 `RealClock`이 기본). `Service.drain(grace_s)` 추가(종료 유예 대기를 옮김). 시험은 `tests/fake_clock.py`로 시간을 흘린다. waitress·신호 시간을 재던 시험은 지우고 넘긴 값과 종료 처리기를 확인한다(`tests/TIMING.md`).
 

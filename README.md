@@ -111,7 +111,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0017](docs/adr/0017-role-components-and-shared-retry.md) | LoRA-A·B를 두 컴포넌트로, 재시도는 공용 함수, 특수 토큰은 prompts.py |
 | [0018](docs/adr/0018-mimic-components.md) | 데모용 모방 컴포넌트와 규칙표 데이터 파일 |
 | [0019](docs/adr/0019-value-provenance.md) | 근거 없는 값(3.5초, 재시도 3, util 단계, 2500자, 릴리스 4개 등)의 출처 분류와 측정 계획. 값은 바꾸지 않는다 |
-| [0020](docs/adr/0020-per-call-deadline-budget.md) | 호출별 상한 extract 3.0초·respond 2.0초(계약 표), 재시도는 남은 예산이 직전 시도 이상일 때만, 인증 실패 401 |
+| [0020](docs/adr/0020-per-call-deadline-budget.md) | 호출별 상한과 재시도 예산(respond 값은 [0030](docs/adr/0030-respond-deadline-5s.md)이 5.0초로 대체), 재시도는 남은 예산이 직전 시도 이상일 때만, 인증 실패 401 |
 | [0021](docs/adr/0021-server-guarantees-action-rules.md) | LoRA-A 출력 규칙을 서버가 보증한다(계약 검사기 호출, `ExtractRequest`), turn-engine 시험 의존 제거 |
 | [0022](docs/adr/0022-wsgi-waitress.md) | 추론 서버를 WSGI 앱 + waitress로(0010 대체), 연결·timeout·본문 상한을 waitress 설정으로 |
 | [0023](docs/adr/0023-release-server-waitress.md) | GPU 세션 키트의 I4 읽기 서버도 WSGI 앱 + waitress로 |
@@ -119,6 +119,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0025](docs/adr/0025-build-entrypoint-and-contract-schemas.md) | 영역 빌드 진입점 `scripts/build-image.sh`(계약 BuildImageRequest/Result)와 ServingConfig·RuntimeProfile·RuntimeFlowFile을 계약 스키마로 검증 |
 | [0026](docs/adr/0026-setup-env-report.md) | `scripts/setup-env.sh`가 SetupEnvReport 한 줄로 시험 환경(.venv, test_command)을 선언한다 |
 | [0027](docs/adr/0027-contract-3-transition.md) | 계약 3.0.0 전환: ExtractRequest만, action_rules_version, 라벨 정직성(U50) |
+| [0030](docs/adr/0030-respond-deadline-5s.md) | 호출별 상한 extract 3.0초·respond 5.0초(D119, 0020의 값을 대체) |
 | [0029](docs/adr/0029-clock-injection.md) | 시계를 주입한다: 시험에서 실제 시간 0 (U422) |
 | [0028](docs/adr/0028-component-structure-d117.md) | 영역 구조: 컴포넌트·스키마·wiring, 통신 기반 라이브러리 위의 link_* (D117, U400) |
 

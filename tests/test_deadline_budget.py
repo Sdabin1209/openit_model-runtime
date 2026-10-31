@@ -1,4 +1,4 @@
-"""CONVENTIONS '시간 상한 사슬'(2.2.0, D106): 호출별 상한 extract 3.0초, respond 2.0초. 재시도는 남은 예산이 직전 시도 시간 이상일 때만.
+"""CONVENTIONS '시간 상한 사슬'(2.2.0, D106): 호출별 상한 extract 3.0초, respond 5.0초(D119: respond 2.0 -> 5.0). 재시도는 남은 예산이 직전 시도 시간 이상일 때만.
 가짜 느린 백엔드로 재현한다. 기대값은 계약 표다(배분값은 측정하지 않았다, ADR 0020)."""
 import json
 import threading
@@ -21,7 +21,7 @@ class Defaults(unittest.TestCase):
                                      "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_BUNDLE_DIR": self._d.name, **kw}, reader_factory=lambda: None)
 
     def test_contract_table_defaults(self):
-        self.assertEqual(self.build().deadlines, {"extract": 3.0, "respond": 2.0})
+        self.assertEqual(self.build().deadlines, {"extract": 3.0, "respond": 5.0})
 
     def test_env_overrides_per_role(self):
         svc = self.build(MODEL_RUNTIME_EXTRACT_DEADLINE_S="1.5", MODEL_RUNTIME_RESPOND_DEADLINE_S="0.5")
@@ -48,7 +48,7 @@ class Budget(unittest.TestCase):
         self.gate.wait(HANG_GUARD_S)   # 매달림 감시: 시험 끝(addCleanup)에 풀린다
         return json.dumps(fake_backend.FAKE_EXTRACTION) if req.role == "LORA_A" else "문장입니다."
 
-    # 기본 상한 값(extract 3.0초, respond 2.0초)은 위의 test_contract_table_defaults가 설정 값으로 본다.
+    # 기본 상한 값(extract 3.0초, respond 5.0초)은 위의 test_contract_table_defaults가 설정 값으로 본다.
     # 아래는 상한이 났을 때의 처리를 본다: 엔진을 끝까지 풀지 않으므로 ENGINE_TIMEOUT이 반드시 나고, 상한만큼의 시간은 가짜 시계로 흘린다(실제로 기다리지 않는다).
     def test_extract_over_limit_gives_engine_timeout(self):
         url, svc = self.up(self.hang)

@@ -46,11 +46,11 @@ class WaitressSettings(unittest.TestCase):
             self.assertEqual((svc.conn_timeout_s, svc.max_loading), (3.0, 1))
             default = service(t); self.addCleanup(default.close)
             self.assertEqual(default.conn_timeout_s, server.CONN_TIMEOUT_S)
-            self.assertEqual(default.deadlines, {"extract": 3.0, "respond": 2.0})   # 계약 표 값(합 5.0s + 여유 1.0s = 턴 마감 6s)은 설정 값으로 본다. 합을 시간으로 재지 않는다
+            self.assertEqual(default.deadlines, {"extract": 3.0, "respond": 5.0})   # 계약 표 값(합 8.0s + 여유 1.0s = 턴 마감 9s, D119)은 설정 값으로 본다. 합을 시간으로 재지 않는다
 
     def test_deadlines_sum_fits_the_turn_deadline(self):
         d = server.DEFAULT_DEADLINES_S
-        self.assertLessEqual(d["extract"] + d["respond"] + 1.0, 6.0)   # 계약 '시간 상한 사슬' 2.2.0: 한 턴 = extract + respond + 서버 처리 여유 1.0s <= 턴 마감 6s
+        self.assertLessEqual(d["extract"] + d["respond"] + 1.0, 9.0)   # 계약 '시간 상한 사슬' 표(D119): 한 턴 = extract + respond + 서버 처리 여유 1.0s <= 턴 마감 9s
 
 
 class Shutdown(unittest.TestCase):

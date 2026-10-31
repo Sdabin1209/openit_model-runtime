@@ -14,7 +14,7 @@ MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON 또는 {"order",
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요)
 비밀(MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN)은 D84에 따라 <이름>_FILE(파일 경로)을 우선 읽고 없을 때만 환경 변수를 쓴다(boundary_contracts.read_secret),
-MODEL_RUNTIME_EXTRACT_DEADLINE_S(기본 3.0)·MODEL_RUNTIME_RESPOND_DEADLINE_S(기본 2.0)(호출 하나의 총 상한: 대기+추론+재시도; 넘기면 503 ENGINE_TIMEOUT. 계약 CONVENTIONS '시간 상한 사슬' 2.2.0 표 값, 측정하지 않은 배분값: ADR 0020. 옛 MODEL_RUNTIME_REQUEST_DEADLINE_S는 시작 거부), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
+MODEL_RUNTIME_EXTRACT_DEADLINE_S(기본 3.0)·MODEL_RUNTIME_RESPOND_DEADLINE_S(기본 5.0)(호출 하나의 총 상한: 대기+추론+재시도; 넘기면 503 ENGINE_TIMEOUT. 계약 CONVENTIONS '시간 상한 사슬' 표 값(D119), 측정하지 않은 값: ADR 0030(0020 대체). 옛 MODEL_RUNTIME_REQUEST_DEADLINE_S는 시작 거부), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
 MODEL_RUNTIME_HOST/PORT(기본 127.0.0.1:8080, 이미지는 0.0.0.0), MODEL_RUNTIME_ALLOW_NO_AUTH=1(개발용: 토큰 없이 시작), MODEL_RUNTIME_ALLOW_FAKE=1(fake 백엔드 허용),
 MODEL_RUNTIME_PUT_ROLES(적재 PUT을 허용할 역할 목록, 없으면 인증된 모든 역할), MODEL_RUNTIME_MAX_INPUT_CHARS(기본 2500), MODEL_RUNTIME_MAX_CONNECTIONS(32), MODEL_RUNTIME_MAX_LOADING(2),
@@ -72,7 +72,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     log.info("비밀 출처(값 아님): MODEL_RUNTIME_TOKENS=%s MODEL_RUNTIME_RELEASE_TOKEN=%s",
              secret_source("MODEL_RUNTIME_TOKENS", environ=env), secret_source("MODEL_RUNTIME_RELEASE_TOKEN", environ=env))
     if env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S"):   # 조용히 무시하면 옛 3.5초 하나가 남아 있다고 착각한다
-        raise SystemExit("MODEL_RUNTIME_REQUEST_DEADLINE_S는 없어졌다(계약 2.2.0). 호출별로 MODEL_RUNTIME_EXTRACT_DEADLINE_S(3.0), MODEL_RUNTIME_RESPOND_DEADLINE_S(2.0)를 쓴다")
+        raise SystemExit("MODEL_RUNTIME_REQUEST_DEADLINE_S는 없어졌다(계약 2.2.0). 호출별로 MODEL_RUNTIME_EXTRACT_DEADLINE_S(3.0), MODEL_RUNTIME_RESPOND_DEADLINE_S(5.0)를 쓴다")
     if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
         raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
