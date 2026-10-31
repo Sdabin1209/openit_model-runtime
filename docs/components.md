@@ -35,6 +35,7 @@
 | `wiring/schema_set.py`, `wiring/prompt_api.py` | 공개 `SchemaSet`, `render_prompt` |
 | `wiring/service.py` | release_registry에 세션 적재·도달성 확인·시작 점검·버전을 주입 |
 | `wiring/backends.py` | 모방 백엔드를 흐름 파일로 조립 |
+| `wiring/clock.py` | 실제 시계(시간을 읽는 유일한 곳, ADR 0029) |
 | `wiring/ports.py`, `wiring/errors.py`, `wiring/results.py` | 백엔드 포트, 영역 공용 예외 어휘, 호출 결과 타입의 공개 이름 |
 
 ## 진입점·공개 이름 (컴포넌트가 아니다)

@@ -15,7 +15,7 @@ from tempfile import TemporaryDirectory
 
 from boundary_contracts.errors import BoundaryError
 
-from helpers import A_INPUT, B_INPUT, GOOD_EXTRACTION, SCHEMA_DIR, wait_until
+from helpers import A_INPUT, B_INPUT, GOOD_EXTRACTION, HANG_GUARD_S, SCHEMA_DIR, wait_until
 from helpers import serve_app
 from test_server import call, start
 
@@ -71,25 +71,6 @@ class StartupPolicy(unittest.TestCase):   # MR-1, 운영에서 fake 차단
                 signal.signal(sig, h)
         self.assertEqual(seen["addr"][0], "127.0.0.1")
         self.assertIn("MODEL_RUNTIME_HOST=0.0.0.0", (Path(__file__).parents[1] / "Dockerfile").read_text())   # 컨테이너는 이미지가 연다
-
-    def test_sigterm_exits_cleanly(self):   # 우아한 종료
-        with TemporaryDirectory() as t:
-            s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-            env = {**os.environ, **BASE, "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_TOKENS": "survey=abc", "MODEL_RUNTIME_PORT": str(port),
-                   "MODEL_RUNTIME_BUNDLE_DIR": t, "MODEL_RUNTIME_SHUTDOWN_GRACE_S": "1"}
-            p = subprocess.Popen([sys.executable, "-m", "model_runtime.server"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            try:
-                def up():
-                    try:
-                        return http.client.HTTPConnection("127.0.0.1", port, timeout=1).request("GET", "/healthz") is None
-                    except OSError:
-                        return False
-                self.assertTrue(wait_until(up, 60))
-                p.send_signal(signal.SIGTERM)
-                self.assertEqual(p.wait(timeout=60), 0)
-            finally:
-                if p.poll() is None:
-                    p.kill()
 
 
 class Auth(unittest.TestCase):   # MR-1 역할, MR-10 readyz 노출
@@ -176,7 +157,7 @@ class Resources(unittest.TestCase):   # MR-4
         return s, host, port
 
     def raw(self, host, port, method, path, headers, body=b""):
-        c = http.client.HTTPConnection(host, port, timeout=5)
+        c = http.client.HTTPConnection(host, port, timeout=HANG_GUARD_S)   # 매달림 감시
         c.putrequest(method, path, skip_accept_encoding=True)
         for k, v in headers.items():
             c.putheader(k, v)
@@ -202,39 +183,13 @@ class Resources(unittest.TestCase):   # MR-4
             self.assertEqual(self.raw(host, port, "PUT", "/v1/releases/r2", h)[0], 400, h)
         self.assertEqual(call(url, P, A_INPUT)[0], 200)   # 서버는 멀쩡하다
 
-    def test_idle_connection_is_dropped_by_socket_timeout(self):
-        (srv, url, svc, _), host, port = self.srv(MODEL_RUNTIME_CONN_TIMEOUT_S="1")
-        s = socket.create_connection((host, port)); self.addCleanup(s.close)
-        s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 헤더를 끝내지 않고 멈춘다
-        s.settimeout(60)   # 닫힘 자체를 보는 시험이다. 닫히기까지 걸리는 시간은 부하에 따라 달라 상한을 넉넉히 둔다(안 닫히면 60초 뒤 실패)
-        self.assertEqual(s.recv(100), b"")   # 서버가 시간 초과로 연결을 닫았다(스레드 반환). waitress는 정수 초만 받아 1초이고 정리 주기 1초라 최대 2초쯤 걸린다
-
-    def test_connection_cap_queues_extra_connection_until_a_slot_frees(self):
-        # waitress의 connection_limit은 넘는 연결을 503으로 거절하지 않고 받지 않은 채 둔다(커널 대기열). 슬롯이 돌아오면 처리한다(ADR 0022: 503에서 바뀜)
-        t = TemporaryDirectory(); self.addCleanup(t.cleanup)
-        svc = server.build_service({**BASE, "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_BUNDLE_DIR": t.name}, reader_factory=lambda: None)
-        self.addCleanup(svc.close)
-        srv = serve_app(svc, max_connections=3); self.addCleanup(srv.shutdown)   # 3: 듣는 소켓과 제어 소켓이 슬롯 둘을 쓴다(waitress 내부)
-        host, port = srv.server_address
-        hold = socket.create_connection((host, port)); self.addCleanup(hold.close)
-        hold.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n")   # 슬롯 하나를 쥔다. 연결은 먼저 맺은 순서대로 받아지므로(커널 대기열 FIFO) 기다리는 시간이 필요 없다
-        s = socket.create_connection((host, port)); self.addCleanup(s.close); s.settimeout(1)
-        s.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
-        with self.assertRaises(socket.timeout):
-            s.recv(200)   # 아직 처리되지 않는다
-        hold.sendall(b"\r\n")
-        self.assertTrue(hold.recv(200).startswith(b"HTTP/1.1 200"))
-        hold.close()
-        s.settimeout(60)
-        self.assertTrue(s.recv(200).startswith(b"HTTP/1.1 200"))   # 슬롯이 돌아오자 처리됐다
-
     def test_concurrent_loads_are_capped_and_failed_entries_pruned(self):
         gate = threading.Event(); self.addCleanup(gate.set)
         (srv, url, svc, rd), host, port = self.srv(MODEL_RUNTIME_PUT_WAIT_S="0.1", MODEL_RUNTIME_MAX_LOADING="1")
         orig = rd.load_bundle
-        rd.load_bundle = lambda rid, dest: (gate.wait(30), orig(rid, dest=dest))[1] if rid == "slow" else orig(rid, dest=dest)
-        self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(5)))
-        self.assertEqual(call(url, "/v1/releases/slow", method="PUT")[0], 202)
+        rd.load_bundle = lambda rid, dest: (gate.wait(HANG_GUARD_S), orig(rid, dest=dest))[1] if rid == "slow" else orig(rid, dest=dest)
+        self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(HANG_GUARD_S)))
+        self.assertEqual(svc.clock.run_advancing(lambda: call(url, "/v1/releases/slow", method="PUT"), 0.1)[0], 202)   # PUT 대기(0.1초)는 가짜 시계로 흘린다
         s, b, _ = call(url, "/v1/releases/other", method="PUT")
         self.assertEqual((s, b["code"]), (503, "UNAVAILABLE"))   # 적재가 몰리면 새 적재를 거절
         self.assertEqual(call(url, "/v1/releases/slow")[1]["state"], "LOADING")

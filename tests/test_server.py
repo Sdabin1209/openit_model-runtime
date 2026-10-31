@@ -51,7 +51,7 @@ def start(tmp, plan=None, tokens=None, clock=None, **kw):   # 시계는 가짜�
     rd = StubReader(tmp, plan)
     svc = server.build_service(env, reader_factory=lambda: rd, clock=clock or FakeClock())
     srv = serve_app(svc)
-    wait_until(lambda: svc.ready)
+    wait_until(lambda: svc.ready or svc.not_ready_reason != '백엔드를 올리는 중')
     return srv, f"http://127.0.0.1:{srv.server_address[1]}", svc, rd
 
 
@@ -284,7 +284,7 @@ class Location(unittest.TestCase):
         svc = server.build_service({"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
                                     "MODEL_RUNTIME_BUNDLE_DIR": str(Path(self._t.name) / "b"), "MODEL_RUNTIME_READY_PROBE_TTL_S": "0", **env})
         srv = serve_app(svc); self.addCleanup(srv.shutdown)
-        wait_until(lambda: svc.ready)
+        wait_until(lambda: svc.ready or svc.not_ready_reason != '백엔드를 올리는 중')
         return f"http://127.0.0.1:{srv.server_address[1]}"
 
     def test_unreachable_release_url_healthz_ok_readyz_503_then_recovers(self):
@@ -335,7 +335,7 @@ class HfCache(unittest.TestCase):
             self.assertEqual(why, f"hf cache not writable: {hf} (uid {__import__('os').getuid()})")
             ok_svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(t) / "b2", base_backend_factory=mr.FakeBackend,
                                     reader_factory=lambda: None, backend_name="vllm", hf_home=str(Path(t) / "hf-ok"))
-            wait_until(lambda: ok_svc.ready)
+            wait_until(lambda: ok_svc.ready or ok_svc.not_ready_reason != '백엔드를 올리는 중')
             self.assertTrue(ok_svc.readiness()[0])
 
     def test_build_service_checks_hf_only_for_vllm_online(self):
@@ -357,7 +357,7 @@ class RuntimeDirs(unittest.TestCase):
             env = {"HOME": str(Path(t) / "home"), "XDG_CACHE_HOME": str(Path(t) / "cache"),
                    "VLLM_CACHE_ROOT": str(Path(t) / "cache" / "vllm"), "TRITON_CACHE_DIR": str(Path(t) / "cache" / "triton")}
             svc = mk(**env)
-            wait_until(lambda: svc.ready)
+            wait_until(lambda: svc.ready or svc.not_ready_reason != '백엔드를 올리는 중')
             self.assertTrue(svc.ready)
             for v in env.values():
                 self.assertTrue(Path(v).is_dir())   # 빈 볼륨이 이미지의 디렉터리를 가려도 시작 때 만든다
@@ -416,6 +416,21 @@ class FaultCells(unittest.TestCase):
         self.assertEqual(call(url, "/readyz")[0], 200)
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
+    def test_healthz_does_not_queue_behind_a_busy_engine(self):
+        # 요구: 엔진이 한 호출에 묶여 있어도 /healthz·/readyz는 엔진 뒤에 줄 서지 않고 답한다. 엔진 호출을 Event로 붙잡은 채 끝까지 풀지 않고, 다른 요청이 끝남을 확인한다(시간을 재지 않는다)
+        gate, entered = threading.Event(), threading.Event()
+        def hold(req):
+            if req.role == "LORA_A":
+                entered.set(); gate.wait(HANG_GUARD_S)   # 매달림 감시
+            return json.dumps(fake_backend.FAKE_EXTRACTION)
+        url, svc = self.up(hold, MODEL_RUNTIME_EXTRACT_DEADLINE_S="3600")
+        self.addCleanup(gate.set)   # 정리는 거꾸로 실행된다: 서버를 닫기 전에 묶인 엔진부터 푼다
+        th = threading.Thread(target=lambda: call(url, "/v1/releases/r1/extract", A_INPUT), daemon=True); th.start()
+        self.assertTrue(entered.wait(HANG_GUARD_S))   # 매달림 감시
+        self.assertEqual(call(url, "/healthz")[0], 200)
+        self.assertEqual(call(url, "/readyz")[0], 200)
+        self.assertTrue(th.is_alive())   # 엔진 호출은 아직 끝나지 않았다
+
     # 재시도가 총 상한을 넘기지 않는 규칙은 시계를 주입한 결정적 시험이 본다(tests/test_deadline_budget.py RetryBudgetWithInjectedClock)
 
     def test_dead_engine_gives_503_and_readyz_503_until_next_success(self):
@@ -463,7 +478,7 @@ class FaultCells(unittest.TestCase):
         svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=lambda: (_ for _ in ()).throw(OSError("x")),
                              reader_factory=lambda: None, backend_name="fake", backend_retry_s=0, clock=FakeClock())
         self.addCleanup(svc.close)
-        self.assertTrue(wait_until(lambda: svc.readiness() == (False, "OSError")))   # 기동 실패가 기록될 때까지(고정 sleep 대신)
+        self.assertTrue(wait_until(lambda: svc.readiness() == (False, "OSError")))   # 기동 실패가 기록될 때까지(조건 대기)
 
     def test_hung_release_server_during_load_keeps_active_release(self):   # B1: 번들 읽기 중 릴리스 서버 멈춤
         gate = threading.Event(); self.addCleanup(gate.set)

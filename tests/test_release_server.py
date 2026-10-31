@@ -10,7 +10,7 @@ import io
 import urllib.request
 from pathlib import Path
 
-from helpers import wait_until
+from helpers import HANG_GUARD_S, wait_until
 from test_gpu_session import KIT, ROOT, run_prepare, setup_inputs
 
 SERVER = KIT / "release_server.py"
@@ -33,7 +33,7 @@ def start(root, tmp_path):
     pf = tmp_path / "port"
     p = subprocess.Popen([sys.executable, str(SERVER), str(root), "--port", "0", "--port-file", str(pf)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                          env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
-    assert wait_until(lambda: pf.exists() and pf.read_text().strip().isdigit(), 60), p.stderr.read() if p.poll() is not None else "port file 없음"
+    assert wait_until(lambda: pf.exists() and pf.read_text().strip().isdigit()), p.stderr.read() if p.poll() is not None else "port file 없음"
     return p, f"http://127.0.0.1:{pf.read_text().strip()}"
 
 
@@ -69,14 +69,34 @@ def test_contract_reader_loads_the_bundle_from_it(tmp_path):
     root = prepared(tmp_path)
     p, url = start(root, tmp_path)
     try:
-        b = HttpReleaseReader(url, "", timeout=30).load_bundle("gpu-session", dest=tmp_path / "dest")
+        b = HttpReleaseReader(url, "", timeout=HANG_GUARD_S)   # 매달림 감시.load_bundle("gpu-session", dest=tmp_path / "dest")
         assert b.manifest["release_id"] == "gpu-session" and set(b.adapters) == {"LORA_A", "LORA_B"}
     finally:
         p.kill(); p.wait()
 
 
-def test_sigterm_exits_zero(tmp_path):
-    root = prepared(tmp_path)
-    p, url = start(root, tmp_path)
-    p.send_signal(signal.SIGTERM)
-    assert p.wait(timeout=60) == 0
+def test_waitress_settings_and_terminate_handlers():
+    """종료 신호 처리 시간·연결 시한은 waitress와 운영체제의 동작이라 시험하지 않는다. 이 스크립트의 책임은 (1) waitress에 올바른 값을 넘기는가 (2) SIGTERM·SIGINT에 종료 코드 0으로 끝나는 처리기를 거는가다."""
+    m = load_module()
+    seen, handlers, closed = {}, {}, []
+
+    class Srv:
+        effective_port = 1
+        def run(self):
+            handlers[m.signal.SIGTERM](m.signal.SIGTERM, None)   # 종료 신호를 받은 것처럼 처리기를 직접 부른다
+        def close(self): closed.append(True)
+
+    orig = (m.waitress.create_server, m.signal.signal, sys.argv)
+    m.waitress.create_server = lambda app, **k: seen.update(k) or Srv()
+    m.signal.signal = lambda sig, h: handlers.__setitem__(sig, h)
+    sys.argv = ["release_server", "/nonexistent"]
+    try:
+        try:
+            m.main()
+            raise AssertionError("SystemExit(0)이어야 한다")
+        except SystemExit as e:
+            assert e.code == 0
+    finally:
+        m.waitress.create_server, m.signal.signal, sys.argv = orig
+    assert set(handlers) == {m.signal.SIGTERM, m.signal.SIGINT} and closed == [True]
+    assert (seen["threads"], seen["connection_limit"], seen["channel_timeout"], seen["cleanup_interval"]) == (4, 8, 120, 1)   # ADR 0023 값

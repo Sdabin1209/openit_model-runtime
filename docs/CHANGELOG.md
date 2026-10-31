@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.5 — 2026-10-31 (시계 주입, ADR 0029, U422)
+PATCH. 동작은 같다(와이어 형식·HTTP 응답·헤더·라벨 그대로). `release_registry`와 `retry_loop`가 `time`을 직접 읽지 않고 시계를 인자로 받는다(`wiring/clock.py`의 `RealClock`이 기본). `Service.drain(grace_s)` 추가(종료 유예 대기를 옮김). 시험은 `tests/fake_clock.py`로 시간을 흘린다. waitress·신호 시간을 재던 시험은 지우고 넘긴 값과 종료 처리기를 확인한다(`tests/TIMING.md`).
+
 ## 0.11.4 — 2026-10-30 (vllm 백엔드 import 경로 수정, link v0.4.1)
 PATCH. `server.py`의 vllm 백엔드 공장(`build_service`의 `factory`)이 `from .vllm_backend import ...`로 이동 전 경로를 가리켜 `MODEL_RUNTIME_BACKEND=vllm`에서 ModuleNotFoundError가 났다(GPU 경로라 시험이 못 잡았다). `.components.vllm_backend`로 고쳤다.
 - 재발 방지: `tests/test_imports_resolve.py`가 패키지의 모든 .py를 AST로 훑어 함수 안의 늦은 import까지 모든 상대·절대 `model_runtime` import가 실제 모듈과 이름으로 풀리는지 본다. 같은 종류의 다른 결함은 없었다.

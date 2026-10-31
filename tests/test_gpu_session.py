@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import A_INPUT, B_INPUT, GOOD_A, GOOD_B
+from helpers import A_INPUT, B_INPUT, GOOD_A, GOOD_B, HANG_GUARD_S
 
 ROOT = Path(__file__).resolve().parents[1]
 KIT = ROOT / "scripts" / "gpu_session"
@@ -190,7 +190,7 @@ def test_run_session_with_fake_backend_end_to_end(tmp_path, via_base):   # via_b
         env["GPU_SESSION_WRITE_ROOT"] = str(root)
     r = subprocess.run(["bash", str(KIT / "run_session.sh"), *(["--base", str(root)] if via_base else []), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
                         "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--n-a", "3", "--n-b", "3", "--concurrency", "1,2", "--budget-min", "5"],
-                       capture_output=True, text=True, env=env, timeout=180)
+                       capture_output=True, text=True, env=env, timeout=HANG_GUARD_S)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
     run = next((root / "mr-session").glob("run-*"))
     res = json.loads((run / "measure.json").read_text(encoding="utf-8"))
@@ -210,7 +210,7 @@ def test_run_session_refuses_busy_gpu_and_starts_nothing(tmp_path):
     root = tmp_path / "write_root"
     r = subprocess.run(["bash", str(KIT / "run_session.sh"), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
                         "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1)], capture_output=True, text=True,
-                       env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi(tmp_path, 91000, "7, other, 91000")}, timeout=60)
+                       env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi(tmp_path, 91000, "7, other, 91000")}, timeout=HANG_GUARD_S)
     assert r.returncode == 2 and "거부" in r.stdout
     run = next((root / "mr-session").glob("run-*"))
     assert not (run / "release").exists() and not (run / "logs" / "server.log").exists()
@@ -222,7 +222,7 @@ def test_run_session_refuses_work_dir_outside_write_root(tmp_path):
     (tmp_path / "a.jsonl").rename(c1 / "lora_a_val.jsonl"); (tmp_path / "b.jsonl").rename(c1 / "lora_b_val.jsonl")
     r = subprocess.run(["bash", str(KIT / "run_session.sh"), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT), "--adapter-a", str(tmp_path / "aa"),
                         "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--work", str(tmp_path / "elsewhere")], capture_output=True, text=True,
-                       env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(tmp_path / "wr"), "NVIDIA_SMI": smi(tmp_path, 1)}, timeout=60)
+                       env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(tmp_path / "wr"), "NVIDIA_SMI": smi(tmp_path, 1)}, timeout=HANG_GUARD_S)
     assert r.returncode != 0 and "쓰기 허용 폴더" in r.stderr
 
 
@@ -242,7 +242,7 @@ def _session(tmp_path, c1, root, *extra, work=None, budget="5"):
            "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--n-a", "2", "--n-b", "2", "--concurrency", "1", "--budget-min", budget, *extra]
     if work:
         cmd += ["--work", str(work)]
-    return subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi(tmp_path, 300)}, timeout=180)
+    return subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, "GPU_SESSION_WRITE_ROOT": str(root), "NVIDIA_SMI": smi(tmp_path, 300)}, timeout=HANG_GUARD_S)
 
 
 def test_run_session_outside_root_creates_nothing(tmp_path):   # MR-1: 거부돼도 쓰기 허용 폴더 밖에 디렉터리가 생기지 않는다
@@ -298,7 +298,7 @@ def test_options_without_value_exit_2_instead_of_hanging(tmp_path):   # 인자 �
     for script, opts in (("preflight.sh", ("--until", "--max-used-mib", "--min-free-mib")),
                          ("run_session.sh", ("--until", "--work", "--adapter-a", "--c1-dir", "--backend"))):
         for o in opts:
-            r = subprocess.run(["bash", str(KIT / script), o], capture_output=True, text=True, timeout=60, env={**os.environ, "NVIDIA_SMI": smi(tmp_path, 1)})
+            r = subprocess.run(["bash", str(KIT / script), o], capture_output=True, text=True, timeout=HANG_GUARD_S, env={**os.environ, "NVIDIA_SMI": smi(tmp_path, 1)})
             assert r.returncode == 2 and "값이 필요" in r.stderr, (script, o, r.returncode)
 
 
@@ -327,7 +327,7 @@ def test_pod_run_refuses_without_upload_confirmation(tmp_path):   # 데이터 �
     ad = tmp_path / "a"; ad.mkdir(); (ad / "adapter_config.json").write_text("{}"); (ad / "adapter_model.safetensors").write_bytes(b"x")
     c1 = tmp_path / "c"; c1.mkdir(); (c1 / "lora_a_val.jsonl").write_text("{}\n"); (c1 / "lora_b_val.jsonl").write_text("{}\n")
     r = subprocess.run(["bash", str(KIT / "pod_run.sh"), "--ssh", "-p 1 nobody@127.0.0.1", "--adapter-a", str(ad), "--adapter-b", str(ad), "--c1-dir", str(c1)],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=HANG_GUARD_S)
     assert r.returncode == 3 and "아무것도 보내지 않았다" in r.stdout
 
 
@@ -461,7 +461,7 @@ def run_stub_session(tmp_path, fail, *extra):
     env = {**os.environ, "NVIDIA_SMI": smi(tmp_path, 300), "PYTHONPATH": str(ROOT / "tests"), "STUB_FAIL": fail}
     r = subprocess.run(["bash", str(KIT / "run_session.sh"), "--base", str(root), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT),
                         "--adapter-a", str(tmp_path / "aa"), "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--server-module", "stub_oom_server",
-                        "--util", "0.9", "--ready-timeout-min", "1", "--budget-min", "5", *extra], capture_output=True, text=True, env=env, timeout=170)
+                        "--util", "0.9", "--ready-timeout-min", "1", "--budget-min", "5", *extra], capture_output=True, text=True, env=env, timeout=HANG_GUARD_S)
     return r, next((root / "mr-session").glob("run-*"))
 
 
@@ -490,14 +490,14 @@ def test_run_session_plan_runs_stages_on_one_server_and_records_gpu(tmp_path):
     cmd = ["bash", str(KIT / "run_session.sh"), "--base", str(root), "--backend", "fake", "--python", sys.executable, "--kit", str(ROOT),
            "--adapter-a", str(tmp_path / "aa"), "--adapter-b", str(tmp_path / "ab"), "--c1-dir", str(c1), "--budget-min", "5"]
     env = {**os.environ, "NVIDIA_SMI": smi(tmp_path, 300)}
-    r = subprocess.run([*cmd, "--plan", "1:2,2:3"], capture_output=True, text=True, env=env, timeout=170)
+    r = subprocess.run([*cmd, "--plan", "1:2,2:3"], capture_output=True, text=True, env=env, timeout=HANG_GUARD_S)
     assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
     run = next((root / "mr-session").glob("run-*"))
     res = json.loads((run / "measure.json").read_text(encoding="utf-8"))
     assert res["summary"]["extract@1"]["calls"] == 2 and res["summary"]["respond@2"]["calls"] == 3
     assert set(res["stage_gpu"]) == {"after_load", "after_concurrency_1", "after_concurrency_2"}
     assert (run / "logs" / "server.log").exists() and not list((run / "logs").glob("server.attempt*"))   # 서버는 한 번만 떴다
-    both = subprocess.run([*cmd, "--plan", "1:2", "--n-a", "3"], capture_output=True, text=True, env=env, timeout=180)
+    both = subprocess.run([*cmd, "--plan", "1:2", "--n-a", "3"], capture_output=True, text=True, env=env, timeout=HANG_GUARD_S)
     assert both.returncode == 64 and "같이 쓰지 않는다" in both.stderr
 
 

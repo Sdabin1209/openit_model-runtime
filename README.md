@@ -119,6 +119,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0025](docs/adr/0025-build-entrypoint-and-contract-schemas.md) | 영역 빌드 진입점 `scripts/build-image.sh`(계약 BuildImageRequest/Result)와 ServingConfig·RuntimeProfile·RuntimeFlowFile을 계약 스키마로 검증 |
 | [0026](docs/adr/0026-setup-env-report.md) | `scripts/setup-env.sh`가 SetupEnvReport 한 줄로 시험 환경(.venv, test_command)을 선언한다 |
 | [0027](docs/adr/0027-contract-3-transition.md) | 계약 3.0.0 전환: ExtractRequest만, action_rules_version, 라벨 정직성(U50) |
+| [0029](docs/adr/0029-clock-injection.md) | 시계를 주입한다: 시험에서 실제 시간 0 (U422) |
 | [0028](docs/adr/0028-component-structure-d117.md) | 영역 구조: 컴포넌트·스키마·wiring, 통신 기반 라이브러리 위의 link_* (D117, U400) |
 
 ## 더 자세한 문서

@@ -28,7 +28,7 @@ from .schema_set import SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet
 from ..components.prompt_render import DEFAULT_TEMPLATE_VERSION
 from ..components.serving_config_check import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.11.4"
+RUNTIME_VERSION = "0.11.5"
 # 매니페스트 계보 표지 action_rules_version의 값. 왜 계약 규칙 데이터에서 읽나: 이 서버가 보증하는 LoRA-A 출력 규칙의 정본이 그 데이터라, 리터럴로 적으면 규칙이 바뀔 때 어긋난다(계약 3.0.0, D109).
 ACTION_RULES_VERSION = load_rules()["rules_version"]
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
@@ -42,7 +42,7 @@ class ModelSession(Protocol):
     system_prompt_hashes: Mapping[str, str]    # 역할별, 패키지 프롬프트 파일 바이트의 sha256(D75)
     last_call_info: CallInfo | None
 
-    def extract(self, input: Mapping, *, deadline: float | None = None) -> dict: ...   # deadline: time.monotonic 기준 호출 마감(선택). 재시도 예산에만 쓴다
+    def extract(self, input: Mapping, *, deadline: float | None = None) -> dict: ...   # deadline: 단조 시계 기준 호출 마감(선택). 재시도 예산에만 쓴다
     def respond(self, input: Mapping, *, deadline: float | None = None) -> ResponseResult: ...
     def extract_raw(self, input: Mapping) -> RawResult: ...
     def respond_raw(self, input: Mapping) -> RawResult: ...

@@ -2,13 +2,12 @@
 가짜 느린 백엔드로 재현한다. 기대값은 계약 표다(배분값은 측정하지 않았다, ADR 0020)."""
 import json
 import threading
-import time
 import unittest
 from tempfile import TemporaryDirectory
 
 import model_runtime as mr
 from model_runtime.components import fake_backend
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR
+from helpers import A_INPUT, B_INPUT, HANG_GUARD_S, SCHEMA_DIR
 from model_runtime import server
 from test_server import call, start
 
@@ -46,37 +45,33 @@ class Budget(unittest.TestCase):
         return url, svc
 
     def hang(self, req):
-        self.gate.wait(30)
+        self.gate.wait(HANG_GUARD_S)   # 매달림 감시: 시험 끝(addCleanup)에 풀린다
         return json.dumps(fake_backend.FAKE_EXTRACTION) if req.role == "LORA_A" else "문장입니다."
 
-    def timed(self, url, path, body):
-        t = time.monotonic(); s, b, h = call(url, path, body); return s, b, h, time.monotonic() - t
-
-    def test_extract_over_limit_gives_engine_timeout_within_3s_default(self):
-        url, _ = self.up(self.hang)
-        s, b, _, dt = self.timed(url, "/v1/releases/r1/extract", A_INPUT)
+    # 기본 상한 값(extract 3.0초, respond 2.0초)은 위의 test_contract_table_defaults가 설정 값으로 본다.
+    # 아래는 상한이 났을 때의 처리를 본다: 엔진을 끝까지 풀지 않으므로 ENGINE_TIMEOUT이 반드시 나고, 상한만큼의 시간은 가짜 시계로 흘린다(실제로 기다리지 않는다).
+    def test_extract_over_limit_gives_engine_timeout(self):
+        url, svc = self.up(self.hang)
+        s, b, _ = svc.clock.run_advancing(lambda: call(url, "/v1/releases/r1/extract", A_INPUT), svc.deadlines["extract"])
         self.assertEqual((s, b["details"]["reason"]), (503, "ENGINE_TIMEOUT"))
-        self.assertTrue(2.9 <= dt < 20, dt)   # 아래쪽 경계는 시계가 빨리 갈 수 없으니 결정적이다. 위쪽은 엔진이 묶인 gate.wait(30)보다 한참 앞서 돌려주는지(매달리지 않는지)만 본다
-        print(f"extract ENGINE_TIMEOUT {dt:.2f}s")
 
-    def test_respond_over_limit_gives_engine_timeout_within_2s_default(self):
-        url, _ = self.up(self.hang)
-        s, b, _, dt = self.timed(url, "/v1/releases/r1/respond", B_INPUT)
+    def test_respond_over_limit_gives_engine_timeout(self):
+        url, svc = self.up(self.hang)
+        s, b, _ = svc.clock.run_advancing(lambda: call(url, "/v1/releases/r1/respond", B_INPUT), svc.deadlines["respond"])
         self.assertEqual((s, b["details"]["reason"]), (503, "ENGINE_TIMEOUT"))
-        self.assertTrue(1.9 <= dt < 20, dt)   # 위와 같다
-        print(f"respond ENGINE_TIMEOUT {dt:.2f}s")
 
     def test_extract_retries_up_to_max_attempts_when_budget_allows(self):
         calls = []
         def fast_bad(req):
             calls.append(1); return "아님"
-        url, _ = self.up(fast_bad)
-        s, b, _, _ = self.timed(url, "/v1/releases/r1/extract", A_INPUT)
+        url, _ = self.up(fast_bad)   # 가짜 시계는 흐르지 않으므로 예산이 줄지 않는다
+        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
         self.assertEqual((len(calls), s, b["details"]["attempts"]), (3, 503, 3))
+
 
 class RetryBudgetWithInjectedClock(unittest.TestCase):
     """재시도가 총 상한 안에서 멈추는 규칙(계약 '시간 상한 사슬' 2.2.0, ADR 0020)을 시계를 주입해 결정적으로 본다.
-    왜 벽시계가 아닌가: 실제 sleep으로 0.4초씩 재면 부하에서 한 번이 길어져 시도 횟수가 달라진다. 가짜 시계는 generate가 부른 만큼만 간다."""
+    왜 벽시계가 아닌가: 실제로 0.4초씩 기다려 재면 부하에서 한 번이 길어져 시도 횟수가 달라진다. 가짜 시계는 generate가 부른 만큼만 간다."""
 
     def run_loop(self, step, deadline, max_attempts=3):
         from model_runtime.components import retry_loop
