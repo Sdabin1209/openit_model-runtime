@@ -12,9 +12,6 @@ class RealClock:
     def monotonic(self) -> float:
         return time.monotonic()
 
-    def time(self) -> float:
-        return time.time()
-
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 

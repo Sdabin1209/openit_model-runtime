@@ -26,6 +26,7 @@
 | `src/model_runtime/wiring/` | 컴포넌트 연결과 주입: `load`·세션, 스키마 문지기, 서비스 조립 |
 | `src/model_runtime/server.py` | 진입점과 환경 변수 읽기(컴포넌트 아님) |
 | `src/model_runtime/__init__.py`, `prompts/`, `schema_guard/` | 공개 API(다른 영역이 import하는 이름)를 새 위치에서 다시 내보낸다 |
+| `deploy-exposure.json` | 게이트웨이 노출 선언(서비스 model-serving, 모든 경로 denied). `scripts/build-image.sh`가 계약 Exposure로 검증해 이미지 라벨 `io.openit.exposure`로 단다 |
 | `profiles/` | 하드웨어별 설정: `gpu-12g.json`, `rtx4090-24g.json`, `gpu-dev-12g.json`(Qwen2.5-1.5B, 중립 어댑터·파이프라인 시험 전용, 파일의 `status`) |
 | `tests/`, `scripts/` | 시험(가짜 백엔드·vLLM 모킹, 구조 검사 `tests/test_structure.py` 포함), 스모크와 GPU 점검 스크립트 |
 | `Dockerfile`, `requirements-{cpu,gpu}.lock` | 이미지 두 변형(CPU/fake, GPU/vLLM)과 잠금 파일 |

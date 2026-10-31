@@ -67,11 +67,11 @@ class Service:
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
         self.release_url, self.release_required, self.probe_ttl_s = release_url, release_required, probe_ttl_s
-        self._probe = (0.0, None)   # (시각, 사유 또는 None)
+        self._probe = (None, None)   # (마지막 확인 시각(monotonic), 사유 또는 None). 시각이 None이면 아직 확인한 적이 없다
         self.schema_dir, self.bundle_dir = Path(schema_dir), Path(bundle_dir)
         self.reader_factory, self.backend_name = reader_factory, backend_name
         self.load_session, self.probe, self.runtime_version, self.facts = load_session, probe, runtime_version, facts
-        self.clock = clock   # 시간을 읽고 기다리는 모든 일의 창구(monotonic, time, sleep, wait, acquire). wiring이 실제 시계를 넣는다(ADR 0029)   # wiring이 주입한다
+        self.clock = clock   # 시간을 읽고 기다리는 모든 일의 창구(monotonic, sleep, wait, acquire). wiring이 실제 시계를 넣는다(ADR 0029)
         self.tokens = dict(tokens or {})
         self.queue_wait_s, self.put_wait_s, self.max_releases = queue_wait_s, put_wait_s, max_releases
         self.releases: dict[str, Release] = {}      # 삽입 순서 = 적재 순서
@@ -108,9 +108,9 @@ class Service:
             return False, "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다"
         if self.release_url:
             t, why = self._probe
-            if self.clock.time() - t >= self.probe_ttl_s:
+            if t is None or self.clock.monotonic() - t >= self.probe_ttl_s:   # 시간 간격은 벽시계가 아니라 단조 시계로 잰다(시계 조정에 흔들리지 않게)
                 why = self.probe(self.release_url)   # 도달 못 하면 사유(호스트:포트만), 닿으면 None
-                self._probe = (self.clock.time(), why)
+                self._probe = (self.clock.monotonic(), why)
             if why:
                 return False, why
         return True, None
@@ -119,7 +119,7 @@ class Service:
         """종료 때 진행 중인 호출이 끝나기를 grace_s초까지 기다린다. 다 끝났으면 True."""
         end = self.clock.monotonic() + grace_s
         while self.pending > 0 and self.clock.monotonic() < end:
-            self.clock.sleep(0.05)
+            self.clock.sleep(0.05)   # 폴링 간격. 값 0.05는 측정·표준 근거 없는 초기값(종료 유예는 보통 한 호출 길이라 거칠어도 된다, ADR 0029)
         return self.pending == 0
 
     def close(self):
@@ -269,10 +269,10 @@ class Service:
 
             def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
                 try:
-                    t = self.clock.time()
+                    t = self.clock.monotonic()
                     out = r.session.extract(body, flow, fields, deadline=deadline) if op == "extract" else r.session.respond(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
                     info = r.session.last_call_info
-                    self.avg_s = 0.8 * self.avg_s + 0.2 * (self.clock.time() - t)
+                    self.avg_s = 0.8 * self.avg_s + 0.2 * (self.clock.monotonic() - t)
                     res["ok"] = (out, info)
                 except BaseException as e:   # noqa: BLE001
                     res["err"] = e

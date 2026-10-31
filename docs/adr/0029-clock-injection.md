@@ -7,7 +7,7 @@
 호출 마감·대기 상한·백엔드 기동 재시도 간격·`/readyz` 도달성 캐시·종료 유예 같은 우리 코드의 시간 규칙을 시험이 실제 시간으로 재거나 기다렸다(`assertLess(elapsed, N)`, `time.sleep`, 실제 SIGTERM). 기계가 바쁘면 결과가 바뀌어 통과해도 옳다는 뜻이 아니고 실패해도 결함이 아니었다. 또 `test_server_properties`의 서브프로세스 시험은 지연(DELAY)이 실제로는 적용되지 않아 공허했다.
 
 ## 결정
-1. `release_registry`와 `retry_loop`는 `time`을 읽거나 기다리지 않고 **시계를 인자로** 받는다. 시계의 모양은 `monotonic()`, `time()`, `sleep(s)`, `wait(event, timeout)`, `acquire(lock, timeout)`다. 실제 시계는 `wiring/clock.py`(`RealClock`) 하나이고 `wiring/service.py`가 기본으로 넣는다. 서버 종료의 유예 대기는 `Service.drain(grace_s)`로 옮겨 같은 시계를 쓴다.
+1. `release_registry`와 `retry_loop`는 `time`을 읽거나 기다리지 않고 **시계를 인자로** 받는다. 시계의 모양은 `monotonic()`, `sleep(s)`, `wait(event, timeout)`, `acquire(lock, timeout)`다. 실제 시계는 `wiring/clock.py`(`RealClock`) 하나이고 `wiring/service.py`가 기본으로 넣는다. 서버 종료의 유예 대기는 `Service.drain(grace_s)`로 옮겨 같은 시계를 쓴다.
 2. 시험은 `tests/fake_clock.py`의 가짜 시계를 넣는다. 시간은 시험이 `advance()`할 때만 흐르고, `wait`·`acquire`·`sleep`은 조건이 참이 되거나 가짜 시간이 마감에 닿을 때까지 돌아오지 않는다.
 3. waitress 연결 시한, 연결 상한, SIGTERM 처리 시간은 라이브러리·운영체제의 동작이라 시험하지 않는다. 우리가 넘기는 값(`channel_timeout`, `threads`, `connection_limit`, `cleanup_interval`)과 종료 처리기(`main()`이 거는 처리기, 서버를 닫고 진행 중 호출을 기다린 뒤 엔진을 내리는 순서)를 확인한다.
 4. 와이어 형식, HTTP 응답, 이미지 라벨은 바꾸지 않는다. 같은 기존 시험(상태 코드, 오류 본문, 헤더)이 가짜 시계 위에서 그대로 통과한다.

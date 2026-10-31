@@ -1,6 +1,6 @@
 """가짜 시계(ADR 0029). 시간은 시험이 advance()를 부를 때만 흐른다. 실제 시간을 재거나 기다려서 판정하는 곳이 없다.
 
-모양은 model_runtime.wiring.clock.RealClock과 같다: monotonic, time, sleep, wait(event, timeout), acquire(lock, timeout).
+모양은 model_runtime.wiring.clock.RealClock과 같다: monotonic, sleep, wait(event, timeout), acquire(lock, timeout).
 블로킹 대기(wait·acquire·sleep)는 조건이 참이 되거나 가짜 시간이 마감에 닿을 때까지 돌아오지 않는다.
 _TICK은 Event가 설정되는 것을 알아채려는 폴링 간격일 뿐이며 판정에 쓰이지 않는다(Event.set은 이 시계에 알리지 않는다)."""
 import threading
@@ -16,8 +16,6 @@ class FakeClock:
 
     def monotonic(self) -> float:
         return self._now
-
-    time = monotonic
 
     def advance(self, seconds: float) -> None:
         self._now += seconds

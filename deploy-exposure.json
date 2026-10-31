@@ -1,0 +1,9 @@
+{
+  "service": "model-serving",
+  "routes": [
+    {
+      "paths": ["/v1/*", "/healthz", "/readyz"],
+      "auth": {"kind": "denied"}
+    }
+  ]
+}

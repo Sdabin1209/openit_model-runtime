@@ -52,6 +52,7 @@ code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz"
 [ "$code" = 503 ] || { echo "쓸 수 없는 번들 디렉터리면 readyz 503이어야 한다: $code" >&2; exit 1; }
 echo "user=$(docker exec "$NAME" id -u)"; [ "$(docker exec "$NAME" id -u)" != 0 ] || { echo "root로 실행됨" >&2; exit 1; }
 LABELS="$(docker image inspect "$TAG" --format '{{json .Config.Labels}}')"; echo "$LABELS"
+echo "$LABELS" | grep -q "io.openit.exposure" || { echo "라벨 io.openit.exposure가 없다" >&2; exit 1; }
 echo "$LABELS" | grep -q "\"io.openit.contracts.boundary\":\"$BOUNDARY_TAG\"" || { echo "라벨의 계약 버전이 $BOUNDARY_TAG가 아니다" >&2; exit 1; }
 # 기대값은 서로 독립인 두 출처다: (1) pyproject의 version(빌드 인자로 넘긴 값과 같은 파일이지만 라벨이 실제로 채워졌는지 본다) (2) 이미지에 설치된 패키지의 RUNTIME_VERSION
 INST_VERSION="$(docker exec "$NAME" python -c 'import model_runtime as m;print(m.RUNTIME_VERSION)')"

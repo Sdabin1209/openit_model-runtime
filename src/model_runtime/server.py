@@ -37,7 +37,6 @@ from .components.flow_file_load import load_fake_corrections, load_fake_flow, lo
 from .components.link_receive import INFER_DENY_ROLES, MAX_BODY, MAX_CONNECTIONS, make_app, make_server
 from .components.link_release_fetch import reader_factory_from_env
 from .components.release_registry import (CONN_TIMEOUT_S, DEFAULT_DEADLINES_S, MAX_FAILED_KEPT, MAX_INPUT_CHARS, MAX_LOADING, Release, STATUS, to_boundary)
-from .components.token_table import run as _parse_tokens
 from .wiring.backends import mimic_backend_from_files
 from .wiring.schema_gate import gate
 from .wiring.service import Service
@@ -47,11 +46,6 @@ DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
 from .components import token_table as _tt
 _token_table = gate(_tt, ValueError)
-
-
-def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
-    """`역할=토큰,역할=토큰`. 빈 역할·빈 토큰·형식 위반·역할/토큰 중복은 시작 거부(ValueError, 메시지에 값이 없다)."""
-    return _token_table({"raw": raw, "allow_empty": allow_empty})
 
 
 def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None, clock=None) -> Service:   # clock: 시험이 가짜 시계를 넣는 자리(없으면 실제 시계, ADR 0029)

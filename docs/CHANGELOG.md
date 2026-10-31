@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.8 — 2026-10-31 (노출 선언 라벨, 단조 시계, 정리)
+PATCH. 이미지 라벨 `io.openit.exposure`를 단다: `deploy-exposure.json`(서비스 model-serving, 모든 경로 `auth.kind=denied`)을 `scripts/build-image.sh`가 라벨로 달기 전에 계약 `Exposure`로 검증하고, GPU 변형은 서비스 이름을 `model-serving-gpu`로 바꾼다(어기면 docker를 부르지 않는다). `release_registry`의 호출 시간(avg_s)·readyz 캐시 간격을 벽시계 `time()`이 아니라 주입한 단조 시계로 잰다(`RealClock.time` 삭제, readyz 확인 시각의 초기값은 None). 쓰이지 않던 `DEFAULT_MAX_ATTEMPTS`, `server.parse_tokens`를 지웠다. 주석·머리말의 옛 값(호출 상한 3.0초, 계약 v2.5.0)을 실제로 맞췄다.
+
 ## 0.11.7 — 2026-10-31 (생산자 출력을 내보내기 전에 계약으로 검증, R7, U426)
 PATCH. `GET /v1/info`(RuntimeInfo), `GET`·`PUT /v1/releases/{id}`(ReleaseLoadStatus)에 `response_schema`를 걸었다. 본문이 계약을 어기면 내보내지 않고 503 UNAVAILABLE(openit_link가 한다, 위반 값은 싣지 않는다). 정상 본문과 와이어 형식은 그대로다. `test_producer_output_is_validated_before_it_leaves`가 위반 출력이 나가지 않음을 본다. extract·respond는 이미 역할 컴포넌트가 내보내기 전에 ActionExtraction·ResponseText로 검증하고(extract_role, respond_role), extract는 Route의 `response_schema=ActionExtraction`도 건다.
 

@@ -79,7 +79,7 @@ def make_app(svc) -> App:
 
 def make_server(svc, host: str, port: int, *, max_connections: int = MAX_CONNECTIONS):
     """waitress 서버(아직 시작 전). 값의 출처는 ADR 0022.
-    threads=max_connections: 추론 요청 하나가 엔진 직렬화 락을 기다리며 스레드를 최대 호출 상한(3.0초)까지 쥐므로, 스레드가 연결 수보다 적으면 /healthz가 그 뒤에 줄 선다.
+    threads=max_connections: 추론 요청 하나가 엔진 직렬화 락을 기다리며 스레드를 최대 호출 상한(extract 3.0초·respond 5.0초, ADR 0030)까지 쥐므로, 스레드가 연결 수보다 적으면 /healthz가 그 뒤에 줄 선다.
     channel_timeout: 헤더를 끝내지 않거나 유휴인 연결을 닫는다(waitress는 정수 초만 받는다). cleanup_interval 1초: 기본 30초면 실제로 닫히는 시각이 timeout보다 최대 30초 늦다.
     max_request_body_size=MAX_BODY: 이 크기를 넘는 본문은 waitress가 413으로 거절한다(읽기 전에)."""
     return waitress.create_server(make_app(svc), host=host, port=port, threads=max_connections, connection_limit=max_connections,

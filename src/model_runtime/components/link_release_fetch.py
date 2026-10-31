@@ -25,7 +25,7 @@ def reader_factory_from_env(env) -> Callable[[], object]:
 def probe(release_url: str) -> str | None:
     """release 서버에 닿으면 None, 아니면 사유(호스트:포트와 예외 이름만)."""
     try:
-        with urllib.request.urlopen(release_url.rstrip("/") + "/healthz", timeout=2):
+        with urllib.request.urlopen(release_url.rstrip("/") + "/healthz", timeout=2):   # 소켓 timeout 2초: 도달성 확인이 /readyz 응답을 오래 붙잡지 않게. 값 2는 측정·표준 근거 없는 초기값(ADR 0012, 결과는 MODEL_RUNTIME_READY_PROBE_TTL_S 동안 캐시)
             return None
     except Exception as e:   # noqa: BLE001
         u = urlsplit(release_url)

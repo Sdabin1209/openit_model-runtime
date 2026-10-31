@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 영역 빌드 진입점(계약 boundary-contracts v2.5.0, BuildImageRequest/BuildImageResult, OPEN_GAPS U42, ADR 0025).
+# 영역 빌드 진입점(계약 boundary-contracts v3.1.1의 BuildImageRequest/BuildImageResult, 태그의 정본은 Dockerfile ARG BOUNDARY_VERSION, OPEN_GAPS U42, ADR 0025).
 # 사용: bash scripts/build-image.sh <요청 JSON 파일>   (영역 리포 루트에서)
 # 표준 출력의 마지막 줄만 BuildImageResult JSON 한 줄이다. 진행 기록은 표준 오류. 종료 0 성공.
 # 환경 변수: DOCKER(없으면 docker), PYTHON(없으면 python3; jsonschema가 있어야 한다. 계약 패키지는 요청의 dependency_sources.boundary에서 읽는다).
@@ -59,6 +59,19 @@ SERVICE="model-serving"; [ "$VARIANT" = "gpu" ] && SERVICE="model-serving-gpu"  
 [ -d "$SS_DIR" ] || die "dependency_sources.survey_schema 디렉터리가 없다"
 SS_MAJOR="$SS_V"   # 라벨 io.openit.contracts.survey-schema는 문진 스키마 패키지 버전의 주 번호다(ImageLabels, 계약 3.0.1). 정수 CONTRACT_VERSION과 섞지 않는다
 
+# 노출 선언(라벨 io.openit.exposure, 계약 Exposure): 리포의 deploy-exposure.json이 정본이다. 내보내기 전에(라벨로 달기 전에) 계약으로 검증한다(R7).
+# 서비스 이름은 이미지 이름(model-serving, GPU는 model-serving-gpu)으로 맞춘다. 모델 서버는 게이트웨이로 밖에 내지 않으므로 모든 경로가 denied다.
+EXPOSURE="$(PYTHONPATH="$BC_SRC" "$PY" -c '
+import json, sys
+from boundary_contracts import validator
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+doc["service"] = sys.argv[2]
+errs = list(validator("Exposure").iter_errors(doc))
+if errs:
+    sys.exit("deploy-exposure.json이 Exposure를 어긴다: " + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
+print(json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+' "$SRC/deploy-exposure.json" "$SERVICE")" || die "노출 선언 검증 실패"
+
 # 통신 기반 라이브러리 openit-link(D118)의 소스: 태그의 정본은 Dockerfile의 ARG LINK_VERSION. 형제 폴더(LINK_REPO)에서 git archive로, 없으면 GitHub 태그 clone으로 꺼낸다.
 LINK_TAG="$(sed -n 's/^ARG LINK_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$SRC/Dockerfile" | head -1)"
 [ -n "$LINK_TAG" ] || die "Dockerfile에서 ARG LINK_VERSION을 읽지 못했다"
@@ -71,7 +84,7 @@ fi
 # 2) 빌드. 같은 요청 -> 같은 이미지(인자와 컨텍스트가 요청에서만 온다). 문진 스키마는 이미지에 내장한다(D72).
 ARGS=(--build-context "boundary=$BC_DIR" --build-context "schema=$SS_DIR" --build-context "link=$LINK_DIR"
       --build-arg "SERVICE_NAME=$SERVICE" --build-arg "REVISION=$REV" --build-arg "BOUNDARY_VERSION=$BC_V" --build-arg "SURVEY_SCHEMA_VERSION=$SS_MAJOR"
-      --build-arg "MODEL_RUNTIME_VERSION=$MR_V")
+      --build-arg "MODEL_RUNTIME_VERSION=$MR_V" --label "io.openit.exposure=$EXPOSURE")
 EXPECT_VARIANT=""
 if [ "$VARIANT" = "gpu" ]; then ARGS+=(--build-arg VARIANT=gpu --label io.openit.variant=gpu); EXPECT_VARIANT=gpu; fi
 log "docker build $TAG (variant=${VARIANT:-cpu})"
@@ -93,10 +106,10 @@ LABELS_JSON="$("$DOCKER" image inspect "$TAG" --format '{{json .Config.Labels}}'
 PYTHONPATH="$BC_SRC" "$PY" -c '
 import json, sys
 from boundary_contracts import validator
-tag, image_id, labels_json, rev, bc, mr, ss, variant, service = sys.argv[1:10]
+tag, image_id, labels_json, rev, bc, mr, ss, variant, service, exposure = sys.argv[1:11]
 labels = {k: v for k, v in json.loads(labels_json).items() if k.startswith("io.openit.")}
 want = {"io.openit.service": service, "io.openit.revision": rev, "io.openit.contracts.boundary": bc, "io.openit.model-runtime": mr,
-        "io.openit.contracts.survey-schema": ss}
+        "io.openit.contracts.survey-schema": ss, "io.openit.exposure": exposure}
 if variant:
     want["io.openit.variant"] = variant
 bad = sorted(k for k in want if labels.get(k) != want[k])
@@ -107,4 +120,4 @@ errs = list(validator("BuildImageResult").iter_errors(result))
 if errs:
     sys.exit("결과가 BuildImageResult를 어긴다: " + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT" "$SERVICE"
+' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT" "$SERVICE" "$EXPOSURE"

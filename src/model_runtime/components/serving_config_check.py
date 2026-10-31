@@ -12,7 +12,6 @@ from ..wiring.errors import ContractViolation, ServingConfigMismatch, Unsupporte
 
 _VALIDATOR = validator("ServingConfig")   # 형식의 정본은 계약 스키마다(영역 안에 사본을 두지 않는다, U44). 해시는 받은 객체 그대로라 모르는 키는 거부된다
 INPUT, OUTPUT = "ServingConfigCheckInput", "ServingConfigCheckResult"
-DEFAULT_MAX_ATTEMPTS = 3
 
 
 def validate_serving_config(serving_config: Mapping) -> None:

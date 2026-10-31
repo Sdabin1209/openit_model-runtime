@@ -1,4 +1,4 @@
-"""영역 빌드 진입점 scripts/build-image.sh (계약 v2.5.0 BuildImageRequest/BuildImageResult, ADR 0025).
+"""영역 빌드 진입점 scripts/build-image.sh (계약 BuildImageRequest/BuildImageResult, ADR 0025).
 도커는 DOCKER 환경 변수로 바꿔 끼운 가짜 실행 파일로 대신해 인자·라벨·결과 모양을 본다(실제 빌드는 scripts/smoke.sh가 한다)."""
 import json
 import os
@@ -80,6 +80,8 @@ def test_success_last_line_is_build_image_result_and_labels_match_request(env):
     out = json.loads(r.stdout.strip().splitlines()[-1])
     assert not list(validator("BuildImageResult").iter_errors(out))
     assert out["image"] == "model-runtime-test/model-serving:abc1234" and out["image_id"].startswith("sha256:")
+    expo = out["labels"].pop("io.openit.exposure")   # 노출 선언 라벨: 내보내기 전에 계약 Exposure로 검증한 한 줄 JSON
+    assert not list(validator("Exposure").iter_errors(json.loads(expo))) and json.loads(expo)["service"] == "model-serving"
     assert out["labels"] == {"io.openit.service": "model-serving", "io.openit.revision": "abc1234", "io.openit.contracts.boundary": PINNED,
                              "io.openit.contracts.survey-schema": "2", "io.openit.model-runtime": VERSION}
     assert json.loads(env["log"].read_text())[0] == "build"
@@ -190,3 +192,17 @@ def test_service_label_is_the_service_name_not_the_repo_name(env):
         assert r.returncode == 0, r.stderr
         assert json.loads(r.stdout.strip().splitlines()[-1])["labels"]["io.openit.service"] == want
         assert f"SERVICE_NAME={want}" in json.loads(env["log"].read_text())
+
+
+def test_exposure_label_follows_the_service_name_and_is_validated_before_docker(env):
+    gpu = json.loads(run(env, request(env, variant="gpu")).stdout.strip().splitlines()[-1])["labels"]["io.openit.exposure"]
+    assert json.loads(gpu)["service"] == "model-serving-gpu"   # GPU 변형은 서비스 이름이 다르다
+    bad = ROOT / "deploy-exposure.json"
+    orig = bad.read_text(encoding="utf-8")
+    try:
+        bad.write_text(json.dumps({"service": "x", "routes": []}), encoding="utf-8")   # routes는 1개 이상이어야 한다(계약 Exposure)
+        env["log"].unlink(missing_ok=True)
+        r = run(env, request(env))
+    finally:
+        bad.write_text(orig, encoding="utf-8")
+    assert r.returncode != 0 and "Exposure" in r.stderr and not env["log"].exists()   # 어긴 선언으로는 docker를 부르지 않는다
