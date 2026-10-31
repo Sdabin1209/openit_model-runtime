@@ -110,6 +110,17 @@ class Server(unittest.TestCase):
         call(url, "/v1/releases/r1", method="PUT"); s, b, _ = call(url, "/v1/releases/r1", method="PUT")
         self.assertEqual((s, b["state"], rd.calls), (200, "LOADED", 1))
 
+    def test_producer_output_is_validated_before_it_leaves(self):
+        # R7: 생산자(이 서버)가 계약을 어기는 본문(RuntimeInfo, ReleaseLoadStatus)을 만들면 내보내지 않고 503 UNAVAILABLE. 위반 값은 응답에 실리지 않는다
+        _, url, svc, _ = self.srv()
+        call(url, "/v1/releases/r1", method="PUT")
+        svc.info = lambda: {"service": "model-runtime", "leak": "SECRETISH-VALUE"}   # RuntimeInfo를 어긴다
+        s, b, _ = call(url, "/v1/info")
+        self.assertEqual((s, b["code"]), (503, "UNAVAILABLE")); self.assertNotIn("SECRETISH", json.dumps(b))
+        svc.get = lambda rid: {"release_id": rid, "state": "BOGUS", "error": None, "leak": "SECRETISH-VALUE"}   # ReleaseLoadStatus를 어긴다
+        s, b, _ = call(url, "/v1/releases/r1")
+        self.assertEqual((s, b["code"]), (503, "UNAVAILABLE")); self.assertNotIn("SECRETISH", json.dumps(b))
+
     def test_unloaded_release_is_404(self):
         _, url, _, _ = self.srv()
         s, b, _ = call(url, "/v1/releases/nope/extract", A_INPUT)

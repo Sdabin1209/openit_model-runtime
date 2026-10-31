@@ -28,7 +28,7 @@ from .schema_set import SUPPORTED_RUNTIME_CONTRACT_VERSION, SchemaSet
 from ..components.prompt_render import DEFAULT_TEMPLATE_VERSION
 from ..components.serving_config_check import serving_config_hash, validate_serving_config
 
-RUNTIME_VERSION = "0.11.6"
+RUNTIME_VERSION = "0.11.7"
 # 매니페스트 계보 표지 action_rules_version의 값. 왜 계약 규칙 데이터에서 읽나: 이 서버가 보증하는 LoRA-A 출력 규칙의 정본이 그 데이터라, 리터럴로 적으면 규칙이 바뀔 때 어긋난다(계약 3.0.0, D109).
 ACTION_RULES_VERSION = load_rules()["rules_version"]
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.

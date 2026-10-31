@@ -66,9 +66,10 @@ def make_app(svc) -> App:
         return False, {"status": "not ready", "reason": why}
 
     routes = [
-        Route("GET", "/v1/info", info, roles=anyone),
-        Route("PUT", "/v1/releases/{release_id}", put, roles=put_roles, max_body=MAX_BODY),
-        Route("GET", "/v1/releases/{release_id}", get, roles=anyone),
+        # response_schema: 내는 쪽이 내기 전에 계약으로 검증한다(R7). 어기면 내보내지 않고 503 UNAVAILABLE(openit_link가 한다)
+        Route("GET", "/v1/info", info, roles=anyone, response_schema="RuntimeInfo"),
+        Route("PUT", "/v1/releases/{release_id}", put, roles=put_roles, response_schema="ReleaseLoadStatus", max_body=MAX_BODY),
+        Route("GET", "/v1/releases/{release_id}", get, roles=anyone, response_schema="ReleaseLoadStatus"),
         Route("POST", "/v1/releases/{release_id}/extract", extract, roles=infer_roles, request_schema="ExtractRequest", response_schema="ActionExtraction", max_body=MAX_BODY),
         Route("POST", "/v1/releases/{release_id}/respond", respond, roles=infer_roles, request_schema="ResponseRequest", max_body=MAX_BODY),
     ]

@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.7 — 2026-10-31 (생산자 출력을 내보내기 전에 계약으로 검증, R7, U426)
+PATCH. `GET /v1/info`(RuntimeInfo), `GET`·`PUT /v1/releases/{id}`(ReleaseLoadStatus)에 `response_schema`를 걸었다. 본문이 계약을 어기면 내보내지 않고 503 UNAVAILABLE(openit_link가 한다, 위반 값은 싣지 않는다). 정상 본문과 와이어 형식은 그대로다. `test_producer_output_is_validated_before_it_leaves`가 위반 출력이 나가지 않음을 본다. extract·respond는 이미 역할 컴포넌트가 내보내기 전에 ActionExtraction·ResponseText로 검증하고(extract_role, respond_role), extract는 Route의 `response_schema=ActionExtraction`도 건다.
+
 ## 0.11.6 — 2026-10-31 (respond 호출 상한 기본 5.0초, ADR 0030, D119)
 PATCH(설정 기본값). `MODEL_RUNTIME_RESPOND_DEADLINE_S` 기본 2.0 -> 5.0(계약 표: extract 3.0·respond 5.0, 턴 마감 9초). 와이어 형식·응답·헤더는 그대로. 시험의 기본값 단언을 맞췄다.
 
