@@ -69,7 +69,7 @@ def test_contract_reader_loads_the_bundle_from_it(tmp_path):
     root = prepared(tmp_path)
     p, url = start(root, tmp_path)
     try:
-        b = HttpReleaseReader(url, "", timeout=HANG_GUARD_S)   # 매달림 감시.load_bundle("gpu-session", dest=tmp_path / "dest")
+        b = HttpReleaseReader(url, "", timeout=HANG_GUARD_S).load_bundle("gpu-session", dest=tmp_path / "dest")   # timeout은 매달림 감시
         assert b.manifest["release_id"] == "gpu-session" and set(b.adapters) == {"LORA_A", "LORA_B"}
     finally:
         p.kill(); p.wait()
