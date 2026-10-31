@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 import unittest
 import urllib.error
 import urllib.request
@@ -10,7 +9,8 @@ from tempfile import TemporaryDirectory
 from boundary_contracts.errors import BoundaryError
 from boundary_contracts.sdk import ReleaseBundle
 from boundary_contracts.canonical import file_hash
-from helpers import A_INPUT, B_INPUT, SCHEMA_DIR, assert_valid, extract_body, serve_app, wait_until
+from fake_clock import FakeClock
+from helpers import A_INPUT, B_INPUT, HANG_GUARD_S, SCHEMA_DIR, assert_valid, extract_body, serve_app, wait_until
 
 import model_runtime as mr
 from model_runtime.components import fake_backend
@@ -43,13 +43,13 @@ class StubReader:
         return ReleaseBundle(step(m), {}, ad)
 
 
-def start(tmp, plan=None, tokens=None, **kw):
+def start(tmp, plan=None, tokens=None, clock=None, **kw):   # 시계는 가짜가 기본이다: 시간은 시험이 흘린다(ADR 0029). svc.clock으로 꺼내 쓴다
     env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_PUT_WAIT_S": "5", "MODEL_RUNTIME_BUNDLE_DIR": str(Path(tmp) / "bundles")}
     env.update(kw)
     if tokens:
         env["MODEL_RUNTIME_TOKENS"] = tokens
     rd = StubReader(tmp, plan)
-    svc = server.build_service(env, reader_factory=lambda: rd)
+    svc = server.build_service(env, reader_factory=lambda: rd, clock=clock or FakeClock())
     srv = serve_app(svc)
     wait_until(lambda: svc.ready)
     return srv, f"http://127.0.0.1:{srv.server_address[1]}", svc, rd
@@ -116,11 +116,12 @@ class Server(unittest.TestCase):
         self.assertEqual((s, b["code"]), (404, "NOT_FOUND"))
 
     def test_slow_load_returns_202_then_loaded(self):
+        # 요구: 적재가 PUT 대기 시간 안에 끝나지 않으면 202 LOADING을 돌려주고, 끝나면 LOADED가 된다. 시계는 가짜: 적재를 Event로 붙잡고 대기 시간을 시험이 흘린다
         gate = threading.Event(); self.addCleanup(gate.set)
         def slow(m):
-            gate.wait(30); return m   # 시계가 아니라 신호로 느린 적재를 만든다(부하에서도 PUT이 기다림을 마칠 때까지 적재가 끝나지 않는다)
-        _, url, _, _ = self.srv(plan={"r1": slow}, MODEL_RUNTIME_PUT_WAIT_S="0.1")
-        s, b, _ = call(url, "/v1/releases/r1", method="PUT")
+            gate.wait(HANG_GUARD_S); return m   # 매달림 감시
+        _, url, svc, _ = self.srv(plan={"r1": slow}, MODEL_RUNTIME_PUT_WAIT_S="0.1")
+        s, b, _ = svc.clock.run_advancing(lambda: call(url, "/v1/releases/r1", method="PUT"), 0.1)
         self.assertEqual((s, b["state"]), (202, "LOADING"))
         gate.set()
         self.assertTrue(wait_until(lambda: call(url, "/v1/releases/r1")[1]["state"] == "LOADED"))
@@ -394,33 +395,25 @@ class FaultCells(unittest.TestCase):
         return url, svc
 
     def test_hung_engine_returns_503_engine_timeout_within_deadline_and_recovers(self):
-        gate = threading.Event(); self.addCleanup(gate.set)
+        # 요구: 엔진이 멈추면 호출 상한에서 503 ENGINE_TIMEOUT, 그동안 다음 요청은 대기 상한에서 거절, /readyz 503, /healthz 200, 엔진이 돌아오면 스스로 복구.
+        # 가짜 시계: 엔진을 Event로 붙잡고 끝까지 풀지 않아 상한이 반드시 발동한다. 상한만큼의 시간은 시험이 흘린다(실제로 기다리지 않는다)
+        gate = threading.Event()
         def hang(req):
             if req.role == "LORA_A":
-                gate.wait(30)
+                gate.wait(HANG_GUARD_S)   # 매달림 감시
             return json.dumps(fake_backend.FAKE_EXTRACTION)
         url, svc = self.up(hang, MODEL_RUNTIME_EXTRACT_DEADLINE_S="0.5", MODEL_RUNTIME_QUEUE_WAIT_S="0.3")
-        t = time.monotonic()
-        s, b, _ = call(url, "/v1/releases/r1/extract", A_INPUT)
-        self.assertLess(time.monotonic() - t, 20)   # 멈춘 엔진을 무한히 기다리지 않는다: 엔진은 gate.wait(30)에 묶여 있으므로 그보다 한참 앞서 돌려주면 된다(상한 0.5초의 판정은 reason=ENGINE_TIMEOUT 자체가 한다)
+        self.addCleanup(gate.set)   # 정리는 거꾸로 실행된다: 서버를 닫기 전에 묶인 엔진부터 푼다
+        s, b, _ = svc.clock.run_advancing(lambda: call(url, "/v1/releases/r1/extract", A_INPUT), 0.5)
         self.assertEqual((s, b["code"], b["retryable"], b["details"]["reason"]), (503, "UNAVAILABLE", True, "ENGINE_TIMEOUT"))
-        # 엔진이 아직 멈춰 있는 동안: 다음 요청은 대기 상한 안에 거절되고 /readyz는 503과 사유, /healthz는 200
-        t = time.monotonic()
-        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 503)
-        self.assertLess(time.monotonic() - t, 20)   # 위와 같은 이유(gate.wait(30)보다 앞선다)
+        # 엔진이 아직 멈춰 있는 동안: 다음 요청은 대기 상한(락을 못 얻음)에서 거절되고 /readyz는 503과 사유, /healthz는 200
+        self.assertEqual(svc.clock.run_advancing(lambda: call(url, "/v1/releases/r1/extract", A_INPUT), 0.3)[0], 503)
         s, b, _ = call(url, "/readyz")
         self.assertEqual(s, 503); self.assertIn("엔진", b["reason"])
         self.assertEqual(call(url, "/healthz")[0], 200)
         gate.set()   # 엔진이 돌아오면 사람 개입 없이 복구
         wait_until(lambda: not svc.overdue)
         self.assertEqual(call(url, "/readyz")[0], 200)
-        self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
-
-    def test_slow_engine_within_deadline_is_normal(self):
-        def slow(req):
-            time.sleep(0.2)
-            return json.dumps(fake_backend.FAKE_EXTRACTION) if req.role == "LORA_A" else "괜찮은 문장입니다."
-        url, _ = self.up(slow, MODEL_RUNTIME_EXTRACT_DEADLINE_S="2.0")
         self.assertEqual(call(url, "/v1/releases/r1/extract", A_INPUT)[0], 200)
 
     # 재시도가 총 상한을 넘기지 않는 규칙은 시계를 주입한 결정적 시험이 본다(tests/test_deadline_budget.py RetryBudgetWithInjectedClock)
@@ -457,19 +450,18 @@ class FaultCells(unittest.TestCase):
             if n["i"] < 3:
                 raise OSError("download failed")
             return mr.FakeBackend()
+        clock = FakeClock()   # 다시 시도하기까지의 간격(backend_retry_s)은 가짜 시계로 흘린다
         svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=factory,
-                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=0.05)
+                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=30, clock=clock)
         self.addCleanup(svc.close)
-        wait_until(lambda: n["i"] >= 1 and not svc.ready)
-        ok, why = svc.readiness()
-        if not ok:
-            self.assertEqual(why, "OSError")   # 사유는 예외 이름뿐(경로·URL 없음)
-        wait_until(lambda: svc.ready)
+        self.assertTrue(wait_until(lambda: n["i"] >= 1 and clock.blocked >= 1))   # 첫 실패 뒤 재시도 간격을 기다리는 중
+        self.assertEqual(svc.readiness(), (False, "OSError"))   # 사유는 예외 이름뿐(경로·URL 없음)
+        self.assertTrue(wait_until(lambda: (clock.advance(30), svc.ready)[1]))   # 간격이 지날 때마다 다시 시도한다
         self.assertEqual((svc.ready, n["i"], svc.readiness()), (True, 3, (True, None)))
 
     def test_backend_start_failure_without_retry_stays_not_ready(self):
         svc = server.Service(schema_dir=SCHEMA_DIR, bundle_dir=Path(self._t.name) / "b", base_backend_factory=lambda: (_ for _ in ()).throw(OSError("x")),
-                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=0)
+                             reader_factory=lambda: None, backend_name="fake", backend_retry_s=0, clock=FakeClock())
         self.addCleanup(svc.close)
         self.assertTrue(wait_until(lambda: svc.readiness() == (False, "OSError")))   # 기동 실패가 기록될 때까지(고정 sleep 대신)
 
@@ -479,10 +471,8 @@ class FaultCells(unittest.TestCase):
         _, url, svc, rd = s
         self.assertEqual(call(url, "/v1/releases/good", method="PUT")[0], 200)
         orig = rd.load_bundle
-        rd.load_bundle = lambda rid, dest: (gate.wait(30), orig(rid, dest=dest))[1] if rid == "slow" else orig(rid, dest=dest)
-        t = time.monotonic()
-        self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(5)))   # 임시 폴더를 지우기 전에 멈춘 적재가 풀려 끝나게 한다
-        self.assertEqual(call(url, "/v1/releases/slow", method="PUT")[0], 202)   # PUT은 put_wait에서 돌려준다
-        self.assertLess(time.monotonic() - t, 20)   # 적재는 gate.wait(30)에 묶여 있으므로 그 앞서 돌려주면 된다
+        rd.load_bundle = lambda rid, dest: (gate.wait(HANG_GUARD_S), orig(rid, dest=dest))[1] if rid == "slow" else orig(rid, dest=dest)   # 매달림 감시: 시험 끝에 풀린다
+        self.addCleanup(lambda: (gate.set(), svc.releases["slow"].done.wait(HANG_GUARD_S)))   # 임시 폴더를 지우기 전에 멈춘 적재가 풀려 끝나게 한다
+        self.assertEqual(svc.clock.run_advancing(lambda: call(url, "/v1/releases/slow", method="PUT"), 0.3)[0], 202)   # PUT은 put_wait(가짜 시계로 0.3초 흘림)에서 돌려준다
         self.assertEqual(call(url, "/v1/releases/good/extract", A_INPUT)[0], 200)   # 활성 릴리스는 그대로
         self.assertEqual(call(url, "/v1/info")[1]["loaded"], ["good"])

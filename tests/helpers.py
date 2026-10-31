@@ -1,5 +1,4 @@
 import json
-import time
 from pathlib import Path
 
 from boundary_contracts import validator
@@ -56,13 +55,17 @@ def cfgs_and_hashes(backend, a=None, b=None):
     return cfgs, {r: mr.serving_config_hash(c) for r, c in cfgs.items()}
 
 
-def wait_until(pred, timeout=20.0):   # 부하에서 느려질 뿐 틀리지 않게 넉넉히(조건이 참이 되면 바로 돌아온다)
-    """고정 sleep 대신 조건이 참이 될 때까지 기다린다(상한 안에서 짧게 폴링). 마지막 판정을 돌려준다."""
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
+from fake_clock import HANG_GUARD_SECONDS, _TICK   # 매달림 감시 마감 하나(근거는 fake_clock.py). 시험마다 숫자를 쓰지 않는다
+HANG_GUARD_S = HANG_GUARD_SECONDS
+
+
+def wait_until(pred, guard=HANG_GUARD_SECONDS):
+    """고정 sleep 대신 조건이 참이 될 때까지 기다린다. 조건이 참이 되면 바로 돌아온다. guard는 매달림 감시(조건이 영영 안 올 때 시험이 멈추게)이며 판정이 아니다.
+    폴링 횟수로 세므로 실제 시계를 읽지 않는다(5ms 간격은 폴링 간격일 뿐이다)."""
+    for _ in range(int(guard / 0.005)):
         if pred():
             return True
-        time.sleep(0.005)
+        _TICK.wait(0.005)
     return pred()
 
 

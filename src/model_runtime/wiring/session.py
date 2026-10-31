@@ -20,6 +20,7 @@ from ..types.RawResult import RawResult
 from ..types.ResponseResult import ResponseResult
 from .errors import (BackendNotAvailable, ContractViolation, ModelOutputInvalid, ServingConfigMismatch,
                      SystemPromptMismatch, UnsupportedServingConfig)
+from .clock import RealClock
 from .ports import ConstraintBackend
 from .prompt_api import render_prompt
 from .schema_gate import gate, violations
@@ -90,6 +91,7 @@ class _Session:
         self.system_prompt_hashes = {r: "sha256:" + hashlib.sha256(t.encode("utf-8")).hexdigest()
                                      for r, t in self._system_prompts.items()}
         self.last_call_info: CallInfo | None = None
+        self.clock = RealClock().monotonic   # 재시도 예산의 시계. 서비스가 레지스트리와 같은 시계로 바꾼다(wiring/service.py, ADR 0029)
         relaxed = _relax({"schema": schemas.model_output_schema("LORA_A"), "supported_features": sorted(backend.supported_features)})
         self._constraint = (relaxed["schema"], list(relaxed["removed"]))
 
@@ -98,7 +100,7 @@ class _Session:
 
     def _ports(self, role: str) -> dict:
         generate = self._backend.generate
-        return {"attempts": lambda spec, parse, check: _attempts(spec, generate=generate, parse=parse, check=check),
+        return {"attempts": lambda spec, parse, check: _attempts(spec, generate=generate, parse=parse, check=check, clock=self.clock),
                 "output_violations": lambda v: self._schemas.output_violations(role, v)}
 
     def _extract_call(self, input: Mapping, flow: Mapping, fields: Mapping, deadline, constrained: bool | None = None) -> dict:

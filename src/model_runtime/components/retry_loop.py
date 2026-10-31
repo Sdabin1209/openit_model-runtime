@@ -7,7 +7,6 @@ deadline(time.monotonic 기준)이 있으면 재시도는 남은 예산이 직�
 바깥 자원(백엔드 generate, 시계)은 인자로 받는다(DESIGN.md 2절)."""
 from __future__ import annotations
 
-import time
 from typing import Any, Callable, Mapping
 
 from ..types.GenerationRequest import GenerationRequest
@@ -16,7 +15,7 @@ INPUT, OUTPUT = "AttemptSpec", "AttemptsResult"
 
 
 def run(spec: Mapping, *, generate: Callable[[GenerationRequest], str], parse: Callable[[Any], tuple[Any, list]],
-        check: Callable[[Any], list], clock: Callable[[], float] = time.monotonic) -> dict:
+        check: Callable[[Any], list], clock: Callable[[], float]) -> dict:   # clock: 호출자가 준다(wiring이 실제 시계, 시험은 가짜 시계, ADR 0029)
     dec = spec["decoding"]
     deadline = spec["deadline"]
     value: Any = None

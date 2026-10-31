@@ -26,7 +26,6 @@ import logging
 import os
 import signal
 import sys
-import time
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -55,7 +54,7 @@ def parse_tokens(raw: str, *, allow_empty: bool) -> dict:
     return _token_table({"raw": raw, "allow_empty": allow_empty})
 
 
-def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None) -> Service:
+def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None, clock=None) -> Service:   # clock: 시험이 가짜 시계를 넣는 자리(없으면 실제 시계, ADR 0029)
     backend_name = env.get("MODEL_RUNTIME_BACKEND", "vllm")
     schema_dir = env.get("MODEL_RUNTIME_SCHEMA_DIR") or (EMBEDDED_SCHEMA_DIR if Path(EMBEDDED_SCHEMA_DIR).is_dir() else None)
     if not schema_dir:
@@ -115,7 +114,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     hf_home = None if (backend_name != "vllm" or offline) else (env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
     dirs = [env[k] for k in ("HOME", "XDG_CACHE_HOME", "VLLM_CACHE_ROOT", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TORCH_HOME")
             if env.get(k)]   # 환경 변수가 정한 것만 보장한다(이미지는 ENV로 모두 정해 둔다)
-    return Service(schema_dir=Path(schema_dir), hf_home=hf_home, runtime_dirs=sorted(set(dirs)), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
+    return Service(**({"clock": clock} if clock is not None else {}), schema_dir=Path(schema_dir), hf_home=hf_home, runtime_dirs=sorted(set(dirs)), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
                    release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),
                    base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
@@ -147,9 +146,7 @@ def main(env: Mapping[str, str] | None = None) -> None:
         srv.run()
     finally:
         srv.close()
-        end = time.monotonic() + float(env.get("MODEL_RUNTIME_SHUTDOWN_GRACE_S", "5"))
-        while svc.pending > 0 and time.monotonic() < end:
-            time.sleep(0.05)
+        svc.drain(float(env.get("MODEL_RUNTIME_SHUTDOWN_GRACE_S", "5")))
         svc.close()
 
 

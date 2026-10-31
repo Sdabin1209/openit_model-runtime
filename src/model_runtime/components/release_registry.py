@@ -14,7 +14,6 @@ import json
 import logging
 import shutil
 import threading
-import time
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -58,7 +57,7 @@ class Release:
 class Service:
     def __init__(self, *, schema_dir: Path, bundle_dir: Path, base_backend_factory: Callable[[], object],
                  reader_factory: Callable[[], object], backend_name: str, load_session: Callable[..., object],
-                 probe: Callable[[str], str | None], dirs_check: Callable[[Mapping], Mapping], runtime_version: str, facts: Mapping, tokens: Mapping[str, str] | None = None,
+                 probe: Callable[[str], str | None], dirs_check: Callable[[Mapping], Mapping], runtime_version: str, facts: Mapping, clock, tokens: Mapping[str, str] | None = None,
                  queue_wait_s: float = 3.0, put_wait_s: float = 3.0, max_releases: int = 4, test_hooks: Mapping | None = None,
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
@@ -71,7 +70,8 @@ class Service:
         self._probe = (0.0, None)   # (시각, 사유 또는 None)
         self.schema_dir, self.bundle_dir = Path(schema_dir), Path(bundle_dir)
         self.reader_factory, self.backend_name = reader_factory, backend_name
-        self.load_session, self.probe, self.runtime_version, self.facts = load_session, probe, runtime_version, facts   # wiring이 주입한다
+        self.load_session, self.probe, self.runtime_version, self.facts = load_session, probe, runtime_version, facts
+        self.clock = clock   # 시간을 읽고 기다리는 모든 일의 창구(monotonic, time, sleep, wait, acquire). wiring이 실제 시계를 넣는다(ADR 0029)   # wiring이 주입한다
         self.tokens = dict(tokens or {})
         self.queue_wait_s, self.put_wait_s, self.max_releases = queue_wait_s, put_wait_s, max_releases
         self.releases: dict[str, Release] = {}      # 삽입 순서 = 적재 순서
@@ -108,12 +108,19 @@ class Service:
             return False, "MODEL_RUNTIME_RELEASE_URL이 설정되지 않았다"
         if self.release_url:
             t, why = self._probe
-            if time.time() - t >= self.probe_ttl_s:
+            if self.clock.time() - t >= self.probe_ttl_s:
                 why = self.probe(self.release_url)   # 도달 못 하면 사유(호스트:포트만), 닿으면 None
-                self._probe = (time.time(), why)
+                self._probe = (self.clock.time(), why)
             if why:
                 return False, why
         return True, None
+
+    def drain(self, grace_s: float) -> bool:
+        """종료 때 진행 중인 호출이 끝나기를 grace_s초까지 기다린다. 다 끝났으면 True."""
+        end = self.clock.monotonic() + grace_s
+        while self.pending > 0 and self.clock.monotonic() < end:
+            self.clock.sleep(0.05)
+        return self.pending == 0
 
     def close(self):
         """종료 시 엔진을 내린다(시그널 처리에서 부른다). 내리지 않으면 EngineCore가 GPU 메모리를 쥔 채 남는다."""
@@ -136,7 +143,7 @@ class Service:
                 log.error("백엔드를 올리지 못함: %s", type(e).__name__)
             if self.backend_retry_s <= 0:
                 return
-            time.sleep(self.backend_retry_s)   # 모델 내려받기 실패 등은 돌아오면 사람 개입 없이 /readyz가 200이 된다(FAULT_POLICY 12)
+            self.clock.sleep(self.backend_retry_s)   # 모델 내려받기 실패 등은 돌아오면 사람 개입 없이 /readyz가 200이 된다(FAULT_POLICY 12)
 
     # --- 적재 ---
     def put(self, rid: str):
@@ -156,7 +163,7 @@ class Service:
                     del self.releases[k]   # 실패 항목이 무한히 쌓이지 않게 오래된 것부터 버린다
                 r = self.releases[rid] = Release()
                 threading.Thread(target=self._load, args=(rid, r), daemon=True).start()
-        r.done.wait(self.put_wait_s)
+        self.clock.wait(r.done, self.put_wait_s)
         if r.state == "LOADED":
             return 200, self.status_body(rid, r)
         if r.state == "LOADING":
@@ -254,18 +261,18 @@ class Service:
             if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
                 return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
             limit_s = self.deadlines[op]
-            deadline = time.monotonic() + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
-            if not self.engine_lock.acquire(timeout=max(0.0, min(self.queue_wait_s, deadline - time.monotonic()))):
+            deadline = self.clock.monotonic() + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
+            if not self.clock.acquire(self.engine_lock, max(0.0, min(self.queue_wait_s, deadline - self.clock.monotonic()))):
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             res: dict = {}
             done = threading.Event()
 
             def work():   # 엔진 호출은 끝날 때까지 락을 쥔다. 호출자는 상한에서 포기하고, 엔진이 돌아오면 락이 풀린다
                 try:
-                    t = time.time()
+                    t = self.clock.time()
                     out = r.session.extract(body, flow, fields, deadline=deadline) if op == "extract" else r.session.respond(body, deadline=deadline)   # 재시도는 남은 예산이 직전 시도 시간 이상일 때만(roles.run_attempts)
                     info = r.session.last_call_info
-                    self.avg_s = 0.8 * self.avg_s + 0.2 * (time.time() - t)
+                    self.avg_s = 0.8 * self.avg_s + 0.2 * (self.clock.time() - t)
                     res["ok"] = (out, info)
                 except BaseException as e:   # noqa: BLE001
                     res["err"] = e
@@ -274,7 +281,7 @@ class Service:
                     self.overdue = False
                     done.set()
             threading.Thread(target=work, daemon=True).start()
-            if not done.wait(max(0.0, deadline - time.monotonic())):
+            if not self.clock.wait(done, max(0.0, deadline - self.clock.monotonic())):
                 self.overdue = True
                 log.error("추론이 호출 상한 %.1fs를 넘겼다(op=%s)", limit_s, op)
                 return 503, BoundaryError("UNAVAILABLE", "추론이 요청 상한을 넘겼다", {"reason": "ENGINE_TIMEOUT"}).to_record(), {}
