@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 OUT="${1:-src/model_runtime/types}"
-[ -x .venv-codegen/bin/datamodel-codegen ] || { python3 -m venv .venv-codegen && .venv-codegen/bin/pip install -q -r requirements-codegen.lock; }
+# 여러 시험 프로세스가 동시에 처음 만들어도 부딪히지 않게 잠금으로 직렬화한다(없을 때만 만든다)
+( flock 9; [ -x .venv-codegen/bin/datamodel-codegen ] || { python3 -m venv .venv-codegen && .venv-codegen/bin/pip install -q -r requirements-codegen.lock; } ) 9>.venv-codegen.lock
 TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 TMP="$TMPD/schemas"; mkdir "$TMP"   # 폴더 이름을 고정한다(생성물 머리말에 입력 폴더 이름이 들어간다)
 cp schemas/*.json "$TMP/"   # examples/는 스키마가 아니므로 생성 입력에서 뺀다
