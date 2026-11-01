@@ -7,9 +7,9 @@
 
 | 시험(파일::이름) | 확인하려던 요구사항 | 처리 | 바뀐/대체 시험 |
 | --- | --- | --- | --- |
-| test_deadline_budget::test_extract_over_limit_gives_engine_timeout_within_3s_default | extract 호출 상한이 지나면 503 ENGINE_TIMEOUT | 1 | test_extract_over_limit_gives_engine_timeout (엔진을 Event로 영원히 붙잡고 가짜 시계로 상한만큼 흘림, 걸린 시간은 재지 않음) |
-| test_deadline_budget::test_respond_over_limit_gives_engine_timeout_within_2s_default | respond 호출 상한이 지나면 503 ENGINE_TIMEOUT | 1 | test_respond_over_limit_gives_engine_timeout |
-| test_deadline_budget::기본 상한 값 3.0/2.0 | 계약 표의 상한 값 | 설정 값 확인 | test_contract_table_defaults, test_server_settings::test_env_reaches_the_service, test_deadlines_sum_fits_the_turn_deadline (합은 재지 않고 값을 비교) |
+| test_deadline_budget::test_extract_over_limit_gives_engine_timeout_within_default | extract 호출 상한이 지나면 503 ENGINE_TIMEOUT | 1 | test_extract_over_limit_gives_engine_timeout (엔진을 Event로 영원히 붙잡고 가짜 시계로 상한만큼 흘림, 걸린 시간은 재지 않음) |
+| test_deadline_budget::test_respond_over_limit_gives_engine_timeout_within_default | respond 호출 상한이 지나면 503 ENGINE_TIMEOUT | 1 | test_respond_over_limit_gives_engine_timeout |
+| test_deadline_budget::기본 상한 값 20.0/25.0 | 계약 표의 상한 값 | 설정 값 확인 | test_contract_table_defaults, test_server_settings::test_env_reaches_the_service, test_deadlines_sum_fits_the_turn_deadline (합은 재지 않고 값을 비교) |
 | test_deadline_budget::재시도 예산(retry 중단) | 남은 예산이 직전 시도보다 짧으면 재시도하지 않음 | 1 | RetryBudgetWithInjectedClock 4건(retry_loop에 가짜 시계 주입) |
 | test_server::test_hung_engine_returns_503_engine_timeout_within_deadline_and_recovers | 멈춘 엔진: 상한에서 503, 다음 요청은 대기 상한에서 거절, /readyz 503, 복구 | 1 | 같은 이름(가짜 시계로 0.5초, 0.3초를 흘림) |
 | test_server::test_hung_release_server_during_load_keeps_active_release | 번들 읽기가 멈춰도 PUT은 202, 활성 릴리스는 그대로 | 1 | 같은 이름(가짜 시계로 PUT 대기 0.3초를 흘림) |

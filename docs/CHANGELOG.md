@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 미배포 — 2026-11-02 (호출 상한 extract 20.0초·respond 25.0초, ADR 0031, D125)
+설정 기본값. `MODEL_RUNTIME_EXTRACT_DEADLINE_S` 3.0 -> 20.0, `MODEL_RUNTIME_RESPOND_DEADLINE_S` 5.0 -> 25.0(계약 표: 합 45초 < 턴 마감 50초). 2초는 목표이고 서버가 강제하지 않는다. 와이어 형식은 그대로.
+
 ## 0.11.9 — 2026-10-31 (고정 버전 정렬)
 PATCH. Dockerfile 고정을 계약 v3.1.1 -> v3.1.2, openit-link v0.4.1 -> v0.4.3으로 올렸다(deploy 기준표와 같게). 동작 변경 없음.
 

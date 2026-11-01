@@ -1,6 +1,8 @@
 # ADR 0030: respond 호출 상한 5.0초와 턴 마감 9초 (ADR 0020의 값을 대체)
 
 ## 상태
+**값은 [ADR 0031](0031-deadline-failure-limit-d125.md)이 대체했다**(extract 20.0초·respond 25.0초, D125).
+
 채택(2026-10-31, 계약 CONVENTIONS '시간 상한 사슬' D119, 2026-10-30 사용자 결정). Supersedes: [ADR 0020](0020-per-call-deadline-budget.md)의 값(재시도 예산 규칙은 0020 그대로).
 
 ## 맥락
