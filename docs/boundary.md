@@ -56,7 +56,7 @@
 ## 인증·입력 한도 (0.7.3, 감사 MR-1/2/3/4/10, 근거는 docs/adr/0012)
 - **비밀 파일 이름(D84, deploy compose와 같다)**: `MODEL_RUNTIME_TOKENS_FILE`(역할별 토큰), `MODEL_RUNTIME_RELEASE_TOKEN_FILE`(I4 릴리스 게이트 읽기 토큰). 값은 이미지·설정·로그에 넣지 않고 파일 경로만 환경 변수로 받는다. 환경 변수 `MODEL_RUNTIME_TOKENS`/`MODEL_RUNTIME_RELEASE_TOKEN`은 개발·시험용 호환이다.
 - **인증은 기본 닫힘.** `MODEL_RUNTIME_TOKENS(_FILE)`가 없으면 시작을 거부한다(개발용 `MODEL_RUNTIME_ALLOW_NO_AUTH=1`만 예외). 빈 역할·빈 토큰·중복 토큰도 거부. `/v1/*`는 Bearer 토큰, 토큰은 상수 시간 비교. 역할 `loader`는 적재 PUT만, 그 밖의 역할은 PUT(`MODEL_RUNTIME_PUT_ROLES`로 제한 가능)·GET·extract·respond. survey-service가 404에서 PUT으로 다시 적재하므로(spec 5절) 기본은 인증된 모든 역할이 PUT 가능하다.
-- **`/readyz`와 `/healthz`의 구분.** `/healthz`는 프로세스가 살아 있으면 의존과 무관하게 200(FAULT_POLICY 5). `/readyz`는 백엔드·엔진 정지·엔진 예외·release 서버 도달성을 반영해 503이고, **사유는 인증된 호출에만** 준다(비인증은 `{"status":"not ready"}`만, 내부 주소·예외 이름 비노출). 엔진이 영영 멈추면 `/healthz`가 200이라 재시작이 일어나지 않으므로 밖이 `/readyz` 503 지속을 본다.
+- **`/readyz`와 `/healthz`의 구분.** `/healthz`는 프로세스가 살아 있으면 의존과 무관하게 200(FAULT_POLICY 5). `/readyz`는 백엔드·엔진 정지·엔진 예외·release 서버 도달성을 반영해 503이고, **사유는 인증된 호출에만** 준다(비인증은 `{"status":"not_ready"}`만, 내부 주소·예외 이름 비노출). 엔진이 영영 멈추면 `/healthz`가 200이라 재시작이 일어나지 않으므로 밖이 `/readyz` 503 지속을 본다.
 - **입력 길이.** JSON 직렬화한 입력이 2500자(`MODEL_RUNTIME_MAX_INPUT_CHARS`)를 넘으면 400. 엔진이 입력을 거부(`ValueError`)해도 400이며 `/readyz`는 그대로다. 엔진 사망(그 밖의 예외)은 503과 `/readyz` 503. 호출자는 상한을 넘는 발화를 보내지 않는다(survey-service 쪽 처리는 해당 영역 몫). 계약 스키마에 `maxLength`가 없는 점은 변경 요청 대상이다(`docs/change-requests/`).
 - **특수 토큰.** 입력 문자열 값 속의 채팅 특수 토큰 모양(`<|...|>`, `<think>` 등)은 `<` 뒤에 공백을 넣어 깨뜨린 뒤 모델에 준다. 학습 변환·`render_prompt`는 바꾸지 않는다(ADR 0011).
 - **연결 한도.** 소켓 timeout 15s, 동시 연결 32(넘으면 503), 동시 적재 2, 비정상 `Content-Length`·`Transfer-Encoding`·깊은 JSON은 400. SIGTERM은 새 연결을 그만 받고 진행 중 요청을 최대 5s 기다린 뒤 엔진을 내린다.
@@ -67,3 +67,8 @@
 - respond: 모델 출력이 깨지면 재료를 이은 대체 문장(`is_fallback`)이 나간다. 턴은 실패하지 않는다.
 - 로딩 거부(해시·프롬프트 불일치, 버전, 기반 모델)는 릴리스 적재 실패로 이어진다. 이전 릴리스를 유지하는 책임은 서비스에 있다(I4).
 - 개인정보: 로그·예외·응답 헤더에 발화·모델 출력 원문을 담지 않는다.
+
+## 영역 게이트웨이 출구(계약 3.4.4, RUNTIME R1.8, ADR 0035)
+
+- 이 영역이 영역 밖으로 부르는 상대는 release-gate(I4 번들 읽기) 하나다. 이미지 라벨 `io.openit.exposure`의 `egress`가 `["release-gate"]`이고 경로는 모두 `denied`다. 호출(번들 읽기와 도달성 확인)은 공통 환경 변수 `OPENIT_EGRESS_PROXY`(deploy가 준다)의 CONNECT 터널로만 나간다. 게이트웨이가 막으면 계약 클라이언트가 `PERMISSION_DENIED`(`details.reason=EGRESS_DENIED`)로 내고 적재는 실패한다(`GET /v1/releases/{id}`가 `FAILED`).
+- 잡 선언(`io.openit.jobs`)은 없다(주기 잡 없음). 데이터베이스와 백업도 없다(적재 상태는 메모리, 재시작을 넘지 않는다).

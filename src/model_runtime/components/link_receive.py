@@ -64,7 +64,7 @@ def make_app(svc) -> App:
         if ok:
             return True, {"status": "ready"}
         log.warning("not ready: %s", why)   # 사유는 호스트:포트와 예외 이름뿐이다(비밀 없음)
-        return False, {"status": "not ready", "reason": why}
+        return False, {"status": "not_ready", "reason": why}   # HealthStatus(계약 3.4.4, RUNTIME R5.1): 아님 표기는 not_ready 하나로 쓴다(옛 "not ready"는 계약이 받아 주지만 내지 않는다)
 
     def metrics(req: Request) -> Response:
         return Response(200, svc.metrics_text(), content_type=METRICS_CONTENT_TYPE)

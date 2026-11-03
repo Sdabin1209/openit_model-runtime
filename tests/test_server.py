@@ -319,7 +319,7 @@ class Location(unittest.TestCase):
         up = HTTPServer(("127.0.0.1", port), H); threading.Thread(target=up.serve_forever, daemon=True).start(); self.addCleanup(up.shutdown)
         self.assertEqual(call(url, "/readyz")[0], 200)
         st, b, _ = call(url, "/v1/releases/r1", method="PUT")
-        self.assertEqual(st, 404)   # 닿았고 I4가 그 릴리스를 모른다고 답한 것(전체 적재는 test_server_e2e.py)
+        self.assertEqual(st, 412)   # 닿았고 I4가 그 릴리스를 모른다고 답한 것: I9 PUT 실패 목록(412·422·503)에 맞춰 412(승인된 릴리스 없음)로 낸다(전체 적재는 test_server_e2e.py)
 
     def test_no_environment_specific_defaults_in_source(self):
         src = "\n".join(p.read_text(encoding="utf-8") for p in (Path(server.__file__).parent).glob("*.py"))

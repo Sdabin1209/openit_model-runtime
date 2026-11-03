@@ -36,7 +36,7 @@ from .components import env_check
 from .components.fake_backend import FakeBackend, make_default_responder
 from .components.flow_file_load import load_fake_corrections, load_fake_flow, load_fake_flow_spec, load_fake_reasks
 from .components.link_receive import INFER_DENY_ROLES, MAX_BODY, MAX_CONNECTIONS, make_app, make_server
-from .components.link_release_fetch import reader_factory_from_env
+from .components.link_release_fetch import egress_proxy_from_env, reader_factory_from_env
 from .components.release_registry import (CONN_TIMEOUT_S, DEFAULT_DEADLINES_S, MAX_FAILED_KEPT, MAX_INPUT_CHARS, MAX_LOADING, Release, STATUS, to_boundary)
 from .wiring.backends import mimic_backend_from_files
 from .wiring.schema_gate import gate
@@ -103,6 +103,10 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
             return VLLMBackend(None, profile=prof, base_model=env.get("MODEL_RUNTIME_BASE_MODEL") or None)
     else:
         raise SystemExit("MODEL_RUNTIME_BACKEND는 vllm, fake, mimic 중 하나")
+    try:
+        egress_proxy = egress_proxy_from_env(env)   # OPENIT_EGRESS_PROXY(CommonEnv)를 한 번 읽고 검증한다: loopback http:// 가 아니면 시작을 거부한다
+    except ValueError as e:
+        raise SystemExit(f"OPENIT_EGRESS_PROXY가 계약(CommonEnv)을 지키지 못했다: {e}")
     custom_reader = reader_factory
     if reader_factory is None:
         reader_factory = reader_factory_from_env(env)
@@ -113,7 +117,7 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
     return Service(**({"clock": clock} if clock is not None else {}), schema_dir=Path(schema_dir), hf_home=hf_home, runtime_dirs=sorted(set(dirs)), release_url=env.get("MODEL_RUNTIME_RELEASE_URL") or None,
                    release_required=custom_reader is None, probe_ttl_s=float(env.get("MODEL_RUNTIME_READY_PROBE_TTL_S", "5")),
                    bundle_dir=Path(env.get("MODEL_RUNTIME_BUNDLE_DIR", DEFAULT_BUNDLE_DIR)),
-                   base_backend_factory=factory, reader_factory=reader_factory, backend_name=backend_name, tokens=tokens,
+                   base_backend_factory=factory, reader_factory=reader_factory, egress_proxy=egress_proxy, backend_name=backend_name, tokens=tokens,
                    queue_wait_s=float(env.get("MODEL_RUNTIME_QUEUE_WAIT_S", "3.0")),
                    put_wait_s=float(env.get("MODEL_RUNTIME_PUT_WAIT_S", "3.0")),
                    deadlines={"extract": float(env.get("MODEL_RUNTIME_EXTRACT_DEADLINE_S", DEFAULT_DEADLINES_S["extract"])),

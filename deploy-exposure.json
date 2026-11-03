@@ -1,11 +1,20 @@
 {
   "service": "model-serving",
+  "egress": [
+    "release-gate"
+  ],
   "routes": [
     {
-      "paths": ["/v1/*", "/healthz", "/readyz", "/metrics"],
+      "paths": [
+        "/v1/*",
+        "/healthz",
+        "/readyz",
+        "/metrics"
+      ],
       "auth": {
         "kind": "denied"
-      }
+      },
+      "max_body_bytes": 4194304
     }
   ]
 }

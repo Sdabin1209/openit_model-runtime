@@ -1,5 +1,14 @@
 # 변경 이력
 
+## 0.11.18 — 2026-11-04 (계약 3.4.6 코드 단계)
+PATCH(HTTP 경로·공개 이름은 그대로).
+- 영역 게이트웨이 출구(RUNTIME R1.8, ADR 0035): 번들 읽기 클라이언트에 `egress_proxy=egress_proxy_from(environ)`, 도달성 확인도 같은 출구로만. 환경 변수의 프록시는 읽지 않는다. 잘못된 `OPENIT_EGRESS_PROXY`는 시작 거부.
+- 노출 선언 `egress: ["release-gate"]`(deploy-exposure.json). 잡·데이터베이스는 없다(ADR 0035).
+- `/readyz`의 아님 표기를 `not_ready`로(HealthStatus, R5.1). 옛 `not ready`는 내지 않는다.
+- 이웃(release-gate)의 거절을 호출자에게 새게 하지 않는다: 401·403(출구 거절 포함)·그 밖은 PUT 503, 404는 412(HTTP.md I9 PUT 실패 목록, R3.10 원칙). 판단이 들어간 변경이라 헤드가 확인한다.
+- `constraint_relax`는 `x-*` 주석 키워드를 엔진에 보내지 않고 완화 기록에도 넣지 않는다(0.11.17).
+- 시험 `tests/test_runtime_rows_344.py` 추가(계약 행별, 변이 확인 포함).
+
 ## 0.11.13 — 2026-11-03 (계약 3.4.0)
 PATCH. 계약 v3.3.0 -> v3.4.0, openit-link v0.4.5 -> v0.4.6 고정만(결과 도착 웹 푸시는 이 영역과 무관, 코드 변경 없음).
 

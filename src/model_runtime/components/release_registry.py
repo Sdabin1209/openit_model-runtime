@@ -38,7 +38,13 @@ STATUS = {"INVALID_RECORD": 400, "PERMISSION_DENIED": 403, "NOT_FOUND": 404, "CO
 def to_boundary(e: Exception) -> BoundaryError:
     """적재 중 예외를 BoundaryError로. 원문 없이 종류만 담는다."""
     if isinstance(e, BoundaryError):
-        return e
+        # 왜: HTTP.md I9의 PUT 실패 목록은 412·422·503뿐이다. 이웃(release-gate)의 401·403(토큰·출구 거절 EGRESS_DENIED)은 우리 호출자 토큰의 판정이 아니므로
+        # 밖으로 내지 않고(RUNTIME R3.10과 같은 원칙) 503으로 낸다. 404(이웃에 그 릴리스가 없음)는 '적재 안 됨' 404와 섞이므로 412(승인된 릴리스 없음)로 낸다.
+        if e.code in ("FAILED_PRECONDITION", "INTEGRITY_ERROR", "UNSUPPORTED_VERSION", "UNAVAILABLE"):
+            return e
+        if e.code == "NOT_FOUND":
+            return BoundaryError("FAILED_PRECONDITION", "release-gate에서 그 릴리스를 찾지 못했다")
+        return BoundaryError("UNAVAILABLE", f"release-gate 읽기가 거절됐다({e.code})")
     if isinstance(e, (ServingConfigMismatch, UnsupportedServingConfig, ContractViolation)) and not isinstance(e, BackendNotAvailable):
         return BoundaryError("FAILED_PRECONDITION", f"{type(e).__name__}: {str(e)[:200]}")
     if isinstance(e, SystemPromptMismatch):

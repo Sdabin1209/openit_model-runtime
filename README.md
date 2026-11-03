@@ -70,7 +70,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 현행 버전은 `src/model_runtime/wiring/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
 - 14차(0.6.0)에서 시험이 실패 없이 통과했고 CPU 이미지 빌드와 스모크가 통과했다(`/healthz`, `/readyz`, 라벨, non-root). 그때의 개수는 적지 않는다(실행 명령으로 센다, 이전 판의 값은 docs/STATUS.md).
-- **시험 상태**: 개수를 문서에 적지 않는다(적으면 코드와 어긋난다). 실행 명령으로 센다: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command)의 마지막 줄이 그 시점의 통과·건너뜀 수다. 건너뛰는 시험은 xgrammar가 없을 때, 참조 데이터 경로가 없을 때, 계약 태그를 GitHub에서 받지 못할 때다. 계약 태그는 Dockerfile의 `ARG BOUNDARY_VERSION`(v3.4.0), 통신 기반 라이브러리는 `ARG LINK_VERSION`(v0.4.6)이다. GPU 시험은 하지 않았다. 깨끗한 두 번째 환경에서 재현한 값은 없다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
+- **시험 상태**: 개수를 문서에 적지 않는다(적으면 코드와 어긋난다). 실행 명령으로 센다: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command)의 마지막 줄이 그 시점의 통과·건너뜀 수다. 건너뛰는 시험은 xgrammar가 없을 때, 참조 데이터 경로가 없을 때, 계약 태그를 GitHub에서 받지 못할 때다. 계약 태그는 Dockerfile의 `ARG BOUNDARY_VERSION`, 통신 기반 라이브러리는 `ARG LINK_VERSION`이다(값은 여기에 복사하지 않는다: 복사하면 판마다 어긋난다). 계약 3.4.x 행별 시험은 `tests/test_runtime_rows_344.py`(R1.8 출구, R5.1 HealthStatus, R3.19, R4.6, 401, 노출 선언), 전체 결과는 위 명령의 마지막 줄이다. GPU 시험은 하지 않았다. 깨끗한 두 번째 환경에서 재현한 값은 없다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
 
@@ -127,6 +127,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0032](docs/adr/0032-env-declaration-check.md) | 기동 때 환경 변수를 계약 선언 ModelServingEnv로 검증한다(U73) |
 | [0033](docs/adr/0033-prometheus-duration-metrics.md) | 소요 시간 지표를 prometheus_client로 기록하고 GET /metrics로 낸다(U71, 버킷은 측정 전) |
 | [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(채택, CR-007 수락) |
+| [0035](docs/adr/0035-region-gateway-egress-and-exposure.md) | 영역 게이트웨이 출구(OPENIT_EGRESS_PROXY)와 노출 선언 egress(계약 3.4.4~) |
 
 ## 더 자세한 문서
 

@@ -99,7 +99,7 @@ class Auth(unittest.TestCase):   # MR-1 역할, MR-10 readyz 노출
         _, url, svc, _ = self.srv(tokens="survey=SS")
         svc.engine_error = "RuntimeError"
         s, b, _ = call(url, "/readyz")
-        self.assertEqual((s, b), (503, {"status": "not ready"}))
+        self.assertEqual((s, b), (503, {"status": "not_ready"}))
         s, b, _ = call(url, "/readyz", token="SS")
         self.assertEqual(s, 503); self.assertIn("RuntimeError", b["reason"])
         self.assertEqual(call(url, "/healthz")[0], 200)

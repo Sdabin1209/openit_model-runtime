@@ -29,7 +29,8 @@ class Service(_Registry):
     def __init__(self, **kw):
         clock = kw.setdefault("clock", RealClock())
         kw.setdefault("load_session", lambda *a, **k: _with_clock(load(*a, **k), clock))
-        kw.setdefault("probe", probe)
+        egress_proxy = kw.pop("egress_proxy", None)   # 도달성 확인(클라이언트를 거치지 않는 바깥 호출)도 같은 출구로만 나간다(RUNTIME R1.8)
+        kw.setdefault("probe", lambda url: probe(url, egress_proxy=egress_proxy))
         kw.setdefault("dirs_check", _dirs_check)
         kw.setdefault("runtime_version", RUNTIME_VERSION)
         book = metrics_record.Book()   # 서비스마다 하나(ADR 0033)

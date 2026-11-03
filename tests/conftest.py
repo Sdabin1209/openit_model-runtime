@@ -23,7 +23,7 @@ def _release_url_for_injected_readers(monkeypatch, request):
         if "MODEL_RUNTIME_RELEASE_URL" not in env:
             env["MODEL_RUNTIME_RELEASE_URL"] = PLACEHOLDER_URL
             if reader_factory is not None:
-                monkeypatch.setattr(service_module, "probe", lambda url: None)
+                monkeypatch.setattr(service_module, "probe", lambda url, egress_proxy=None: None)
         return real(env, **({"reader_factory": reader_factory} if reader_factory is not None else {}), **kw)
 
     monkeypatch.setattr(server, "build_service", build_service)

@@ -99,7 +99,7 @@ class E2E(unittest.TestCase):
             self.assertEqual((s, b["code"]), (412, "FAILED_PRECONDITION"))   # 설정 해시 불일치
             self.assertEqual(call(url, "/v1/releases/rel-ok/extract", A_INPUT)[0], 200)
             s, b, _ = call(url, "/v1/releases/rel-none", method="PUT")        # I4에 없음
-            self.assertEqual(s, 404)
+            self.assertEqual((s, b["code"]), (412, "FAILED_PRECONDITION"))   # I4에 그 릴리스가 없음: I9 PUT 실패 목록에 맞춰 412
             info = call(url, "/v1/info")[1]
             self.assertEqual(info["system_prompt_sha256"], {r: sha256_file(p) for r, p in PROMPTS.items()})   # 패키지 프롬프트가 적재됐다
 

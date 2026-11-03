@@ -56,7 +56,7 @@ class SecretsHidden(unittest.TestCase):
         seen = {}
         import openit_link.clients as rel
         orig = rel.HttpReleaseReader
-        rel.HttpReleaseReader = lambda url, token, timeout: seen.setdefault("t", token)
+        rel.HttpReleaseReader = lambda url, token, timeout, egress_proxy=None: seen.setdefault("t", token)
         self.addCleanup(setattr, rel, "HttpReleaseReader", orig)
         p = os.path.join(self.t.name, "rt"); open(p, "w").write(SECRET + "\n")
         env = {"MODEL_RUNTIME_BACKEND": "fake", "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_RELEASE_URL": "http://127.0.0.1:9", "MODEL_RUNTIME_RELEASE_TOKEN_FILE": p,

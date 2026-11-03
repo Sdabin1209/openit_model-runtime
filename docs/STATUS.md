@@ -1,6 +1,8 @@
 # STATUS
 
-갱신: 2026-10-30 (24차, 0.11.3)
+갱신: 2026-11-04 (25차, 0.11.18)
+
+- 25차(0.11.17~0.11.18, 브랜치 code-contract-3.4.4, 계약 코드 단계): 계약 v3.4.7·link v0.4.13 고정. 영역 게이트웨이 출구(`OPENIT_EGRESS_PROXY`, 번들 읽기와 도달성 확인, ADR 0035), 노출 선언 `egress=[release-gate]`·`max_body_bytes`, `/readyz` `not_ready`, 이웃 거절을 PUT 503·412로(I9 PUT 실패 목록), `constraint_relax`의 `x-*` 주석 무시(0.11.17). 행별 시험 `tests/test_runtime_rows_344.py`(변이 확인은 커밋 메시지). **남은 일**: 실제 영역 게이트웨이를 거친 호출은 확인하지 못했다(CONNECT 자리표시 서버로만, deploy E2E 몫). GPU 시험은 하지 않았다. 잡·데이터베이스·백업은 없다(ADR 0035).
 
 - 24차(0.11.3, U400, 브랜치 wo-400): 영역 구조 개편(ADR 0028, docs/components.md). 컴포넌트 19개, schemas/ 39개(스키마 밖 조건 8건), types/ 생성, 구조 검사 통과(헤드 structure-check.py와 tests/test_structure.py). 계약 v3.1.2, openit-link v0.4.3 위로 link_receive를 다시 썼다. 시험 347 통과 2 건너뜀(이전과 같은 두 건; 새 clone+새 venv에서도 재현), 이미지 빌드와 smoke.sh 통과. **남은 일**: GPU 시험은 하지 않았다(vLLM 백엔드는 모킹 시험만).
 
