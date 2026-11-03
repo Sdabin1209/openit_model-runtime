@@ -21,7 +21,8 @@ def out(next_item, answer=False):
 
 
 GOOD = json.dumps(out("Q5"))          # Q4가 False면 Q4_1을 건너뛰고 Q5
-SKIPPED_ASKED = json.dumps(out("Q4_1"))   # 건너뛰어야 할 Q4_1을 물음 -> SKIP_ORDER_MISMATCH
+SKIPPED_ASKED = json.dumps(out("Q4_1"))   # 모델이 건너뛰어야 할 Q4_1을 냈다 -> 3.1.3부터 서버가 Q5로 채운다(ADR 0014), 위반이 아니다
+UNKNOWN_KEY = json.dumps({**out("Q5"), "values": [{"key": "Q77.answer", "value": False, "precision": "exact", "status": "ANSWERED", "save": True}]})   # 순서표에 없는 문항의 칸 -> UNKNOWN_ITEM(서버가 채울 수 없는 위반)
 
 
 class ServerRules(unittest.TestCase):
@@ -36,11 +37,10 @@ class ServerRules(unittest.TestCase):
         return url
 
     def test_violating_output_is_503_output_invalid_after_retries(self):
-        url = self.up(lambda req: SKIPPED_ASKED)
+        url = self.up(lambda req: UNKNOWN_KEY)
         s, b, _ = call(url, "/v1/releases/r1/extract", {"input": INPUT, "flow": FLOW, "fields": FIELDS})
-        print("위반:", s, b)
         self.assertEqual((s, b["details"]["reason"], b["details"]["attempts"]), (503, "OUTPUT_INVALID", 3))
-        self.assertIn("rule:SKIP_ORDER_MISMATCH:next_item", b["details"]["violations"])
+        self.assertIn("rule:UNKNOWN_ITEM:values", b["details"]["violations"])
         self.assertNotIn("답", json.dumps(b, ensure_ascii=False))   # 값·발화를 싣지 않는다
 
     def test_good_output_is_200(self):
@@ -49,14 +49,14 @@ class ServerRules(unittest.TestCase):
         self.assertEqual((s, b["next_item"], h["X-Openit-Outcome"], h["X-Openit-Attempts"]), (200, "Q5", "ok", "1"))
 
     def test_retry_recovers_from_a_violation(self):
-        seq = iter([SKIPPED_ASKED, GOOD])
+        seq = iter([UNKNOWN_KEY, GOOD])
         url = self.up(lambda req: next(seq))
         s, b, h = call(url, "/v1/releases/r1/extract", {"input": INPUT, "flow": FLOW, "fields": FIELDS})
         self.assertEqual((s, h["X-Openit-Attempts"]), (200, "2"))
 
     def test_old_body_without_flow_is_rejected_400(self):   # 3.0.0: 옛 ActionExtractionInput 본문은 받지 않는다(규칙 보증을 건너뛰는 길이 없다)
         calls = []
-        url = self.up(lambda req: calls.append(1) or SKIPPED_ASKED)
+        url = self.up(lambda req: calls.append(1) or UNKNOWN_KEY)
         s, b, _ = call(url, "/v1/releases/r1/extract", INPUT, wrap=False)
         self.assertEqual((s, b["code"]), (400, "INVALID_RECORD"))
         self.assertEqual(calls, [])   # 모델을 부르지 않았다
@@ -90,7 +90,7 @@ class LibraryRules(unittest.TestCase):
         return mr.FakeModelSession(cfgs, schema_dir=SCHEMA_DIR, expected_serving_config_hashes=hashes, backend=b)
 
     def test_flow_makes_violation_an_error(self):
-        s = self.session(lambda req: SKIPPED_ASKED)
+        s = self.session(lambda req: UNKNOWN_KEY)
         with self.assertRaises(mr.ModelOutputInvalid) as c:
             s.extract(INPUT, FLOW, FIELDS)
         self.assertEqual(c.exception.attempts, 3)
@@ -110,16 +110,16 @@ class RealFlowTable(unittest.TestCase):
                          "values": [{"key": first + ".x", "value": None, "precision": "unspecified", "status": "MISSING", "save": False}]})
         s = LibraryRules().session(lambda req: ok)
         self.assertEqual(s.extract(i, flow, FIELDS)["next_item"], first)
-        bad = json.dumps({**json.loads(ok), "next_item": flow["order"][-1]})
-        with self.assertRaises(mr.ModelOutputInvalid):
-            LibraryRules().session(lambda req: bad).extract(i, flow, FIELDS)
+        bad = json.dumps({**json.loads(ok), "next_item": flow["order"][-1]})   # 모델이 엉뚱한 다음 문항을 내도 서버가 REASK 규칙대로 지금 문항으로 채운다(3.1.3)
+        self.assertEqual(LibraryRules().session(lambda req: bad).extract(i, flow, FIELDS)["next_item"], first)
 
 
 class ParityWithReferenceServer(unittest.TestCase):
     """계약 기준 서버(RuntimeReferenceServer)와 같은 입력에 같은 (상태, 사유)를 낸다."""
-    CASES = [("규칙 위반 + flow", lambda: {"input": INPUT, "flow": FLOW, "fields": FIELDS}, SKIPPED_ASKED),
+    CASES = [("규칙 위반 + flow", lambda: {"input": INPUT, "flow": FLOW, "fields": FIELDS}, UNKNOWN_KEY),
+             ("next_item 어긋남 + flow(서버가 채움, 3.1.3)", lambda: {"input": INPUT, "flow": FLOW, "fields": FIELDS}, SKIPPED_ASKED),
              ("정상 + flow", lambda: {"input": INPUT, "flow": FLOW, "fields": FIELDS}, GOOD),
-             ("옛 본문, 위반 출력", lambda: INPUT, SKIPPED_ASKED),
+             ("옛 본문, 위반 출력", lambda: INPUT, UNKNOWN_KEY),
              ("flow 없는 input만", lambda: {"input": INPUT}, GOOD),
              ("fields 없음", lambda: {"input": INPUT, "flow": FLOW}, GOOD),
              ("스키마 위반 출력 + flow", lambda: {"input": INPUT, "flow": FLOW, "fields": FIELDS}, '{"action":"NEXT"}')]
@@ -152,3 +152,18 @@ class ParityWithReferenceServer(unittest.TestCase):
             s[2].releases["r1"].session._backend = mr.FakeBackend(lambda req, o=output: o)
             got, b, _ = call(s[1], "/v1/releases/r1/extract", body(), wrap=False)
             self.assertEqual((got, (b.get("details") or {}).get("reason") if got != 200 else None), want, name)
+
+
+class ServerFillsNextItem(unittest.TestCase):
+    """3.1.3(U74, ADR 0014): next_item은 서버가 순서표로 채운다. 모델이 없는 문항을 내도 200이고 채운 값이 나간다."""
+
+    def setUp(self):
+        self._t = TemporaryDirectory(); self.addCleanup(self._t.cleanup)
+
+    def test_model_next_item_is_overwritten_by_flow(self):
+        s = start(self._t.name); self.addCleanup(s[0].shutdown)
+        _, url, svc, _ = s
+        call(url, "/v1/releases/r1", method="PUT")
+        svc.releases["r1"].session._backend = mr.FakeBackend(lambda req: json.dumps(out("Q99")))   # 순서표에 없는 문항
+        st, body, h = call(url, "/v1/releases/r1/extract", {"input": INPUT, "flow": FLOW, "fields": FIELDS})
+        self.assertEqual((st, body["next_item"], h["X-Openit-Outcome"], h["X-Openit-Attempts"]), (200, "Q5", "ok", "1"), body)

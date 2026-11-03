@@ -10,7 +10,7 @@ import logging
 from collections import Counter
 from typing import Any, Callable, Mapping
 
-from boundary_contracts.action_rules import apply_value_rules, check_action_extraction
+from boundary_contracts.action_rules import fill_next_item, apply_value_rules, check_action_extraction
 
 
 log = logging.getLogger("model_runtime")  # 발화·출력 원문은 남기지 않는다.
@@ -43,6 +43,11 @@ def _rule_violations(value: Any, call: Mapping, output_violations, box: dict) ->
     errs = _schema_violations(output_violations, value)
     if errs:
         return errs
+    # next_item은 서버가 정한다(계약 3.1.3 ADR 0014, 규칙 next_item.derived_by=server): 모델 값은 참고일 뿐이라 규칙 검사 전에 채운다
+    filled = fill_next_item(dict(input), value, dict(flow))
+    if filled != value:
+        box["output"], box["applied"] = filled, ["NEXT_ITEM_FILLED"]
+        value = filled
     errs = [f"rule:{v.code}:{v.path}" for v in check_action_extraction(dict(input), value, dict(flow))]
     if errs:
         return errs
@@ -53,7 +58,7 @@ def _rule_violations(value: Any, call: Mapping, output_violations, box: dict) ->
         again = _schema_violations(output_violations, changed) or [f"rule:AFTER_VALUE_RULES_{v.code}:{v.path}" for v in check_action_extraction(dict(input), changed, dict(flow))]
         if again:
             return again   # 계약 기준 구현끼리 어긋난 것이다. 값을 내보내지 않고 다시 생성한다
-        box["output"], box["applied"] = changed, list(applied)
+        box["output"], box["applied"] = changed, box.get("applied", []) + list(applied)
     return []
 
 

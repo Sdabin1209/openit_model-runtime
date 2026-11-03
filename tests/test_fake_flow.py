@@ -70,8 +70,9 @@ class FakeFlow(unittest.TestCase):
         inp = a_input("Q1.D01")
         fixed = session().extract(inp, *rules_for(inp))   # 고정 출력(다음은 END)은 한 문항 흐름에서만 규칙을 지킨다
         self.assertEqual([x.code for x in validate_extraction(inp, fixed, flow)], ["SKIP_ORDER_MISMATCH"])   # 실제 흐름표로 보면 위반이다
-        with self.assertRaises(mr.ModelOutputInvalid):   # 서버(세션)는 그런 출력을 내보내지 않는다(3.0.0: 규칙 보증은 항상)
-            session().extract(inp, *rf(inp, flow))
+        out = session().extract(inp, *rf(inp, flow))   # 3.1.3(ADR 0014): 서버가 next_item을 흐름표로 채우므로 내보내는 출력은 규칙을 지킨다
+        self.assertEqual(validate_extraction(inp, out, flow), [])
+        self.assertNotEqual(out["next_item"], fixed["next_item"])
 
     def test_flow_file_formats_and_errors(self):
         with TemporaryDirectory() as t:
