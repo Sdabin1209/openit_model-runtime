@@ -271,6 +271,8 @@ def relax(schema: dict, supported_features: Iterable[str]) -> tuple[dict, list[s
                     changed.add(k)
                 else:
                     out[k] = node(v, f"{path}/{k}") if isinstance(v, dict) else v
+            elif k.startswith("x-"):
+                continue   # 왜: x-producers/x-consumers 등은 계약의 주석 키워드(JSON Schema 2020-12 8.1 미지 키워드=주석)로 검증 판정에 영향이 없다. 엔진에는 보내지 않고, 판정이 바뀐 완화가 아니므로 removed에 기록하지 않는다(v3.4.4 스키마에서 추가됨)
             else:
                 if k.startswith("$") or k in feats or k in ("title", "description"):
                     out[k] = v
