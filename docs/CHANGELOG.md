@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.11.19 — 2026-11-04 (계약 3.4.8)
+PATCH. 계약 v3.4.7 -> v3.4.8, openit-link v0.4.13 -> v0.4.14 고정만(PublishRequest 이름 변경, 이 영역 코드 영향 없음).
+
 ## 0.11.18 — 2026-11-04 (계약 3.4.6 코드 단계)
 PATCH(HTTP 경로·공개 이름은 그대로).
 - 영역 게이트웨이 출구(RUNTIME R1.8, ADR 0035): 번들 읽기 클라이언트에 `egress_proxy=egress_proxy_from(environ)`, 도달성 확인도 같은 출구로만. 환경 변수의 프록시는 읽지 않는다. 잘못된 `OPENIT_EGRESS_PROXY`는 시작 거부.
