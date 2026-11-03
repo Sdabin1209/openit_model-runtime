@@ -9,6 +9,7 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from boundary_contracts import read_secret
+from boundary_contracts.clients import require_tls_url
 
 INPUT, OUTPUT = "PutRequest", "HttpResult"   # 호출 한 건의 이름표(번들 읽기는 릴리스 ID 하나를 받는다)
 
@@ -25,6 +26,7 @@ def reader_factory_from_env(env) -> Callable[[], object]:
 def probe(release_url: str) -> str | None:
     """release 서버에 닿으면 None, 아니면 사유(호스트:포트와 예외 이름만)."""
     try:
+        require_tls_url(release_url)   # 계약 3.4.1(U99): 직접 호출도 계약 클라이언트와 같은 TLS 규칙(loopback 밖 평문 거부)
         with urllib.request.urlopen(release_url.rstrip("/") + "/healthz", timeout=2):   # 소켓 timeout 2초: 도달성 확인이 /readyz 응답을 오래 붙잡지 않게. 값 2는 측정·표준 근거 없는 초기값(ADR 0012, 결과는 MODEL_RUNTIME_READY_PROBE_TTL_S 동안 캐시)
             return None
     except Exception as e:   # noqa: BLE001
