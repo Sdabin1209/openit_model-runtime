@@ -2,6 +2,19 @@
 # 컨테이너 스모크(CPU/가짜 백엔드): 이미지를 빌드해 /healthz, /readyz, /v1/.../extract, 라벨, non-root를 확인한다.
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
+# 실패하면 컨테이너를 지우기 전에 상태와 로그를 남긴다(정리 순서 결함 수정 2026-11-03: 지우고 나면 실패 원인을 볼 수 없다).
+# inspect 는 State 만 낸다(전체 inspect 는 환경 변수가 섞인다).
+smoke_diag() {
+  local rc=$1; shift
+  [ "$rc" -eq 0 ] && return 0
+  for c in "$@"; do
+    [ -n "$c" ] || continue
+    docker inspect "$c" >/dev/null 2>&1 || continue
+    echo "=== 실패(종료 코드 $rc): 컨테이너 $c 진단 ===" >&2
+    docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "$c" >&2 || true
+    docker logs --tail 100 "$c" >&2 2>&1 || true
+  done
+}
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 # 계약 태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION이다(여기에 버전 숫자를 따로 적지 않는다). BOUNDARY_TAG 환경 변수로 덮어쓸 수 있다
 BOUNDARY_TAG="${BOUNDARY_TAG:-$(sed -n 's/^ARG BOUNDARY_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$HERE/Dockerfile" | head -1)}"
@@ -9,7 +22,7 @@ BOUNDARY_TAG="${BOUNDARY_TAG:-$(sed -n 's/^ARG BOUNDARY_VERSION=\(v[0-9][0-9.]*\
 MR_VERSION="$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/pyproject.toml")"
 TAG="model-runtime:smoke-$$"; NAME="model-runtime-smoke-$$"
 BDIR="$(mktemp -d)"
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
+trap 'smoke_diag $? "$NAME" "${NAME}-ro" "${NAME2:-}"; docker rm -f "$NAME" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR"' EXIT
 # 계약 소스는 작업 트리가 아니라 태그 그대로다. 형제 폴더가 있으면 거기서 git archive로(오프라인 가능), 없으면 GitHub에서 태그를 얕게 clone한다(새 머신은 형제 폴더가 없다).
 # BOUNDARY_REPO: 형제 폴더 배치가 다른 작업 트리(git worktree)에서 계약 리포 위치를 줄 때 쓴다
 if git -C "${BOUNDARY_REPO:-$HERE/../boundary-contracts}" archive "$BOUNDARY_TAG" 2>/dev/null | tar -x -C "$BDIR" 2>/dev/null && [ -f "$BDIR/pyproject.toml" ]; then :
@@ -20,7 +33,7 @@ else
 fi
 # 이미지는 영역 빌드 진입점으로 만든다(deploy가 부르는 것과 같은 경로, ADR 0025). 문진 스키마는 시험 고정물이고 버전은 그 pyproject.toml의 패키지 버전이다
 SSV="v$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$HERE/tests/fixtures/schema/pyproject.toml")"
-REQDIR="$(mktemp -d)"; trap 'docker rm -f "$NAME" "${NAME}-ro" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT   # 요청 파일은 계약 소스(빌드 컨텍스트) 밖에 둔다
+REQDIR="$(mktemp -d)"; trap 'smoke_diag $? "$NAME" "${NAME}-ro" "${NAME2:-}"; docker rm -f "$NAME" "${NAME}-ro" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT   # 요청 파일은 계약 소스(빌드 컨텍스트) 밖에 둔다
 REQ="$REQDIR/request.json"
 python3 -c 'import json,sys;a=sys.argv;print(json.dumps({"source_dir":a[1],"revision":a[2],"versions":{"boundary":a[3],"model_runtime":a[4],"survey_schema":a[5]},
   "dependency_sources":{"boundary":a[6],"survey_schema":a[7]},"image_tag":a[8]}))' "$HERE" "$(git -C "$HERE" rev-parse --short HEAD)" "$BOUNDARY_TAG" "v$MR_VERSION" "$SSV" "$BDIR" "$HERE/tests/fixtures/schema" "$TAG" > "$REQ"
@@ -45,7 +58,7 @@ echo "PUT without I4: $code"; [ "$code" = 503 ] || { echo "503이어야 한다" 
 docker exec "$NAME" python -c "import os,tempfile;tempfile.TemporaryFile(dir=os.environ['MODEL_RUNTIME_BUNDLE_DIR'])" && echo "bundle dir writable"
 NAME2="$NAME-ro"
 docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
-trap 'docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT
+trap 'smoke_diag $? "$NAME" "${NAME}-ro" "${NAME2:-}"; docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT
 PORT2="$(docker port "$NAME2" 8080/tcp | head -1 | sed 's/.*://')"
 for i in $(seq 1 20); do curl -sf "http://127.0.0.1:$PORT2/healthz" >/dev/null && break; sleep 1; done
 code="$(curl -s -o /tmp/ro.$$ -w '%{http_code}' "http://127.0.0.1:$PORT2/readyz")"; cat /tmp/ro.$$; echo; rm -f /tmp/ro.$$
