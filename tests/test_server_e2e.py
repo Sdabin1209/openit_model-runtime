@@ -36,8 +36,8 @@ def make_release(rid, tamper=False):
     ex["release_id"] = rid
     ex["model_runtime_version"] = mr.RUNTIME_VERSION
     ex["runtime_contract_version"] = 1
-    bank = {"version": 3, "questions": []}
-    ex["question_set"] = ref_of("qs-main", "3", bank)
+    bank = {"question_set_id": "qs-main", "title": "시험 문진표", "version": 3, "questions": []}
+    ex["question_sets"] = [dict(ref_of("qs-main", "3", bank), title="시험 문진표")]   # 계약 3.3.0: 문진표 목록
     cfgs = mr.fake_serving_configs()
     files = {r: {"adapter_config.json": json.dumps({"r": 8, "base_model_name_or_path": "x"}).encode(),
                  "adapter_model.safetensors": b"\0", "system_prompt.txt": PROMPTS[r]} for r in cfgs}

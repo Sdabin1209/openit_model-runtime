@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """학습된 LoRA A·B 어댑터 한 쌍과 C1 시스템 프롬프트로 model-runtime이 읽는 릴리스 디렉터리를 만든다(GPU 세션 키트, docs/GPU_SESSION.md).
 
-결과(OUT/<release_id>/): manifest.json(ReleaseManifest, 계약 검증함), question_bank.json(빈 문항 은행: 이 측정은 문항을 쓰지 않는다),
+결과(OUT/<release_id>/): manifest.json(ReleaseManifest, 계약 검증함), question_banks/gpu-session-bank.json(빈 문항 은행: 이 측정은 문항을 쓰지 않는다),
 adapters/LORA_A, adapters/LORA_B(adapter_config.json, adapter_model.safetensors, system_prompt.txt). OUT/PREPARE_REPORT.json에 어댑터 파일 해시,
 시스템 프롬프트 종류 수, 기반 모델 이름, 서빙 설정 값을 남긴다. 이 디렉터리를 release_server.py가 I4(HTTP.md) 모양으로 내주면 서버가 PUT으로 적재한다.
 
@@ -178,8 +178,10 @@ def build(a: argparse.Namespace) -> dict:
             cfg["base_model_name_or_path"] = base_model
             (d / "adapter_config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         (d / "system_prompt.txt").write_bytes(prompts[role])
-    bank = {"version": 1, "questions": []}
-    (out / "question_bank.json").write_text(json.dumps(bank), encoding="utf-8")
+    # 3.3.0: 번들은 문진표마다 question_banks/<id>.json 이고 매니페스트는 question_sets[](제목 포함). 측정용 빈 문진표 하나.
+    bank = {"question_set_id": "gpu-session-bank", "title": "GPU 세션 측정용 빈 문진표", "version": 1, "questions": []}
+    (out / "question_banks").mkdir(exist_ok=True)
+    (out / "question_banks" / "gpu-session-bank.json").write_text(json.dumps(bank), encoding="utf-8")
     ad = {}
     for role in ROLES:
         cfg = mr.fake_serving_config(backend)
@@ -193,7 +195,7 @@ def build(a: argparse.Namespace) -> dict:
         report["roles"][role]["serving_config"] = cfg
     ref = lambda i, v: {"id": i, "version": v, "content_hash": sha256_hash({"gpu-session": i})}   # noqa: E731
     m = {"pipeline_schema_version": PIPELINE_SCHEMA_VERSION, "release_id": a.release_id, "created_at": CREATED_AT, "gate_decision_id": "gpu-session-no-gate",
-         "question_set": {"id": "gpu-session-bank", "version": "1", "content_hash": sha256_hash(bank)},
+         "question_sets": [{"id": "gpu-session-bank", "version": "1", "content_hash": sha256_hash(bank), "title": bank["title"]}],
          "lora_a": ref("lora-a-trained", "gpu-session"), "lora_b": ref("lora-b-trained", "gpu-session"),
          "runtime_contract_version": mr.SUPPORTED_RUNTIME_CONTRACT_VERSION, "action_rules_version": a.action_rules_version, "model_runtime_version": mr.RUNTIME_VERSION,
          "adapters": ad,

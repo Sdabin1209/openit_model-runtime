@@ -70,24 +70,9 @@ def wait_until(pred, guard=HANG_GUARD_SECONDS):
 
 
 def question_flow_table():
-    """시험용 문항 흐름표(QuestionFlowTable 모양: order, skips). 정본은 문진 스키마의 data/question_flow.json이고 사본을 두지 않는다(ADR 0021).
-    찾는 순서: 설치된 survey_schema 패키지 -> 환경 변수 SURVEY_SCHEMA_DIR -> 상위 폴더들의 survey-service/schema. 없으면 건너뛴다(읽을 수 없는 것을 있는 척하지 않는다)."""
-    import os
-    import pytest
-    flow = None
-    try:
-        from survey_schema import load_data
-        flow = load_data("question_flow")
-    except Exception:   # noqa: BLE001 (미설치 또는 데이터 없음: 아래 경로로)
-        roots = [Path(os.environ["SURVEY_SCHEMA_DIR"])] if os.environ.get("SURVEY_SCHEMA_DIR") else []
-        roots += [p / "survey-service" / "schema" for p in Path(__file__).resolve().parents]
-        for r in roots:
-            f = r / "data" / "question_flow.json"
-            if f.is_file():
-                flow = json.loads(f.read_text(encoding="utf-8"))
-                break
-    if flow is None:
-        pytest.skip("문진 스키마의 question_flow.json을 찾지 못했다(survey_schema 설치 또는 SURVEY_SCHEMA_DIR)", allow_module_level=True)
+    """시험용 문항 흐름표(QuestionFlowTable 모양: order, skips). 3.3.0: 흐름표의 정본은 세션의 문진표(survey-service가 order·prerequisite에서 만든다)이고
+    고정 파일은 없다. 이 시험은 모델이 학습한 데이터셋 v2의 흐름(31문항, 7규칙)을 tests/fixtures/question_flow_table.json 으로 보존해 쓴다."""
+    flow = json.loads((Path(__file__).resolve().parent / "fixtures" / "question_flow_table.json").read_text(encoding="utf-8"))
     table = {"order": list(flow["order"]), "skips": list(flow["skips"])}   # 계약 QuestionFlowTable은 order와 skips만 받는다
     assert_valid("QuestionFlowTable", table)
     return table

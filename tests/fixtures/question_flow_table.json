@@ -1,0 +1,80 @@
+{
+  "$comment": "시험용 문항 흐름표(계약 QuestionFlowTable). 3.3.0부터 흐름표는 survey-service가 세션의 문진표(order·prerequisite)에서 만들며 고정 파일은 없다. 이 파일은 학습 데이터셋 v2의 순서·건너뛰기(31문항, 7규칙)를 시험 입력으로 보존한 것이다(모델이 학습한 흐름).",
+  "order": [
+    "Q1.D01",
+    "Q1.D02",
+    "Q1.D03",
+    "Q1.D04",
+    "Q1.D05",
+    "Q1.D06",
+    "Q1.D07",
+    "Q1.D08",
+    "Q1.D09",
+    "Q1.D10",
+    "Q1.D11",
+    "Q2.D01",
+    "Q2.D02",
+    "Q2.D03",
+    "Q2.D04",
+    "Q2.D05",
+    "Q3",
+    "Q4",
+    "Q4_1",
+    "Q5",
+    "Q5_1",
+    "Q6",
+    "Q6_1",
+    "Q7",
+    "Q7_1",
+    "Q7_2",
+    "Q8_1",
+    "Q8_2",
+    "Q9_1",
+    "Q9_2",
+    "Q10"
+  ],
+  "skips": [
+    {
+      "slot": "Q4.answer",
+      "op": "==",
+      "value": false,
+      "skip_item": "Q4_1"
+    },
+    {
+      "slot": "Q5.answer",
+      "op": "==",
+      "value": false,
+      "skip_item": "Q5_1"
+    },
+    {
+      "slot": "Q6.answer",
+      "op": "==",
+      "value": false,
+      "skip_item": "Q6_1"
+    },
+    {
+      "slot": "Q7.does_not_drink",
+      "op": "==",
+      "value": true,
+      "skip_item": "Q7_1"
+    },
+    {
+      "slot": "Q7.does_not_drink",
+      "op": "==",
+      "value": true,
+      "skip_item": "Q7_2"
+    },
+    {
+      "slot": "Q8_1.days",
+      "op": "==",
+      "value": 0,
+      "skip_item": "Q8_2"
+    },
+    {
+      "slot": "Q9_1.days",
+      "op": "==",
+      "value": 0,
+      "skip_item": "Q9_2"
+    }
+  ]
+}

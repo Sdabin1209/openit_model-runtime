@@ -101,6 +101,24 @@ class LibraryRules(unittest.TestCase):
         self.assertEqual(self.session(lambda req: GOOD).extract(INPUT, FLOW, FIELDS)["next_item"], "Q5")
 
 
+class SkipOperators(unittest.TestCase):
+    """3.3.0(계약): 흐름표 skips 의 여섯 연산자를 서버가 계약 함수(fill_next_item)로 평가해 next_item 을 채운다(중복 구현 없음)."""
+    def _next(self, op, value, saved):
+        flow = {"order": ["Q4", "Q8_1", "Q8_2", "Q9"], "skips": [{"slot": "Q8_1.days", "op": op, "value": value, "skip_item": "Q8_2"}]}
+        inp = {"question_id": "Q8_1", "current_question": "질문", "user_utterance": "답", "state": {}}
+        fields = {"fields": [{"slot": "Q8_1.days", "data_type": "integer", "minimum": 0, "maximum": 7}]}
+        o = json.dumps({"action": "NEXT", "next_item": "Q8_2",
+                        "values": [{"key": "Q8_1.days", "value": saved, "precision": "exact", "status": "ANSWERED", "save": True}]})
+        return LibraryRules().session(lambda req: o).extract(inp, flow, fields)["next_item"]
+
+    def test_six_operators_drive_next_item(self):
+        self.assertEqual(self._next("==", 0, 0), "Q9"); self.assertEqual(self._next("==", 0, 3), "Q8_2")
+        self.assertEqual(self._next("!=", 0, 3), "Q9"); self.assertEqual(self._next("!=", 0, 0), "Q8_2")
+        self.assertEqual(self._next(">", 2, 3), "Q9"); self.assertEqual(self._next(">", 2, 2), "Q8_2")
+        self.assertEqual(self._next(">=", 2, 2), "Q9"); self.assertEqual(self._next("<", 2, 1), "Q9")
+        self.assertEqual(self._next("<=", 2, 2), "Q9"); self.assertEqual(self._next("<=", 2, 3), "Q8_2")
+
+
 class RealFlowTable(unittest.TestCase):
     def test_survey_schema_flow_is_accepted_and_drives_the_check(self):
         flow = question_flow_table()

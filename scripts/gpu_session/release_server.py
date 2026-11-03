@@ -6,7 +6,7 @@ model-runtime 서버는 PUT /v1/releases/{id} 때 MODEL_RUNTIME_RELEASE_URL의 I
 설치 패키지에 들어 있지 않아 서버에 따로 올려야 하므로 쓰지 않는다.
 
 사용: release_server.py ROOT_DIR [--port N] [--port-file F]   (--port 0이면 빈 포트, 고른 포트를 --port-file에 쓴다)
-엔드포인트: GET /healthz, GET /v1/releases/{id} (manifest.json), GET /v1/releases/{id}/bundle (tar: manifest.json, question_bank.json, adapters/<역할>/…)"""
+엔드포인트: GET /healthz, GET /v1/releases/{id} (manifest.json), GET /v1/releases/{id}/bundle (tar: manifest.json, question_banks/<문진표 id>.json, adapters/<역할>/…; 계약 3.3.0)"""
 from __future__ import annotations
 
 import argparse

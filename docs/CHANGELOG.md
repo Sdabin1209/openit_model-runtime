@@ -1,5 +1,11 @@
 # 변경 이력
 
+## 0.11.12 — 2026-11-03 (계약 3.3.0: 문진표 여러 개, 건너뛰기 연산자 6종)
+PATCH(공개 이름·HTTP 경로는 그대로).
+- Dockerfile·pyproject 고정: 계약 v3.2.0 -> v3.3.0, openit-link v0.4.4 -> v0.4.5. 서버가 next_item 을 채울 때 흐름표 skips 의 여섯 연산자(`==,!=,>,>=,<,<=`)를 계약 `action_rules.fill_next_item`(holds)으로 평가한다(코드 변경 없음, 계약 함수가 평가; 시험 SkipOperators 추가).
+- 시험의 흐름표: 문진 스키마의 고정 파일 `data/question_flow.json` 은 3.3.0 에서 없어졌다(흐름은 survey-service 가 세션의 문진표에서 만든다). 시험은 모델이 학습한 데이터셋 v2 흐름을 `tests/fixtures/question_flow_table.json` 으로 보존해 쓴다.
+- 문진 스키마 정수 버전은 1 그대로다(문진 스키마 패키지 4.0.0 은 모델 입출력을 바꾸지 않는다, 계약 CONVENTIONS 12절 개정).
+
 ## 0.11.11 — 2026-11-03 (계약 3.2.0, 환경 선언 검증, 소요 시간 지표)
 PATCH(공개 이름·HTTP 경로·헤더는 그대로, `GET /metrics`만 더해졌다).
 - Dockerfile 고정: 계약 v3.1.3 -> v3.2.0, openit-link v0.4.3 -> v0.4.4(잠금 파일·pyproject에는 openit-link 핀이 없다. 정본은 Dockerfile의 ARG LINK_VERSION).
