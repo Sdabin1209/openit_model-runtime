@@ -14,7 +14,8 @@
     "max_num_seqs": 4,
     "max_loras": 2,
     "max_lora_rank": 16,
-    "enforce_eager": false
+    "enforce_eager": false,
+    "enable_prefix_caching": true
   },
   "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "이미지에 nvcc가 없으면 FlashInfer JIT 샘플러가 실패한다(Qwen2.5-1.5B로 gpu-dev에서 확인한 사실이고 Qwen3에서 다시 확인하지 않았다)."}
 }

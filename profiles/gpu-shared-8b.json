@@ -13,7 +13,8 @@
     "max_num_seqs": 8,
     "max_loras": 2,
     "max_lora_rank": 16,
-    "enforce_eager": false
+    "enforce_eager": false,
+    "enable_prefix_caching": true
   },
   "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "rtx4090-24g 프로파일과 같은 이유(nvcc 없는 환경에서 FlashInfer JIT 샘플러 실패). 이 서버에서 nvcc가 있는지는 확인하지 못했다."}
 }

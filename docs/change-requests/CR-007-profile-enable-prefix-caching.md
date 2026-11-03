@@ -1,4 +1,4 @@
-# CR-007: RuntimeProfile.engine에 enable_prefix_caching을 허용해 주세요 (헤드에게)
+# CR-007 (수락됨, 계약 3.2.0 반영, 이 영역 적용 완료): RuntimeProfile.engine에 enable_prefix_caching을 허용해 주세요 (헤드에게)
 
 작성: 2026-11-03, 브랜치 wo-320. 코드와 프로파일은 바꾸지 않았다.
 

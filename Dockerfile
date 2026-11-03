@@ -18,11 +18,10 @@ RUN pip install -r /tmp/requirements.lock
 # GPU 변형에만 C 컴파일러를 넣는다. Triton이 vLLM의 LoRA 커널 등을 쓸 때 CUDA 유틸 모듈을 C 소스에서 빌드한다(enforce_eager로 피해지지 않는다고 판단, 확정 아님).
 # 컴파일러 포함은 공격면을 늘리지만 vLLM 공식 이미지도 포함한다. Python 헤더는 python:3.12 이미지의 /usr/local/include/python3.12에 이미 있다(apt의 python3-dev는 다른 Python이라 넣지 않는다).
 RUN if [ "$VARIANT" = "gpu" ]; then apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*; fi
-# HF_HUB_DISABLE_TELEMETRY는 두지 않는다: HF_ 접두사는 계약 ModelServingEnv 선언에 있는 이름만 허용되어 서버가 시작을 거부한다(ADR 0032, CR-007). 원격 측정 끔은 DO_NOT_TRACK=1에 기댄다(huggingface_hub가 이 표준 변수를 따르는지는 이 환경에서 확인하지 못했다)
 # 캐시·홈·원격 측정 기본값(읽기 전용 루트에서도 쓸 수 있게 모두 /var/lib/model-runtime 아래의 쓰기 가능한 경로). compose가 같은 변수로 덮어쓸 수 있다.
 ENV CC=gcc HOME=/var/lib/model-runtime/home XDG_CACHE_HOME=/var/lib/model-runtime/cache VLLM_CACHE_ROOT=/var/lib/model-runtime/cache/vllm \
     TORCHINDUCTOR_CACHE_DIR=/var/lib/model-runtime/cache/torchinductor TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton \
-    TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1
+    TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 HF_HUB_DISABLE_TELEMETRY=1
 
 COPY --from=boundary . /tmp/boundary-contracts
 COPY --from=link . /tmp/openit-link

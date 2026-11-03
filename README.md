@@ -126,7 +126,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0028](docs/adr/0028-component-structure-d117.md) | 영역 구조: 컴포넌트·스키마·wiring, 통신 기반 라이브러리 위의 link_* (D117, U400) |
 | [0032](docs/adr/0032-env-declaration-check.md) | 기동 때 환경 변수를 계약 선언 ModelServingEnv로 검증한다(U73) |
 | [0033](docs/adr/0033-prometheus-duration-metrics.md) | 소요 시간 지표를 prometheus_client로 기록하고 GET /metrics로 낸다(U71, 버킷은 측정 전) |
-| [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(제안, 계약 변경 요청 CR-007 대기) |
+| [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(채택, CR-007 수락) |
 
 ## 더 자세한 문서
 

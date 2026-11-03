@@ -21,7 +21,7 @@ class EnvCheck(unittest.TestCase):
 
     def test_unknown_prefixed_name_is_rejected_by_name(self):
         self.assertEqual(names({**GOOD, "MODEL_RUNTIME_X": "1"}), {("MODEL_RUNTIME_X", "undeclared")})
-        self.assertEqual(names({**GOOD, "HF_DATASETS_OFFLINE": "1"}), {("HF_DATASETS_OFFLINE", "undeclared")})
+        self.assertEqual(names({**GOOD, "HF_NOT_DECLARED_X": "1"}), {("HF_NOT_DECLARED_X", "undeclared")})
 
     def test_retired_variables_are_rejected_because_they_are_not_declared(self):
         for old in ("MODEL_RUNTIME_REQUEST_DEADLINE_S", "MODEL_RUNTIME_FAKE_RISK_PHRASE"):

@@ -380,7 +380,7 @@ class RuntimeDirs(unittest.TestCase):
         for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
             self.assertGreater(df.index(x), last_layer, x)
         self.assertLess(df.index("ARG VARIANT"), df.index("COPY requirements-"))   # 잠금 파일 선택에 쓰이므로 앞
-        for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
+        for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_TELEMETRY=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
                   "TORCHINDUCTOR_CACHE_DIR=", "VLLM_CACHE_ROOT=", "XDG_CACHE_HOME=", "TORCH_HOME=", "HOME=/var/lib/model-runtime/home"):
             self.assertIn(k, df)
         self.assertIn('"$VARIANT" = "gpu"', df)   # CPU 변형에는 컴파일러를 넣지 않는다

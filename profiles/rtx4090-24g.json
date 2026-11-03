@@ -13,7 +13,8 @@
     "max_num_seqs": 8,
     "max_loras": 2,
     "max_lora_rank": 16,
-    "enforce_eager": false
+    "enforce_eager": false,
+    "enable_prefix_caching": true
   },
   "env": {"VLLM_USE_FLASHINFER_SAMPLER": "0", "_comment": "이미지에 nvcc가 없으면 FlashInfer JIT 샘플러가 실패한다(gpu-dev에서 확인). 이미지에 툴킷을 넣으면 제거를 검토한다."}
 }
