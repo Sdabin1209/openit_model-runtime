@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MetricsRecorded",
+  "description": "metrics_record의 출력: 기록했다는 표시.",
+  "type": "object",
+  "properties": {
+    "recorded": {
+      "const": true
+    }
+  },
+  "required": [
+    "recorded"
+  ],
+  "additionalProperties": false
+}

@@ -25,6 +25,8 @@
 라벨 인자(선택): `--build-arg REVISION=<커밋> BOUNDARY_VERSION=<태그> SURVEY_SCHEMA_VERSION=<n>`(D50 라벨 `io.openit.*`, `io.openit.model-runtime`은 빌드 인자 `MODEL_RUNTIME_VERSION`, 정본은 pyproject의 version). non-root(uid 10001), 포트 8080, 로그는 표준 출력, `HEALTHCHECK`는 `/healthz`. GPU 컨테이너는 `--gpus` 필요(런타임 `nvidia`).
 
 ### 환경 변수 (설정은 환경 변수로만 받는다)
+
+시작할 때 서버는 환경 변수를 계약 `ModelServingEnv` 선언으로 검증한다(ADR 0032). 선언에 없는 `MODEL_RUNTIME_`·`HF_` 이름(오타, 없어진 변수)과 형식 위반은 변수 이름만 적어 시작을 거부한다(값은 적지 않는다). `GET /metrics`는 소요 시간 지표(ADR 0033)이며 내부망 수집용이다.
 | 변수 | 필수 | 기본 | 뜻 |
 | --- | --- | --- | --- |
 | `MODEL_RUNTIME_BACKEND` | 아니오 | `vllm` | `vllm`, `fake`, `mimic`(데모용 모방 컴포넌트, ADR 0018) |

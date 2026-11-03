@@ -8,13 +8,13 @@ extract가 재시도 후에도 ActionExtraction을 지키지 못하면 값을 �
 시스템 프롬프트는 적재한 릴리스 패키지(어댑터 디렉터리의 파일)의 것만 쓴다(D75).
 엔진 호출은 직렬화하고, 대기가 길 것 같으면 큐에 쌓지 않고 503으로 거절한다. 발화·출력 원문은 로그에 남기지 않는다.
 
-환경 변수(진입점만 읽는다): MODEL_RUNTIME_BACKEND(vllm|fake|mimic, 기본 vllm; mimic은 데모용 모방 컴포넌트, MODEL_RUNTIME_ALLOW_FAKE=1 필요, 흐름 파일은 MODEL_RUNTIME_MIMIC_FLOW_FILE 또는 MODEL_RUNTIME_FAKE_FLOW_FILE, 규칙표는 MODEL_RUNTIME_MIMIC_RULES_FILE), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
+환경 변수(진입점만 읽는다; 시작할 때 계약 ModelServingEnv 선언으로 먼저 검증하고, 선언에 없는 MODEL_RUNTIME_·HF_ 이름이나 형식 위반은 이름만 적어 거부한다, components/env_check): MODEL_RUNTIME_BACKEND(vllm|fake|mimic, 기본 vllm; mimic은 데모용 모방 컴포넌트, MODEL_RUNTIME_ALLOW_FAKE=1 필요, 흐름 파일은 MODEL_RUNTIME_MIMIC_FLOW_FILE 또는 MODEL_RUNTIME_FAKE_FLOW_FILE, 규칙표는 MODEL_RUNTIME_MIMIC_RULES_FILE), MODEL_RUNTIME_SCHEMA_DIR(.../schema/schemas; 없으면 이미지에 넣은 /opt/survey-schema/schemas),
 MODEL_RUNTIME_RELEASE_URL·MODEL_RUNTIME_RELEASE_TOKEN(I4 서버; 주소에 닿지 못하면 /readyz 503과 사유, /healthz는 200), MODEL_RUNTIME_READY_PROBE_TTL_S(도달성 확인 캐시, 기본 5), MODEL_RUNTIME_BUNDLE_DIR(기본 /var/lib/model-runtime/bundles; 쓸 수 없으면 /readyz 503과 이유),
 MODEL_RUNTIME_FAKE_FLOW_FILE(fake 전용: 문항 ID 목록 JSON 또는 {"order","slots","skips","corrections","reasks"} 객체; LORA_A가 입력 question_id의 다음 문항으로 가는 NEXT를 낸다. slots가 있으면 발화에서 첫 칸의 값도 낸다, 0.7.1), MODEL_RUNTIME_FAKE_EXTRACTION(fake 전용: LORA_A 고정 출력 JSON, flow보다 우선),
 MODEL_RUNTIME_PROFILE(프로파일 JSON, vllm은 base_model 필요), MODEL_RUNTIME_BASE_MODEL(프로파일의 base_model을 덮어씀; 어댑터의 기반 모델과 같아야 함),
 HF_HOME·HF_HUB_OFFLINE(Hugging Face 표준 변수: 모델 캐시 위치와 오프라인; 이 서버가 읽지 않고 vLLM이 읽는다), MODEL_RUNTIME_TOKENS(역할=토큰,...; 있으면 /v1/*에 Bearer 필요)
 비밀(MODEL_RUNTIME_TOKENS, MODEL_RUNTIME_RELEASE_TOKEN)은 D84에 따라 <이름>_FILE(파일 경로)을 우선 읽고 없을 때만 환경 변수를 쓴다(boundary_contracts.read_secret),
-MODEL_RUNTIME_EXTRACT_DEADLINE_S(기본 20.0)·MODEL_RUNTIME_RESPOND_DEADLINE_S(기본 25.0)(호출 하나의 총 상한: 대기+추론+재시도; 넘기면 503 ENGINE_TIMEOUT. 계약 CONVENTIONS '시간 상한 사슬' 표 값(D125; 실패 판정 상한이고 2초 목표는 강제하지 않는다), 측정하지 않은 값: ADR 0031(0030 대체). 옛 MODEL_RUNTIME_REQUEST_DEADLINE_S는 시작 거부), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
+MODEL_RUNTIME_EXTRACT_DEADLINE_S(기본 20.0)·MODEL_RUNTIME_RESPOND_DEADLINE_S(기본 25.0)(호출 하나의 총 상한: 대기+추론+재시도; 넘기면 503 ENGINE_TIMEOUT. 계약 CONVENTIONS '시간 상한 사슬' 표 값(D125; 실패 판정 상한이고 2초 목표는 강제하지 않는다), 측정하지 않은 값: ADR 0031(0030 대체). 선언(계약 ModelServingEnv)에 없는 옛 MODEL_RUNTIME_REQUEST_DEADLINE_S 같은 이름은 시작 거부), MODEL_RUNTIME_BACKEND_RETRY_S(백엔드 기동 실패 후 재시도 간격, 기본 30, 0이면 재시도 없음), MODEL_RUNTIME_RELEASE_READ_TIMEOUT_S(I4 번들 읽기 소켓 timeout, 기본 120),
 MODEL_RUNTIME_QUEUE_WAIT_S(기본 3.0), MODEL_RUNTIME_PUT_WAIT_S(기본 3.0), MODEL_RUNTIME_MAX_RELEASES(기본 4),
 MODEL_RUNTIME_HOST/PORT(기본 127.0.0.1:8080, 이미지는 0.0.0.0), MODEL_RUNTIME_ALLOW_NO_AUTH=1(개발용: 토큰 없이 시작), MODEL_RUNTIME_ALLOW_FAKE=1(fake 백엔드 허용),
 MODEL_RUNTIME_PUT_ROLES(적재 PUT을 허용할 역할 목록, 없으면 인증된 모든 역할), MODEL_RUNTIME_MAX_INPUT_CHARS(기본 2500), MODEL_RUNTIME_MAX_CONNECTIONS(32), MODEL_RUNTIME_MAX_LOADING(2),
@@ -32,6 +32,7 @@ from typing import Callable, Mapping
 from boundary_contracts import SecretError, read_secret, secret_source
 from boundary_contracts.errors import BoundaryError
 
+from .components import env_check
 from .components.fake_backend import FakeBackend, make_default_responder
 from .components.flow_file_load import load_fake_corrections, load_fake_flow, load_fake_flow_spec, load_fake_reasks
 from .components.link_receive import INFER_DENY_ROLES, MAX_BODY, MAX_CONNECTIONS, make_app, make_server
@@ -46,9 +47,14 @@ DEFAULT_BUNDLE_DIR = "/var/lib/model-runtime/bundles"
 EMBEDDED_SCHEMA_DIR = "/opt/survey-schema/schemas"   # 이미지에 스키마를 넣어 빌드한 경우(Dockerfile의 schema 컨텍스트)
 from .components import token_table as _tt
 _token_table = gate(_tt, ValueError)
+_env_check = gate(env_check)
 
 
 def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object] | None = None, clock=None) -> Service:   # clock: 시험이 가짜 시계를 넣는 자리(없으면 실제 시계, ADR 0029)
+    # 맨 앞에서 환경 변수를 계약 선언(ModelServingEnv, U73)으로 검증한다. 선언에 없는 이름(오타·폐지된 변수)과 형식 위반은 이름만 적어 시작을 거부한다(값은 적지 않는다)
+    bad = _env_check(dict(env))["violations"]
+    if bad:
+        raise SystemExit("환경 변수가 계약 선언(ModelServingEnv)을 지키지 못했다: " + ", ".join(f"{v['name']}({v['keyword']})" for v in bad))
     backend_name = env.get("MODEL_RUNTIME_BACKEND", "vllm")
     schema_dir = env.get("MODEL_RUNTIME_SCHEMA_DIR") or (EMBEDDED_SCHEMA_DIR if Path(EMBEDDED_SCHEMA_DIR).is_dir() else None)
     if not schema_dir:
@@ -65,10 +71,6 @@ def build_service(env: Mapping[str, str], *, reader_factory: Callable[[], object
         log.warning("인증 없이 시작한다(MODEL_RUNTIME_ALLOW_NO_AUTH=1, 개발용)")
     log.info("비밀 출처(값 아님): MODEL_RUNTIME_TOKENS=%s MODEL_RUNTIME_RELEASE_TOKEN=%s",
              secret_source("MODEL_RUNTIME_TOKENS", environ=env), secret_source("MODEL_RUNTIME_RELEASE_TOKEN", environ=env))
-    if env.get("MODEL_RUNTIME_REQUEST_DEADLINE_S"):   # 조용히 무시하면 옛 3.5초 하나가 남아 있다고 착각한다
-        raise SystemExit("MODEL_RUNTIME_REQUEST_DEADLINE_S는 없어졌다(계약 2.2.0). 호출별로 MODEL_RUNTIME_EXTRACT_DEADLINE_S(20.0), MODEL_RUNTIME_RESPOND_DEADLINE_S(25.0)를 쓴다")
-    if env.get("MODEL_RUNTIME_FAKE_RISK_PHRASE"):
-        raise SystemExit("MODEL_RUNTIME_FAKE_RISK_PHRASE는 계약 2.0.0에서 없어졌다(v2 출력에 위험 신호 표현이 없다). 설정을 지운다")
     if backend_name == "fake":
         if env.get("MODEL_RUNTIME_ALLOW_FAKE") != "1":   # 운영에서 가짜 백엔드로 뜨는 사고를 막는다(실수로 BACKEND=fake가 들어가도 시작 거부)
             raise SystemExit("MODEL_RUNTIME_BACKEND=fake는 개발·시험용이다. 의도한 것이면 MODEL_RUNTIME_ALLOW_FAKE=1을 함께 준다")

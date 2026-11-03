@@ -12,12 +12,12 @@
 - 예외는 인프라·설정·입력 문제에만 쓴다: `ServingConfigMismatch`·`UnsupportedServingConfig`·`ContractVersionMismatch`·`ContractViolation`·`BackendNotAvailable`·`SystemPromptMismatch`(모두 `BoundaryError`가 아님). 예외인 **`ModelOutputInvalid`**는 extract가 재시도 후에도 `ActionExtraction`을 못 지킬 때 던진다(D75, 값을 지어내지 않는다). respond의 출력 문제는 예외가 아니라 대체 문장(`is_fallback`)이다.
 - `schema_dir`(문진 스키마 배포 디렉터리 `.../schema/schemas`)는 `runtime_contract_version`(문진 스키마 정수 버전, D75) 확인에만 쓴다. 모델 입출력 스키마는 `boundary_contracts` 패키지에서 읽는다.
 
-추론 서버 `python -m model_runtime.server`(HTTP.md I9): `PUT/GET /v1/releases/{id}`, `POST .../extract`(JSON), `POST .../respond`(`text/plain`), `GET /v1/info`, `/healthz`, `/readyz`. 응답 헤더 `X-Openit-Outcome`(extract는 `ok`, respond는 `ok|fallback`), `X-Openit-Attempts`, `X-Openit-Protections`(있을 때). extract가 끝내 실패하면 503 `UNAVAILABLE`, `details.reason=OUTPUT_INVALID`, `details.attempts`.
+추론 서버 `python -m model_runtime.server`(HTTP.md I9): `PUT/GET /v1/releases/{id}`, `POST .../extract`(JSON), `POST .../respond`(`text/plain`), `GET /v1/info`, `/healthz`, `/readyz`, `GET /metrics`(내부망 수집용, 인증 없음, 게이트웨이에는 denied, 소요 시간 지표 3종: ADR 0033). 응답 헤더 `X-Openit-Outcome`(extract는 `ok`, respond는 `ok|fallback`), `X-Openit-Attempts`, `X-Openit-Protections`(있을 때). extract가 끝내 실패하면 503 `UNAVAILABLE`, `details.reason=OUTPUT_INVALID`, `details.attempts`.
 `/v1/info`는 계약 목록 외에 `system_prompt_sha256`(가장 최근 적재한 릴리스의 패키지 프롬프트 해시)을 낸다(추가 필드, 계약에는 없다).
 
 ## 소비
 - **키 순서**: 제약 디코딩(xgrammar)은 스키마의 `properties` 순서대로 키를 낸다. 순서의 정본은 계약(v2.0.1부터 사전순)이며 `relax`는 순서를 바꾸지 않는다.
-- `boundary-contracts` **기준 태그**(`read_secret`: 토큰은 `<이름>_FILE`로 받는다, D84): 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 2.x(1.x 레코드는 `UNSUPPORTED_VERSION`).
+- `boundary-contracts` **기준 태그**(`read_secret`: 토큰은 `<이름>_FILE`로 받는다, D84): 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`, `BoundaryError`, 릴리스 읽기 `HttpReleaseReader`), `canonical`(해시). 지원 계약 버전: 3.x(기준 태그는 Dockerfile의 `ARG BOUNDARY_VERSION`, 현재 v3.2.0). 환경 변수 이름은 계약 `ModelServingEnv`가 정하고 서버가 시작할 때 검증한다(ADR 0032).
 - 문진 스키마 정수 버전 1(`SUPPORTED_RUNTIME_CONTRACT_VERSION`, `CONTRACT_VERSION`). 다른 값이면 `ContractVersionMismatch`/422 `UNSUPPORTED_VERSION`.
 - 릴리스 매니페스트의 `model_runtime_version`은 MAJOR.MINOR가 이 서버의 `RUNTIME_VERSION`과 같아야 한다(`server.py`가 앞 두 조각을 비교, 현재 값은 `RUNTIME_VERSION`). 0.7.x 이하로 만든 릴리스는 `UNSUPPORTED_VERSION`으로 거부된다(0.8.0부터).
 

@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 0.11.11 — 2026-11-03 (계약 3.2.0, 환경 선언 검증, 소요 시간 지표)
+PATCH(공개 이름·HTTP 경로·헤더는 그대로, `GET /metrics`만 더해졌다).
+- Dockerfile 고정: 계약 v3.1.3 -> v3.2.0, openit-link v0.4.3 -> v0.4.4(잠금 파일·pyproject에는 openit-link 핀이 없다. 정본은 Dockerfile의 ARG LINK_VERSION).
+- 기동 때 환경 변수를 계약 `ModelServingEnv`로 검증한다(컴포넌트 env_check, ADR 0032). 선언에 없는 `MODEL_RUNTIME_`·`HF_` 이름과 형식 위반은 이름만 적어 시작을 거부한다. 폐지 변수 손코드를 지웠다(선언에 없으므로 거부된다). 호환 주의: `MODEL_RUNTIME_RELEASE_URL`이 필수가 되었다(없으면 시작 거부, 전에는 /readyz 503). GPU 세션 키트가 서버에 주던 `HF_DATASETS_OFFLINE`를 뺐다.
+- 소요 시간 지표(컴포넌트 metrics_record, ADR 0033): `openit_model_engine_duration_seconds`, `openit_model_queue_wait_seconds`, `openit_next_item_overridden_total`을 `GET /metrics`로 낸다(`deploy-exposure.json`에 denied). 의존 `prometheus_client==0.26.0`을 CPU 잠금에 고정(GPU 잠금에는 이미 있다).
+- 제안만: vLLM prefix caching 명시(ADR 0034). 계약 `RuntimeProfile`이 키를 허용하지 않아 변경 요청 CR-007을 냈고 프로파일은 바꾸지 않았다.
+- 문서 정정: RUNTIME_VERSION 위치(wiring/session.py), 변경 요청 범위, 지원 계약 3.x, 시험 개수는 실행 명령으로 센다.
+
 ## 미배포 — 2026-11-02 (호출 상한 extract 20.0초·respond 25.0초, ADR 0031, D125)
 설정 기본값. `MODEL_RUNTIME_EXTRACT_DEADLINE_S` 3.0 -> 20.0, `MODEL_RUNTIME_RESPOND_DEADLINE_S` 5.0 -> 25.0(계약 표: 합 45초 < 턴 마감 50초). 2초는 목표이고 서버가 강제하지 않는다. 와이어 형식은 그대로.
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvCheckResult",
+  "description": "env_check의 출력: 선언(계약 ModelServingEnv) 위반 목록(변수 이름, 키워드). 값은 싣지 않는다(비밀이 섞일 수 있다). 빈 목록이면 통과.",
+  "type": "object",
+  "properties": {
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "keyword": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "keyword"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "violations"
+  ],
+  "additionalProperties": false
+}

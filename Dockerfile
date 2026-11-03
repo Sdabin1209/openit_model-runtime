@@ -18,10 +18,12 @@ RUN pip install -r /tmp/requirements.lock
 # GPU 변형에만 C 컴파일러를 넣는다. Triton이 vLLM의 LoRA 커널 등을 쓸 때 CUDA 유틸 모듈을 C 소스에서 빌드한다(enforce_eager로 피해지지 않는다고 판단, 확정 아님).
 # 컴파일러 포함은 공격면을 늘리지만 vLLM 공식 이미지도 포함한다. Python 헤더는 python:3.12 이미지의 /usr/local/include/python3.12에 이미 있다(apt의 python3-dev는 다른 Python이라 넣지 않는다).
 RUN if [ "$VARIANT" = "gpu" ]; then apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*; fi
+# HF_HUB_DISABLE_TELEMETRY는 두지 않는다: HF_ 접두사는 계약 ModelServingEnv 선언에 있는 이름만 허용되어 서버가 시작을 거부한다(ADR 0032, CR-007). 원격 측정 끔은 DO_NOT_TRACK=1에 기댄다(huggingface_hub가 이 표준 변수를 따르는지는 이 환경에서 확인하지 못했다)
 # 캐시·홈·원격 측정 기본값(읽기 전용 루트에서도 쓸 수 있게 모두 /var/lib/model-runtime 아래의 쓰기 가능한 경로). compose가 같은 변수로 덮어쓸 수 있다.
 ENV CC=gcc HOME=/var/lib/model-runtime/home XDG_CACHE_HOME=/var/lib/model-runtime/cache VLLM_CACHE_ROOT=/var/lib/model-runtime/cache/vllm \
     TORCHINDUCTOR_CACHE_DIR=/var/lib/model-runtime/cache/torchinductor TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton \
-    TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 HF_HUB_DISABLE_TELEMETRY=1
+    TORCH_HOME=/var/lib/model-runtime/cache/torch VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1
+
 COPY --from=boundary . /tmp/boundary-contracts
 COPY --from=link . /tmp/openit-link
 COPY pyproject.toml setup.py /app/
@@ -37,9 +39,9 @@ RUN pip install --no-deps /tmp/boundary-contracts && pip install --no-deps /tmp/
 # ---- 라벨 블록은 맨 뒤에 둔다: REVISION(커밋마다)·버전이 바뀌어도 위의 무거운 레이어(pip, apt)의 빌드 캐시가 재사용돼야 한다. 이 위로 옮기지 말 것 ----
 ARG REVISION=unknown
 ARG SERVICE_NAME   # 기본값 없음: 라벨 io.openit.service는 리포 이름이 아니라 서비스(이미지) 이름이다(model-serving, GPU 변형은 model-serving-gpu). 영역 빌드 진입점 scripts/build-image.sh가 variant별로 넘긴다
-ARG BOUNDARY_VERSION=v3.1.3
-ARG LINK_VERSION=v0.4.3   # 통신 기반 라이브러리 openit-link(D118) 태그의 정본. 설치는 build-image.sh가 이 태그로 꺼낸 소스에서 한다(라벨 아님)
-ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= session.py RUNTIME_VERSION). 라벨 값은 v 접두사를 붙인다(ImageLabels, D108). scripts/smoke.sh가 pyproject에서 읽어 v를 붙여 넘긴다
+ARG BOUNDARY_VERSION=v3.2.0
+ARG LINK_VERSION=v0.4.4   # 통신 기반 라이브러리 openit-link(D118) 태그의 정본. 설치는 build-image.sh가 이 태그로 꺼낸 소스에서 한다(라벨 아님)
+ARG MODEL_RUNTIME_VERSION   # 기본값 없음: 비면 아래 RUN이 빌드를 실패시킨다(D50 라벨 규칙). 정본은 pyproject.toml의 version(= wiring/session.py RUNTIME_VERSION). 라벨 값은 v 접두사를 붙인다(ImageLabels, D108). scripts/smoke.sh가 pyproject에서 읽어 v를 붙여 넘긴다
 # 값이 없다는 표기는 n/a 하나다(계약 ImageLabels: none·unknown 불가)
 ARG SURVEY_SCHEMA_VERSION=n/a
 LABEL io.openit.service="${SERVICE_NAME}" \

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvCheckInput",
+  "description": "env_check의 입력: 프로세스 환경 변수 전체(이름 -> 문자열). 컴포넌트가 계약 ModelServingEnv가 보는 이름만 걸러 검증한다.",
+  "type": "object",
+  "additionalProperties": {
+    "type": "string"
+  }
+}

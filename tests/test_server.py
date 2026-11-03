@@ -278,9 +278,9 @@ class Cr17(unittest.TestCase):
         for backend in ("fake", "vllm"):
             with self.assertRaises(SystemExit) as cm:
                 server.build_service({"MODEL_RUNTIME_BACKEND": backend, "MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR),
-                                      "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x",
+                                      "MODEL_RUNTIME_FAKE_RISK_PHRASE": "x", "MODEL_RUNTIME_PROFILE": "/p.json",
                                       "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1"})
-            self.assertIn("없어졌다", str(cm.exception))
+            self.assertIn("MODEL_RUNTIME_FAKE_RISK_PHRASE(undeclared)", str(cm.exception))   # 폐지 변수는 선언에 없으므로 거부된다(손코드 아님)
         srv, url, _, _ = start(self._t.name); self.addCleanup(srv.shutdown)
         self.assertEqual(call(url, "/v1/info")[1]["test_hooks"], {})
 
@@ -321,13 +321,6 @@ class Location(unittest.TestCase):
         st, b, _ = call(url, "/v1/releases/r1", method="PUT")
         self.assertEqual(st, 404)   # 닿았고 I4가 그 릴리스를 모른다고 답한 것(전체 적재는 test_server_e2e.py)
 
-    def test_missing_release_url_is_readyz_503_with_reason(self):
-        url = self._serve({})
-        self.assertEqual(call(url, "/healthz")[0], 200)
-        st, body, _ = call(url, "/readyz")
-        self.assertEqual(st, 503); self.assertIn("MODEL_RUNTIME_RELEASE_URL", body["reason"])
-        self.assertEqual(call(url, "/v1/releases/r1", method="PUT")[0], 503)
-
     def test_no_environment_specific_defaults_in_source(self):
         src = "\n".join(p.read_text(encoding="utf-8") for p in (Path(server.__file__).parent).glob("*.py"))
         for bad in ("release-gate", "host.docker.internal", "survey-service:", "localhost"):
@@ -350,7 +343,7 @@ class HfCache(unittest.TestCase):
             self.assertTrue(ok_svc.readiness()[0])
 
     def test_build_service_checks_hf_only_for_vllm_online(self):
-        base = {"MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1"}
+        base = {"MODEL_RUNTIME_SCHEMA_DIR": str(SCHEMA_DIR), "MODEL_RUNTIME_ALLOW_FAKE": "1", "MODEL_RUNTIME_ALLOW_NO_AUTH": "1", "MODEL_RUNTIME_PROFILE": "/p.json"}   # 선언: vllm이면 PROFILE 필수(vllm 백엔드는 이 시험에서 만들지 않는다)
         with TemporaryDirectory() as t:
             bad = str(Path(t) / "f" / "hf"); (Path(t) / "f").write_text("x")
             env = dict(base, MODEL_RUNTIME_BUNDLE_DIR=str(Path(t) / "b"), HF_HOME=bad)
@@ -387,7 +380,7 @@ class RuntimeDirs(unittest.TestCase):
         for x in ("ARG REVISION", "ARG BOUNDARY_VERSION", "ARG SURVEY_SCHEMA_VERSION", "LABEL io.openit.service", "io.openit.model-runtime="):
             self.assertGreater(df.index(x), last_layer, x)
         self.assertLess(df.index("ARG VARIANT"), df.index("COPY requirements-"))   # 잠금 파일 선택에 쓰이므로 앞
-        for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_TELEMETRY=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
+        for k in ("VLLM_NO_USAGE_STATS=1", "DO_NOT_TRACK=1", "TRITON_CACHE_DIR=/var/lib/model-runtime/cache/triton",
                   "TORCHINDUCTOR_CACHE_DIR=", "VLLM_CACHE_ROOT=", "XDG_CACHE_HOME=", "TORCH_HOME=", "HOME=/var/lib/model-runtime/home"):
             self.assertIn(k, df)
         self.assertIn('"$VARIANT" = "gpu"', df)   # CPU 변형에는 컴파일러를 넣지 않는다

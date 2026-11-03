@@ -18,7 +18,7 @@ class ProtectionPolicy:
     """출력 보호 정책 한 버전. 출력을 바꾸는 값과 해석은 모두 여기에 묶고, 바꾸려면 새 버전을 만든다.
     serving_config.protection_policy_version으로 기록되어 serving_config_hash에 반영된다."""
     version: str
-    # 대체 문장을 만들 재료(known, ask, hold, next.text)가 하나도 없을 때의 문장. 계약에 없는 문구이며 문구 확정은 도메인 소유자 몫이다(잠정).
+    # 대체 문장을 만들 재료(known, ask, hold, next.text)가 하나도 없을 때의 문장. 문구는 사용자가 확정했다(D93, G04).
     empty_fallback_text: str
     # 계약이 정하지 않아 이 리포지토리가 해석한 곳. 다음 정책 버전에서 바꿀 때 근거가 된다(헤드 확인 대기: change-requests/004).
     judgments: tuple
@@ -27,7 +27,7 @@ class ProtectionPolicy:
 PROTECTION_POLICIES = {
     "protect-2": ProtectionPolicy(
         version="protect-2",
-        empty_fallback_text="죄송합니다. 다시 한 번 말씀해 주세요.",   # 잠정. END처럼 재료가 없는 경우에도 같은 문장이라 어색할 수 있다(미정)
+        empty_fallback_text="죄송합니다. 다시 한 번 말씀해 주세요.",   # 규칙 D93: 사용자 확정(G04), 그대로 쓴다. tests/test_fallback_d93.py
         judgments=(
             "J1 respond 형식: 앞뒤 공백을 뗀 문자열이 비어 있지 않으면 통과한다. 길이 상한은 두지 않는다(계약: 평가 지표, 미정).",
             "J2 대체 문장 조립: known, ask, hold, next.text 순으로 비어 있지 않은 것을 공백 하나로 잇고, 바로 앞과 같은 조각은 한 번만 쓴다. 재료가 없으면 empty_fallback_text.",

@@ -68,9 +68,9 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 
 ## 현재 상태
 
-현행 버전은 `src/model_runtime/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
-- 14차(0.6.0) 시험 109 통과/0 실패, CPU 이미지 빌드와 스모크 통과(`/healthz`, `/readyz`, 라벨, non-root). 123 통과는 15차(0.6.1)의 값이다(docs/STATUS.md).
-- **시험 상태(정본, 개수는 이 한 곳)**: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command): **347 통과, 2 건너뜀**(xgrammar 없음 1, 참조 데이터 경로 없음 1), 계약 v3.1.2, 통신 기반 openit-link v0.4.3(U400), 이 개발 PC 한 환경에서 잰 값이다(GPU 시험은 하지 않았다). 깨끗한 두 번째 환경에서는 재현하지 않았다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
+현행 버전은 `src/model_runtime/wiring/session.py`의 `RUNTIME_VERSION`(이력은 CHANGELOG, 마지막 STATUS 기록은 docs/STATUS.md). 확인된 것:
+- 14차(0.6.0)에서 시험이 실패 없이 통과했고 CPU 이미지 빌드와 스모크가 통과했다(`/healthz`, `/readyz`, 라벨, non-root). 그때의 개수는 적지 않는다(실행 명령으로 센다, 이전 판의 값은 docs/STATUS.md).
+- **시험 상태**: 개수를 문서에 적지 않는다(적으면 코드와 어긋난다). 실행 명령으로 센다: `bash scripts/setup-env.sh` 뒤 `.venv/bin/python -m pytest -q -rs`(= setup-env.sh가 선언하는 test_command)의 마지막 줄이 그 시점의 통과·건너뜀 수다. 건너뛰는 시험은 xgrammar가 없을 때, 참조 데이터 경로가 없을 때, 계약 태그를 GitHub에서 받지 못할 때다. 계약 태그는 Dockerfile의 `ARG BOUNDARY_VERSION`(v3.2.0), 통신 기반 라이브러리는 `ARG LINK_VERSION`(v0.4.4)이다. GPU 시험은 하지 않았다. 깨끗한 두 번째 환경에서 재현한 값은 없다. 이전 판의 개수는 docs/CHANGELOG.md·docs/STATUS.md에 남아 있다.
 - relax-3: 원본/변환 스키마 판정 등가, xgrammar 컴파일 경고 없음(CPU, STATUS 19차). gpu-dev에서 extract 48회 모두 형식 통과(OPEN_GAPS U04, 헤드 기록).
 - gpu-dev 12GB에서 Qwen3-1.7B 적재, 약 10.1GB 사용(OPEN_GAPS U01, 헤드 기록).
 
@@ -124,6 +124,9 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0031](docs/adr/0031-deadline-failure-limit-d125.md) | 호출별 상한 extract 20.0초·respond 25.0초: 목표(2초)와 실패 판정 상한을 나눈다(D125) |
 | [0029](docs/adr/0029-clock-injection.md) | 시계를 주입한다: 시험에서 실제 시간 0 (U422) |
 | [0028](docs/adr/0028-component-structure-d117.md) | 영역 구조: 컴포넌트·스키마·wiring, 통신 기반 라이브러리 위의 link_* (D117, U400) |
+| [0032](docs/adr/0032-env-declaration-check.md) | 기동 때 환경 변수를 계약 선언 ModelServingEnv로 검증한다(U73) |
+| [0033](docs/adr/0033-prometheus-duration-metrics.md) | 소요 시간 지표를 prometheus_client로 기록하고 GET /metrics로 낸다(U71, 버킷은 측정 전) |
+| [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(제안, 계약 변경 요청 CR-007 대기) |
 
 ## 더 자세한 문서
 
@@ -137,4 +140,4 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | docs/rules.md | 출력 보호 규칙 |
 | docs/prompt-review.md | 프롬프트 역할 분리 점검 목록 |
 | docs/CHANGELOG.md | 변경 이력 |
-| docs/change-requests/ | 헤드에게 보낸 변경 요청 001~004 |
+| docs/change-requests/ | 헤드에게 보낸 변경 요청 001~007 |

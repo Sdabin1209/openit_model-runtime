@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MetricsEvent",
+  "description": "metrics_record의 입력: 운영 소요 시간 지표 사건 하나(계약 METRICS.md '운영 소요 시간 지표', U71). 라벨 값은 닫힌 집합이다(카디널리티 상한).",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "metric": {
+          "const": "engine_duration"
+        },
+        "op": {
+          "enum": [
+            "extract",
+            "respond"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "fallback",
+            "invalid",
+            "timeout",
+            "unavailable"
+          ]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "metric",
+        "op",
+        "outcome",
+        "attempts",
+        "seconds"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "metric": {
+          "const": "queue_wait"
+        },
+        "op": {
+          "enum": [
+            "extract",
+            "respond"
+          ]
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "metric",
+        "op",
+        "seconds"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "metric": {
+          "const": "next_item_overridden"
+        },
+        "op": {
+          "enum": [
+            "extract",
+            "respond"
+          ]
+        }
+      },
+      "required": [
+        "metric",
+        "op"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

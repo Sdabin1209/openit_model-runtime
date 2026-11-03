@@ -1,7 +1,7 @@
 """link_receive 컴포넌트(통신, 받는 쪽): model-runtime 추론 서버의 HTTP 면 (boundary-contracts/HTTP.md "I9 ModelRuntime 추론 서버", D62, D118).
 
 경로: PUT /v1/releases/{id}(적재 신호, 멱등) · GET /v1/releases/{id}(상태) · POST /v1/releases/{id}/extract(LoRA-A, JSON)|respond(LoRA-B, text/plain) ·
-GET /v1/info · GET /healthz · GET /readyz.
+GET /v1/info · GET /healthz · GET /readyz · GET /metrics(내부망 수집용, ADR 0033).
 인증 401/403, 본문 상한 413, 요청 계약 검증 400, BoundaryError 본문, /healthz·/readyz는 통신 기반 라이브러리(openit_link.App)가 한다(다시 구현하지 않는다).
 이 컴포넌트는 경로와 역할(누가 어느 경로를 부를 수 있나), 요청을 release_registry 작업 하나로 바꾸는 것, 결과를 응답으로 바꾸는 것만 안다.
 release_registry는 HTTP를 모르고, 이 파일은 업무 규칙을 두지 않는다. 서버(waitress) 구성값의 근거: ADR 0022."""
@@ -21,6 +21,7 @@ INPUT, OUTPUT = "InferRequest", "HttpResult"
 log = logging.getLogger("model_runtime.server")
 MAX_BODY = 4 * 1024 * 1024      # 본문 상한. 입력 상한(MAX_INPUT_CHARS)이 더 작아 이 값은 파싱 전 거친 방어선이다 (ADR 0012, 4MiB 근거 기록 없음)
 MAX_CONNECTIONS = 32            # 왜: 엔진 호출이 직렬이라(ADR 0005) 많이 받아도 대기만 길어진다. 값 32는 초기값, 부하 측정 안 함 (ADR 0012)
+METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"   # Prometheus 텍스트 노출 형식 0.0.4 (metrics_record.CONTENT_TYPE와 같은 값; 컴포넌트끼리 import하지 않는다)
 INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다
 
 
@@ -65,7 +66,12 @@ def make_app(svc) -> App:
         log.warning("not ready: %s", why)   # 사유는 호스트:포트와 예외 이름뿐이다(비밀 없음)
         return False, {"status": "not ready", "reason": why}
 
+    def metrics(req: Request) -> Response:
+        return Response(200, svc.metrics_text(), content_type=METRICS_CONTENT_TYPE)
+
     routes = [
+        # 지표는 내부망 수집용이다: 인증 없이 열고(수집기가 토큰을 갖지 않는다) 게이트웨이에는 노출하지 않는다(deploy-exposure.json의 denied, ADR 0033). 라벨은 닫힌 집합이고 발화·출력 원문이 없다
+        Route("GET", "/metrics", metrics, roles=frozenset()),
         # response_schema: 내는 쪽이 내기 전에 계약으로 검증한다(R7). 어기면 내보내지 않고 503 UNAVAILABLE(openit_link가 한다)
         Route("GET", "/v1/info", info, roles=anyone, response_schema="RuntimeInfo"),
         Route("PUT", "/v1/releases/{release_id}", put, roles=put_roles, response_schema="ReleaseLoadStatus", max_body=MAX_BODY),

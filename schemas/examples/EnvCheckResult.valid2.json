@@ -1,0 +1,8 @@
+{
+  "violations": [
+    {
+      "name": "MODEL_RUNTIME_X",
+      "keyword": "undeclared"
+    }
+  ]
+}

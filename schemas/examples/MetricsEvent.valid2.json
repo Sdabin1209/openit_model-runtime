@@ -1,0 +1,5 @@
+{
+  "metric": "queue_wait",
+  "op": "respond",
+  "seconds": 0.0
+}

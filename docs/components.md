@@ -1,6 +1,6 @@
 # 컴포넌트 (D117, U400)
 
-구조 규칙 6개(D104)에 따른 이 영역의 컴포넌트 표다. 정본 배치는 `head/docs/DESIGN.md`. 위에서부터 나눈 근거: 이 영역의 입력은 계약(boundary-contracts v3.1.2)과 `docs/brief.md`이고, 그 일(프롬프트 조립 -> 모델 호출 -> 출력 보장 -> 서버 면)을 업무 단계로 나눈 것이다. 기존 코드는 정의의 근거가 아니라 빠진 거부 조건을 찾는 대조 자료로만 썼다.
+구조 규칙 6개(D104)에 따른 이 영역의 컴포넌트 표다. 정본 배치는 `head/docs/DESIGN.md`. 위에서부터 나눈 근거: 이 영역의 입력은 계약(boundary-contracts v3.2.0)과 `docs/brief.md`이고, 그 일(프롬프트 조립 -> 모델 호출 -> 출력 보장 -> 서버 면)을 업무 단계로 나눈 것이다. 기존 코드는 정의의 근거가 아니라 빠진 거부 조건을 찾는 대조 자료로만 썼다.
 
 컴포넌트는 `components/<이름>.py`에 파일 하나이고, 모듈 맨 위에 `INPUT, OUTPUT = "<입력 스키마>", "<출력 스키마>"`를 선언한다(`schemas/<이름>.json`). 입력·출력 검사는 wiring의 `schema_gate.gate`가 컴포넌트 앞뒤에서 스키마로 한다. 컴포넌트끼리는 import하지 않는다(`tests/test_structure.py`). 컴포넌트가 필요로 하는 다른 컴포넌트의 일(재시도, 출력 검증, 대체 문장 등)은 wiring이 함수로 주입한다.
 
@@ -23,6 +23,8 @@
 | token_table | `components/token_table.py` | TokenTableInput | TokenTable | `역할=토큰,...` 글자를 표로 바꾼다(중복·빈 값 거부) |
 | runtime_dirs_check | `components/runtime_dirs_check.py` | RuntimeDirsCheckInput | RuntimeDirsCheckResult | 시작 때 번들·모델 캐시·런타임 캐시 디렉터리를 쓸 수 있는지 본다 |
 | release_registry | `components/release_registry.py` | InferRequest / PutRequest | HttpResult | 릴리스 적재 상태, 추론 호출의 직렬화·대기·마감을 맡는 함수 모양 면(put, get, info, infer, readiness). HTTP를 모른다 |
+| env_check | `components/env_check.py` | EnvCheckInput | EnvCheckResult | 환경 변수가 계약 선언 ModelServingEnv를 지키는지 본다(ADR 0032). 이름과 키워드만 낸다 |
+| metrics_record | `components/metrics_record.py` | MetricsEvent | MetricsRecorded | 소요 시간 지표를 기록하고 Prometheus 텍스트로 낸다(ADR 0033) |
 | link_receive | `components/link_receive.py` | (HTTP 요청, 계약 스키마) | HttpResult | 받는 쪽 통신: 추론 서버의 경로·역할을 통신 기반 라이브러리 `openit_link.App/Route` 위에 적는다 |
 | link_release_fetch | `components/link_release_fetch.py` | PutRequest | HttpResult | 보내는 쪽 통신: release-gate(I4)에서 번들을 읽고(`openit_link.clients.HttpReleaseReader`) 서버 도달성을 본다 |
 

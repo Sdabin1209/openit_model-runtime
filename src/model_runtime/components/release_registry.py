@@ -62,7 +62,8 @@ class Service:
                  release_url: str | None = None, release_required: bool = False, probe_ttl_s: float = 5.0,
                  hf_home: str | None = None, runtime_dirs: list[str] | None = None,
                  deadlines: Mapping[str, float] | None = None, backend_retry_s: float = 30.0, max_input_chars: int = MAX_INPUT_CHARS,   # 호출별 상한 extract 20.0s·respond 25.0s: 계약 표(합 45s < 턴 마감 50s, D125, ADR 0031, 값은 측정 아님). 30s: 초기값, 근거 기록 없음
-                 max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S):
+                 max_loading: int = MAX_LOADING, put_roles: frozenset | None = None, conn_timeout_s: float = CONN_TIMEOUT_S,
+                 observe: Callable[[dict], object] | None = None, metrics_text: Callable[[], bytes] | None = None):
         self.runtime_dirs = [Path(d) for d in (runtime_dirs or [])]   # HOME·캐시 디렉터리(환경 변수로 정해진 것만)
         self.hf_home = Path(hf_home) if hf_home else None   # vllm 백엔드일 때만 받는다(모델 내려받기 캐시)
         self.test_hooks = dict(test_hooks or {})
@@ -73,6 +74,8 @@ class Service:
         self.load_session, self.probe, self.runtime_version, self.facts = load_session, probe, runtime_version, facts
         self.clock = clock   # 시간을 읽고 기다리는 모든 일의 창구(monotonic, sleep, wait, acquire). wiring이 실제 시계를 넣는다(ADR 0029)
         self.tokens = dict(tokens or {})
+        self._observe = observe or (lambda event: None)   # 소요 시간 지표 사건(MetricsEvent)을 받는 자리. 기록 방법은 이 파일이 모른다(wiring이 넣는다, ADR 0033)
+        self.metrics_text = metrics_text or (lambda: b"")
         self.queue_wait_s, self.put_wait_s, self.max_releases = queue_wait_s, put_wait_s, max_releases
         self.releases: dict[str, Release] = {}      # 삽입 순서 = 적재 순서
         self.rlock = threading.Lock()                # 릴리스 표
@@ -244,6 +247,13 @@ class Service:
         """extract 본문 ExtractRequest{input, flow, fields}를 (input, flow, fields)로 나눈다. 형식은 받는 쪽(link_receive)이 계약 스키마로 이미 검증했다(R7)."""
         return body["input"], body["flow"], body["fields"]
 
+    def _engine_done(self, op: str, outcome: str, attempts: int, t_call: float) -> None:
+        """openit_model_engine_duration_seconds: 서버 쪽 호출 하나(대기+추론+재시도)의 소요. 엔진을 부른 호출만 센다(거절·입력 오류는 제외)."""
+        if t_call is None:   # 엔진을 부르기 전에 끝난 예외
+            return
+        self._observe({"metric": "engine_duration", "op": op, "outcome": outcome, "attempts": min(int(attempts), 9),
+                       "seconds": max(0.0, self.clock.monotonic() - t_call)})
+
     def infer(self, rid: str, op: str, body):
         """op: extract | respond. (상태, 본문, 헤더). extract의 본문은 dict, respond의 본문은 문장(str). 대기가 길 것 같으면 503."""
         with self.rlock:
@@ -254,15 +264,18 @@ class Service:
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             self.pending += 1
         try:
-            flow = fields = None
+            flow = fields = t_call = None
             if op == "extract":
                 body, flow, fields = self.split_extract_body(body)   # 이후 body는 모델 입력(input)이다
             # 한도는 모델 입력에만 건다: flow는 프롬프트에 들어가지 않으므로 컨텍스트를 쓰지 않는다(2500자 근거는 ADR 0012)
             if len(json.dumps(body, ensure_ascii=False)) > self.max_input_chars:   # 프롬프트가 컨텍스트를 넘기지 않게 호출 전에 거절(MR-3)
                 return 400, BoundaryError("INVALID_RECORD", f"입력이 너무 길다(최대 {self.max_input_chars}자)").to_record(), {}
             limit_s = self.deadlines[op]
-            deadline = self.clock.monotonic() + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
-            if not self.clock.acquire(self.engine_lock, max(0.0, min(self.queue_wait_s, deadline - self.clock.monotonic()))):
+            t_call = self.clock.monotonic()
+            deadline = t_call + limit_s   # 호출 하나의 총 상한(대기 + 추론 + 재시도). 시도별이 아니라 총합이다
+            got = self.clock.acquire(self.engine_lock, max(0.0, min(self.queue_wait_s, deadline - self.clock.monotonic())))
+            self._observe({"metric": "queue_wait", "op": op, "seconds": max(0.0, self.clock.monotonic() - t_call)})   # 거절된 대기도 대기다(꼬리를 빼면 p95가 낮게 나온다)
+            if not got:
                 return 503, BoundaryError("UNAVAILABLE", "대기가 길어 거절한다").to_record(), {}
             res: dict = {}
             done = threading.Event()
@@ -284,12 +297,16 @@ class Service:
             if not self.clock.wait(done, max(0.0, deadline - self.clock.monotonic())):
                 self.overdue = True
                 log.error("추론이 호출 상한 %.1fs를 넘겼다(op=%s)", limit_s, op)
+                self._engine_done(op, "timeout", 0, t_call)
                 return 503, BoundaryError("UNAVAILABLE", "추론이 요청 상한을 넘겼다", {"reason": "ENGINE_TIMEOUT"}).to_record(), {}
             if "err" in res:
                 raise res["err"]
             out, info = res["ok"]
             self.engine_error = None
             headers = {"X-Openit-Outcome": info.outcome, "X-Openit-Attempts": str(info.attempts)}
+            self._engine_done(op, info.outcome, info.attempts, t_call)
+            if any(k == "NEXT_ITEM_FILLED" for k, _ in info.protections):   # 서버가 모델의 next_item을 바꿨다(계약 ADR 0014 과도기 신호)
+                self._observe({"metric": "next_item_overridden", "op": op})
             if info.protections:
                 headers["X-Openit-Protections"] = ",".join(f"{k}:{v}" for k, v in info.protections)
             return 200, (out.text if op == "respond" else out), headers
@@ -297,6 +314,7 @@ class Service:
             return 400, BoundaryError("INVALID_RECORD", str(e)).to_record(), {}
         except ModelOutputInvalid as e:   # D75: 값을 지어내지 않는다. 호출자(survey-service)가 한 번 다시 보낸다
             log.warning("OUTPUT_INVALID attempts=%s violations=%s", e.attempts, ",".join(violation_names(e.errors)))
+            self._engine_done(op, "invalid", e.attempts, t_call)
             return 503, BoundaryError("UNAVAILABLE", "모델 출력이 ActionExtraction 형식을 지키지 못했다",
                                       {"reason": "OUTPUT_INVALID", "attempts": e.attempts,
                                        "violations": violation_names(e.errors)}).to_record(), {}
@@ -306,6 +324,7 @@ class Service:
         except Exception as e:   # noqa: BLE001 (엔진 사망 등)
             log.error("추론 실패 %s", type(e).__name__)
             self.engine_error = type(e).__name__   # 엔진 사망 등: 다음 추론이 성공할 때까지 /readyz 503
+            self._engine_done(op, "unavailable", 0, t_call)
             return 503, BoundaryError("UNAVAILABLE", "추론 실패").to_record(), {}
         finally:
             with self.rlock:

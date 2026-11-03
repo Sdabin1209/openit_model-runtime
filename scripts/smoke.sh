@@ -44,7 +44,7 @@ echo "PUT without I4: $code"; [ "$code" = 503 ] || { echo "503이어야 한다" 
 # 스키마는 이미지에 들어 있다(마운트 없음). 새 볼륨도 번들 디렉터리에 쓸 수 있어야 한다. 쓸 수 없으면 /readyz 503과 이유.
 docker exec "$NAME" python -c "import os,tempfile;tempfile.TemporaryFile(dir=os.environ['MODEL_RUNTIME_BUNDLE_DIR'])" && echo "bundle dir writable"
 NAME2="$NAME-ro"
-docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
+docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
 trap 'docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT
 PORT2="$(docker port "$NAME2" 8080/tcp | head -1 | sed 's/.*://')"
 for i in $(seq 1 20); do curl -sf "http://127.0.0.1:$PORT2/healthz" >/dev/null && break; sleep 1; done
