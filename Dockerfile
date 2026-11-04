@@ -6,9 +6,12 @@
 # 문진 스키마를 이미지에 넣는 선택 옵션: --build-context schema=<.../survey-service/schema>(없으면 빈 스테이지라 아무것도 안 들어간다).
 # 넣으면 MODEL_RUNTIME_SCHEMA_DIR 없이 /opt/survey-schema/schemas를 쓴다. 라벨 io.openit.contracts.survey-schema에 정수 버전을 밝힌다.
 # (2.0.0: 모델 입출력 스키마는 boundary-contracts 패키지에 들어 있어 이 디렉터리에서 읽지 않는다. CONTRACT_VERSION만 쓴다.)
+# 왜: 기반 이미지를 태그(python:3.12-slim)가 아니라 digest로 고정한다. 태그는 움직이므로 같은 소스가 빌드 때마다 다른 이미지가 될 수 있다(컨테이너 기반 이미지 고정, OCI image-spec의 content-addressable digest).
+# 값은 2026-11-05 이 개발 PC에 있던 python:3.12-slim의 RepoDigest다. 올리는 법: 새 digest를 받아(docker pull python:3.12-slim 뒤 docker image inspect) 이 ARG 한 곳과 CHANGELOG를 고치고 새 판을 낸다. 보안 갱신을 자동으로 받지 못하는 것은 감수한다.
+ARG PYTHON_IMAGE=python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 FROM scratch AS schema
 FROM scratch AS link
-FROM python:3.12-slim
+FROM ${PYTHON_IMAGE}
 ARG VARIANT=cpu
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 MODEL_RUNTIME_HOST=0.0.0.0 MODEL_RUNTIME_PORT=8080 MODEL_RUNTIME_BUNDLE_DIR=/var/lib/model-runtime/bundles HF_HOME=/var/lib/model-runtime/hf
 WORKDIR /app
