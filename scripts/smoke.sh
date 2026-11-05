@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# deploy 와 같은 실행 조건으로 띄운다(읽기 전용 루트, /tmp tmpfs, cap_drop ALL, no-new-privileges, 쓸 수 있는 경로는 deploy compose 와 같게): 2026-11-06 E2E 기동에서야 드러난 쓰기 경로 결함을 스모크에서 잡는다
 # 컨테이너 스모크(CPU/가짜 백엔드): 이미지를 빌드해 /healthz, /readyz, /v1/.../extract, 라벨, non-root를 확인한다.
 # 고정 포트를 쓰지 않는다(Docker가 호스트 포트를 배정). 사용: scripts/smoke.sh
 set -euo pipefail
@@ -39,7 +40,7 @@ REQ="$REQDIR/request.json"
 python3 -c 'import json,sys;a=sys.argv;print(json.dumps({"source_dir":a[1],"revision":a[2],"versions":{"boundary":a[3],"model_runtime":a[4],"survey_schema":a[5]},
   "dependency_sources":{"boundary":a[6],"survey_schema":a[7]},"image_tag":a[8]}))' "$HERE" "$(git -C "$HERE" rev-parse --short HEAD)" "$BOUNDARY_TAG" "v$MR_VERSION" "$SSV" "$BDIR" "$HERE/tests/fixtures/schema" "$TAG" > "$REQ"
 PYTHON="${PYTHON:-$( [ -x "$HERE/.venv/bin/python" ] && echo "$HERE/.venv/bin/python" || echo python3)}" bash "$HERE/scripts/build-image.sh" "$REQ" | tail -1 | tee "$REQDIR/result.json"
-docker run -d --name "$NAME" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
+docker run -d --name "$NAME" --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /var/lib/model-runtime -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 -e MODEL_RUNTIME_PUT_WAIT_S=5 \
   "$TAG" >/dev/null
 PORT="$(docker port "$NAME" 8080/tcp | head -1 | sed 's/.*://')"; URL="http://127.0.0.1:$PORT"
 for i in $(seq 1 30); do curl -sf "$URL/healthz" >/dev/null && break; sleep 1; done
@@ -58,7 +59,7 @@ echo "PUT without I4: $code"; [ "$code" = 503 ] || { echo "503이어야 한다" 
 # 스키마는 이미지에 들어 있다(마운트 없음). 새 볼륨도 번들 디렉터리에 쓸 수 있어야 한다. 쓸 수 없으면 /readyz 503과 이유.
 docker exec "$NAME" python -c "import os,tempfile;tempfile.TemporaryFile(dir=os.environ['MODEL_RUNTIME_BUNDLE_DIR'])" && echo "bundle dir writable"
 NAME2="$NAME-ro"
-docker run -d --name "$NAME2" -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
+docker run -d --name "$NAME2" --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true -p 127.0.0.1::8080 -e MODEL_RUNTIME_BACKEND=fake -e MODEL_RUNTIME_ALLOW_FAKE=1 -e MODEL_RUNTIME_ALLOW_NO_AUTH=1 -e MODEL_RUNTIME_RELEASE_URL=http://127.0.0.1:9 --tmpfs /var/lib/model-runtime/bundles:ro "$TAG" >/dev/null
 trap 'smoke_diag $? "$NAME" "${NAME}-ro" "${NAME2:-}"; docker rm -f "$NAME" "$NAME2" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; rm -rf "$BDIR" "$REQDIR"' EXIT
 PORT2="$(docker port "$NAME2" 8080/tcp | head -1 | sed 's/.*://')"
 for i in $(seq 1 20); do curl -sf "http://127.0.0.1:$PORT2/healthz" >/dev/null && break; sleep 1; done
