@@ -80,7 +80,7 @@ def make_app(svc) -> App:
         Route("POST", "/v1/releases/{release_id}/respond", respond, roles=infer_roles, request_schema="ResponseRequest", max_body=MAX_BODY),
     ]
     # 토큰을 켠 실행: 인증되지 않은 /readyz에는 사유를 감추고 토큰이 있는 호출에는 전체를 준다(link 0.3.0). 토큰이 없는 개발용 실행은 모두에게 전체를 준다
-    return App(routes, role_of, ready=ready, ready_public=(lambda info: {k: v for k, v in info.items() if k != "reason"}) if svc.tokens else None)
+    return App(routes, role_of, ready=ready, contract_service="model-serving", contract_bindings={"read_roles": sorted(anyone), "infer_roles": sorted(infer_roles), "load_roles": sorted(put_roles), "anonymous": not bool(svc.tokens)}, ready_public=(lambda info: {k: v for k, v in info.items() if k != "reason"}) if svc.tokens else None)
 
 
 def make_server(svc, host: str, port: int, *, max_connections: int = MAX_CONNECTIONS):
