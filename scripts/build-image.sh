@@ -9,6 +9,7 @@
 set -euo pipefail
 REQ="${1:-}"; [ -n "$REQ" ] && [ -f "$REQ" ] || { echo "사용: bash scripts/build-image.sh <BuildImageRequest JSON 파일>" >&2; exit 2; }
 DOCKER="${DOCKER:-docker}"; PY="${PYTHON:-python3}"
+source "$(dirname "${BASH_SOURCE[0]}")/docker-env.sh"   # 사용자 ~/.docker에 기대지 않는다(DOCKER_CONFIG, 한 곳)
 log() { echo "build-image: $*" >&2; }
 die() { echo "build-image: $*" >&2; exit 1; }
 

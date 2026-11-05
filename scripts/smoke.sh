@@ -16,6 +16,7 @@ smoke_diag() {
   done
 }
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+source "$HERE/scripts/docker-env.sh"   # 사용자 ~/.docker에 기대지 않는다(DOCKER_CONFIG, 한 곳)
 # 계약 태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION이다(여기에 버전 숫자를 따로 적지 않는다). BOUNDARY_TAG 환경 변수로 덮어쓸 수 있다
 BOUNDARY_TAG="${BOUNDARY_TAG:-$(sed -n 's/^ARG BOUNDARY_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$HERE/Dockerfile" | head -1)}"
 # 기대 라벨 값의 정본은 pyproject.toml의 version이다(RUNTIME_VERSION과 같아야 하며 tests가 확인한다)
