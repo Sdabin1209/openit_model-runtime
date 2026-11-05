@@ -98,7 +98,12 @@ class Served:
         self._th = threading.Thread(target=srv.run, daemon=True); self._th.start()
 
     def shutdown(self):
+        # 순서가 중요하다: 일꾼 스레드를 먼저 멈춘다. waitress 일꾼은 응답을 마치면 깨우기 파이프(trigger)에 b"x" 를 쓴다.
+        # 서버를 먼저 닫으면 그 파이프 번호(fd)가 다음 시험의 하위 프로세스 파이프로 재사용된 뒤 늦은 'x' 가 그 출력에 끼어든다
+        # (deploy check-all 에서 build-image 결과 JSON 앞에 'x' 가 붙은 실패, 2026-11-05). 닫은 뒤 반복문 스레드가 끝나기를 기다린다.
+        self._srv.task_dispatcher.shutdown(cancel_pending=True, timeout=5)
         self._srv.close()
+        self._th.join(5)
 
 
 def serve_app(svc, **kw):
