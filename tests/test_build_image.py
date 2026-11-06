@@ -35,6 +35,8 @@ elif a[:2] == ["image", "inspect"]:
     if os.environ.get("STUB_BAD_LABEL"):
         labels["io.openit.revision"] = "ffffff0"
     print("sha256:" + "ab" * 32 if "{{.Id}}" in a[-1] else json.dumps(labels))
+elif a[0] == "run" and "id" in a:   # 이미지 실행 사용자(주입 선언 정직성 확인용, 계약 ContainerInputs.process)
+    print(os.environ.get("STUB_UID", "10001") if a[-1] == "-u" else os.environ.get("STUB_GID", "10001"))
 elif a[0] == "run":   # 이미지 안에 실제로 설치된 버전(라벨 정직성 확인용)
     b = json.load(open(log))
     args = {{b[i + 1].split("=", 1)[0]: b[i + 1].split("=", 1)[1] for i, x in enumerate(b) if x == "--build-arg"}}
@@ -82,6 +84,8 @@ def test_success_last_line_is_build_image_result_and_labels_match_request(env):
     assert out["image"] == "model-runtime-test/model-serving:abc1234" and out["image_id"].startswith("sha256:")
     expo = out["labels"].pop("io.openit.exposure")   # 노출 선언 라벨: 내보내기 전에 계약 Exposure로 검증한 한 줄 JSON
     assert not list(validator("Exposure").iter_errors(json.loads(expo))) and json.loads(expo)["service"] == "model-serving"
+    inputs = out["labels"].pop("io.openit.inputs")   # 주입 선언 라벨(계약 ContainerInputs 3.5.0): 리포의 deploy-inputs.json 을 검증한 한 줄 JSON
+    assert not list(validator("ContainerInputs").iter_errors(json.loads(inputs))) and json.loads(inputs)["image"] == "model-serving"
     assert out["labels"] == {"io.openit.service": "model-serving", "io.openit.revision": "abc1234", "io.openit.contracts.boundary": PINNED,
                              "io.openit.contracts.survey-schema": "2", "io.openit.model-runtime": VERSION}
     assert json.loads(env["log"].read_text())[0] == "build"
@@ -206,3 +210,10 @@ def test_exposure_label_follows_the_service_name_and_is_validated_before_docker(
     finally:
         bad.write_text(orig, encoding="utf-8")
     assert r.returncode != 0 and "Exposure" in r.stderr and not env["log"].exists()   # 어긴 선언으로는 docker를 부르지 않는다
+
+
+def test_inputs_declaration_must_match_image_user(env):
+    """주입 선언(deploy-inputs.json)의 process 가 이미지 실행 사용자와 다르면 빌드가 실패하고 이미지를 지운다(배치 영역이 파일·쓰기 권한을 틀리게 주지 않게)."""
+    r = run(env, request(env), STUB_UID="0")
+    assert r.returncode != 0 and "주입 선언" in r.stderr
+    assert Path(str(env["log"]) + ".rmi").exists()

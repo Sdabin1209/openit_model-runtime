@@ -38,19 +38,34 @@ def entry_args() -> dict:
     return {n: values[n] for n in names}
 
 
+def entry_labels() -> dict:
+    """빌드 진입점이 --label 로 직접 다는 선언 라벨(값은 리포의 정본 파일): 노출(io.openit.exposure)과 주입(io.openit.inputs, 계약 3.5.0 필수).
+    Dockerfile 만으로 빌드하면 주입 선언이 없다: 계약을 지키는 이미지는 진입점(build-image.sh)으로만 만든다."""
+    import json
+    names = re.findall(r'--label "(io\.openit\.[\w.-]+)=\$', ENTRY)
+    src = {"io.openit.exposure": ("deploy-exposure.json", "service"), "io.openit.inputs": ("deploy-inputs.json", "image")}
+    assert set(names) <= set(src), f"build-image.sh 가 모르는 라벨을 단다: {sorted(set(names) - set(src))}"
+    out = {}
+    for n in names:
+        doc = json.loads((ROOT / src[n][0]).read_text(encoding="utf-8")); doc[src[n][1]] = "model-serving"
+        out[n] = json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return out
+
+
 class ImageLabels(unittest.TestCase):
     def errors(self, labels):
         return [f"{'/'.join(map(str, e.absolute_path))}: {e.message}" for e in validator("ImageLabels").iter_errors(labels)]
 
     def test_entrypoint_build_labels_satisfy_contract(self):
-        labels = render({**arg_defaults(), **entry_args()})
+        labels = {**render({**arg_defaults(), **entry_args()}), **entry_labels()}
         self.assertEqual(self.errors(labels), [], labels)
+        self.assertIn("io.openit.inputs", labels)
         self.assertRegex(labels["io.openit.model-runtime"], r"^v\d+\.\d+\.\d+$")
 
     def test_defaults_for_optional_args_are_contract_values(self):
         # 빌드 인자를 주지 않아도 되는 라벨(survey-schema)의 기본값이 계약 값이어야 한다(none·unknown 불가, n/a)
         args = {**arg_defaults(), "SERVICE_NAME": "model-serving", "REVISION": "0123abc", "MODEL_RUNTIME_VERSION": "v0.0.0"}
-        self.assertEqual(self.errors(render(args)), [])
+        self.assertEqual(self.errors({**render(args), **entry_labels()}), [])
 
 
 if __name__ == "__main__":

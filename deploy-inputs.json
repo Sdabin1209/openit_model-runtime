@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "image": "model-serving",
+  "read_only_root": true,
+  "exec_absolute_argv": true,
+  "role_env": null,
+  "roles": {
+    "default": {
+      "env_schema": "ModelServingEnv",
+      "process": {
+        "uid": 10001,
+        "gid": 10001
+      },
+      "files": [
+        {
+          "path_env": "SSL_CERT_FILE",
+          "path": "/etc/openit/gateway-ca.crt",
+          "directory": false,
+          "kind": "ca-bundle",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": null,
+          "path": "/etc/openit/pki",
+          "directory": true,
+          "kind": "ca-bundle",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "MODEL_RUNTIME_RELEASE_TOKEN_FILE",
+          "path": "/run/secrets/gate-read-model-serving",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "MODEL_RUNTIME_TOKENS_FILE",
+          "path": "/run/secrets/model-runtime-tokens",
+          "directory": false,
+          "kind": "secret",
+          "schema": null,
+          "required": true,
+          "opened_by": "start-process"
+        }
+      ],
+      "writable": [
+        {
+          "path": "/tmp",
+          "persist": false,
+          "written_by": {
+            "uid": 10001,
+            "gid": 10001
+          }
+        },
+        {
+          "path": "/var/lib/model-runtime",
+          "persist": true,
+          "written_by": {
+            "uid": 10001,
+            "gid": 10001
+          }
+        }
+      ],
+      "capabilities": [],
+      "sysctls": {}
+    }
+  },
+  "jobs": {}
+}

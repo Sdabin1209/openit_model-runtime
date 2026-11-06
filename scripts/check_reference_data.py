@@ -15,6 +15,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from boundary_contracts import format_checker as _bc_format_checker  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -52,7 +53,7 @@ def run(data_dir: Path, splits, limit, sys_prompts):
     relaxed = {}
     for role in ("LORA_A",):
         rs, _ = relax(schemas.model_output_schema(role), FEATURES)
-        relaxed[role] = jsonschema.Draft202012Validator(rs)
+        relaxed[role] = jsonschema.Draft202012Validator(rs, format_checker=_bc_format_checker(rs))
     prop_order = list(load_schema("ActionExtraction")["properties"])
     out = {}
     for r in ("a", "b"):

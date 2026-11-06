@@ -73,6 +73,19 @@ if errs:
 print(json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
 ' "$SRC/deploy-exposure.json" "$SERVICE")" || die "노출 선언 검증 실패"
 
+# 주입 선언(라벨 io.openit.inputs, 계약 ContainerInputs 3.5.0): 리포의 deploy-inputs.json이 정본이다. 배치 영역은 이 선언과 정확히 같게 주입한다.
+# 이미지 이름은 서비스 이름(model-serving, GPU는 model-serving-gpu)으로 맞춘다. 실행 사용자는 빌드 뒤 이미지에서 읽어 대조한다(2b).
+INPUTS="$(PYTHONPATH="$BC_SRC" "$PY" -c '
+import json, sys
+from boundary_contracts import validator
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+doc["image"] = sys.argv[2]
+errs = list(validator("ContainerInputs").iter_errors(doc))
+if errs:
+    sys.exit("deploy-inputs.json이 ContainerInputs를 어긴다: " + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
+print(json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+' "$SRC/deploy-inputs.json" "$SERVICE")" || die "주입 선언 검증 실패"
+
 # 통신 기반 라이브러리 openit-link(D118)의 소스: 태그의 정본은 Dockerfile의 ARG LINK_VERSION. 형제 폴더(LINK_REPO)에서 git archive로, 없으면 GitHub 태그 clone으로 꺼낸다.
 LINK_TAG="$(sed -n 's/^ARG LINK_VERSION=\(v[0-9][0-9.]*\).*/\1/p' "$SRC/Dockerfile" | head -1)"
 [ -n "$LINK_TAG" ] || die "Dockerfile에서 ARG LINK_VERSION을 읽지 못했다"
@@ -85,7 +98,7 @@ fi
 # 2) 빌드. 같은 요청 -> 같은 이미지(인자와 컨텍스트가 요청에서만 온다). 문진 스키마는 이미지에 내장한다(D72).
 ARGS=(--build-context "boundary=$BC_DIR" --build-context "schema=$SS_DIR" --build-context "link=$LINK_DIR"
       --build-arg "SERVICE_NAME=$SERVICE" --build-arg "REVISION=$REV" --build-arg "BOUNDARY_VERSION=$BC_V" --build-arg "SURVEY_SCHEMA_VERSION=$SS_MAJOR"
-      --build-arg "MODEL_RUNTIME_VERSION=$MR_V" --label "io.openit.exposure=$EXPOSURE")
+      --build-arg "MODEL_RUNTIME_VERSION=$MR_V" --label "io.openit.exposure=$EXPOSURE" --label "io.openit.inputs=$INPUTS")
 EXPECT_VARIANT=""
 if [ "$VARIANT" = "gpu" ]; then ARGS+=(--build-arg VARIANT=gpu --label io.openit.variant=gpu); EXPECT_VARIANT=gpu; fi
 log "docker build $TAG (variant=${VARIANT:-cpu})"
@@ -101,16 +114,25 @@ WANT_INSTALLED="$(printf '{"boundary": "%s", "model_runtime": "%s", "survey_sche
 "$PY" -c 'import json,sys;sys.exit(0 if json.loads(sys.argv[1]) == json.loads(sys.argv[2]) else 1)' "$INSTALLED" "$WANT_INSTALLED" \
   || { "$DOCKER" rmi -f "$TAG" >&2 || true; die "라벨이 거짓이 된다: 이미지에 실제로 설치된 버전 $INSTALLED 이(가) 라벨 값 $WANT_INSTALLED 과 다르다. 이미지를 지웠다"; }
 
+# 2c) 주입 선언 정직성: 이미지의 실행 사용자(숫자 uid:gid)가 선언의 process 와 같아야 한다. 다르면 배치 영역이 파일·쓰기 권한을 틀리게 준다
+RUNAS="$("$DOCKER" run --rm --network none --entrypoint id "$TAG" -u)":"$("$DOCKER" run --rm --network none --entrypoint id "$TAG" -g)" || { "$DOCKER" rmi -f "$TAG" >&2 || true; die "이미지의 실행 사용자를 읽지 못했다"; }
+"$PY" -c '
+import json, sys
+d = json.loads(sys.argv[1]); u, g = map(int, sys.argv[2].split(":"))
+bad = sorted(k for sect in ("roles", "jobs") for k, st in d[sect].items() if (st["process"]["uid"], st["process"]["gid"]) != (u, g))
+sys.exit("주입 선언의 process 가 이미지 실행 사용자 %d:%d 와 다르다: %s" % (u, g, bad) if bad else 0)
+' "$INPUTS" "$RUNAS" || { "$DOCKER" rmi -f "$TAG" >&2 || true; die "주입 선언이 이미지와 다르다. 이미지를 지웠다"; }
+
 # 3) 결과: 이미지에 실제로 붙은 라벨과 ID를 읽는다. 요청 값과 같아야 하고 계약 ImageLabels·BuildImageResult를 통과해야 한다.
 IMAGE_ID="$("$DOCKER" image inspect "$TAG" --format '{{.Id}}')"
 LABELS_JSON="$("$DOCKER" image inspect "$TAG" --format '{{json .Config.Labels}}')"
 PYTHONPATH="$BC_SRC" "$PY" -c '
 import json, sys
 from boundary_contracts import validator
-tag, image_id, labels_json, rev, bc, mr, ss, variant, service, exposure = sys.argv[1:11]
+tag, image_id, labels_json, rev, bc, mr, ss, variant, service, exposure, inputs = sys.argv[1:12]
 labels = {k: v for k, v in json.loads(labels_json).items() if k.startswith("io.openit.")}
 want = {"io.openit.service": service, "io.openit.revision": rev, "io.openit.contracts.boundary": bc, "io.openit.model-runtime": mr,
-        "io.openit.contracts.survey-schema": ss, "io.openit.exposure": exposure}
+        "io.openit.contracts.survey-schema": ss, "io.openit.exposure": exposure, "io.openit.inputs": inputs}
 if variant:
     want["io.openit.variant"] = variant
 bad = sorted(k for k in want if labels.get(k) != want[k])
@@ -121,4 +143,4 @@ errs = list(validator("BuildImageResult").iter_errors(result))
 if errs:
     sys.exit("결과가 BuildImageResult를 어긴다: " + ", ".join("/" + "/".join(map(str, e.absolute_path)) + ":" + e.validator for e in errs[:5]))
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT" "$SERVICE" "$EXPOSURE"
+' "$TAG" "$IMAGE_ID" "$LABELS_JSON" "$REV" "$BC_V" "$MR_V" "$SS_MAJOR" "$EXPECT_VARIANT" "$SERVICE" "$EXPOSURE" "$INPUTS"

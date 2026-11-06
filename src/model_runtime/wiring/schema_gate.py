@@ -14,6 +14,7 @@ import jsonschema
 from referencing import Registry, Resource
 
 from .errors import ContractViolation
+from boundary_contracts import format_checker as _bc_format_checker  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
 
 
 def _dir():
@@ -39,7 +40,7 @@ def _registry() -> Registry:
 
 @lru_cache(maxsize=None)
 def _validator(name: str) -> jsonschema.Draft202012Validator:
-    return jsonschema.Draft202012Validator(schema(name), registry=_registry())
+    return jsonschema.Draft202012Validator(schema(name), registry=_registry(), format_checker=_bc_format_checker(schema(name)))
 
 
 def violations(name: str, value: Any) -> list[tuple[str, str]]:

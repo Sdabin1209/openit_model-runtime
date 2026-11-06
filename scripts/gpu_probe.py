@@ -12,6 +12,7 @@ from importlib import metadata
 from pathlib import Path
 
 import jsonschema
+from boundary_contracts import format_checker as _bc_format_checker  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "scripts")]
@@ -173,7 +174,7 @@ def main():
                     except ValueError:
                         trunc += 1   # 닫히지 않은 JSON(잘림). 키워드 판정에서 뺀다
                         continue
-                    if list(jsonschema.Draft202012Validator(sch).iter_errors(obj)):
+                    if list(jsonschema.Draft202012Validator(sch, format_checker=_bc_format_checker(sch)).iter_errors(obj)):
                         bad += 1
                 row = {"status": "enforced" if bad == 0 else "ignored_or_partial", "violations": f"{bad}/{n - trunc}", "unparsable": trunc}
             except Exception as e:   # noqa: BLE001

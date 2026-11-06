@@ -154,6 +154,8 @@ quack-kernels==0.6.5
 referencing==0.37.0
 regex==2026.9.29
 requests==2.34.2
+rfc3339-validator==0.1.4
+rfc3986-validator==0.1.1
 rich==15.0.0
 rich-toolkit==0.20.6
 rignore==0.8.1
