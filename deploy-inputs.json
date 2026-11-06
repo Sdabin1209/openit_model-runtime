@@ -14,17 +14,8 @@
       "files": [
         {
           "path_env": "SSL_CERT_FILE",
-          "path": "/etc/openit/gateway-ca.crt",
+          "path": "/etc/openit/pki/root_ca.crt",
           "directory": false,
-          "kind": "ca-bundle",
-          "schema": null,
-          "required": true,
-          "opened_by": "start-process"
-        },
-        {
-          "path_env": null,
-          "path": "/etc/openit/pki",
-          "directory": true,
           "kind": "ca-bundle",
           "schema": null,
           "required": true,
@@ -46,6 +37,15 @@
           "kind": "secret",
           "schema": null,
           "required": true,
+          "opened_by": "start-process"
+        },
+        {
+          "path_env": "MODEL_RUNTIME_FAKE_FLOW_FILE",
+          "path": "/test-mimic/question_flow.json",
+          "directory": false,
+          "kind": "config",
+          "schema": "RuntimeFlowFile",
+          "required": false,
           "opened_by": "start-process"
         }
       ],
