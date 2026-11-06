@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "model-runtime"
-version = "0.11.32"
+version = "0.11.33"
 description = "문진 시스템 model-runtime: LoRA 모델 호출, 프롬프트, 출력 검증"
 requires-python = ">=3.10"
-# boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v3.5.0  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
+# boundary-contracts는 Git 태그로 설치한다(공통 규칙): pip install git+ssh://git@github.com/Sdabin1209/openit_boundary-contracts.git@v3.6.0  (태그의 정본은 Dockerfile의 ARG BOUNDARY_VERSION, 설치는 scripts/setup-env.sh)
 dependencies = ["jsonschema>=4.18", "waitress>=3.0", "prometheus_client>=0.20", "boundary-contracts"]   # waitress: 추론 서버의 WSGI 서버(ADR 0022), prometheus_client: 소요 시간 지표(ADR 0033)
 
 [project.optional-dependencies]
