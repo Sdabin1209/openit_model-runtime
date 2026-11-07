@@ -22,5 +22,6 @@ model_runtime = ["data/*.json"]
 "model_runtime.schemas.examples" = ["*.json"]   # 모방 컴포넌트의 규칙표(비편집 설치에서도 따라가게)
 
 [tool.pytest.ini_options]
+markers = ["gpu: GPU 변형에만 있는 의존(xgrammar 등)이 필요한 시험. CPU 전체 시험 명령은 뺀다", "reference_data: 외부 실제 데이터가 있어야 도는 선택 대조. 전체 시험 명령은 뺀다"]
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]

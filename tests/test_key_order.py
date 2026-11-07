@@ -2,6 +2,8 @@
 import json
 import unittest
 
+import pytest
+
 from boundary_contracts import load_schema
 
 import model_runtime as mr
@@ -40,6 +42,7 @@ class KeyOrder(unittest.TestCase):
         flat, _ = relax(strip(ORIG), mr.DEFAULT_SUPPORTED_FEATURES)
         self.assertEqual(flat, REL)
 
+    @pytest.mark.gpu   # GPU 변형에만 있는 의존(xgrammar): CPU 전체 시험 명령은 명시적으로 뺀다. GPU 이미지·키트에서 -m gpu 로 돈다(2026-11-07)
     @unittest.skipIf(xg is None, "xgrammar 없음(scripts/xgrammar_check.py 참고)")
     def test_xgrammar_accepts_sorted_rejects_reversed(self):
         v = [chr(i) for i in range(32, 127)] + ["</s>"]

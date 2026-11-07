@@ -3,6 +3,8 @@
 import os
 import sys
 import unittest
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -10,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 D = os.environ.get("MODEL_RUNTIME_REFERENCE_DATA_DIR")
 
 
+@pytest.mark.reference_data   # 외부 실제 데이터(MODEL_RUNTIME_REFERENCE_DATA_DIR)가 있어야 도는 선택 대조: 전체 시험 명령은 명시적으로 뺀다(2026-11-07)
 @unittest.skipUnless(D and Path(D).is_dir() and list(Path(D).glob("lora_a_*.jsonl")), "MODEL_RUNTIME_REFERENCE_DATA_DIR 없음")
 class ReferenceData(unittest.TestCase):
     def test_serving_reproduces_training_prompts_and_accepts_answers_within_input_limit(self):

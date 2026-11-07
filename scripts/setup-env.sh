@@ -10,7 +10,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 AREA="model-runtime"   # 계약 SetupEnvReport.area: 영역(리포) 이름
 report() {   # report <status> <exit_code> [환경 선언 포함 여부]. seconds는 bash 내장 SECONDS(이 스크립트가 시작한 뒤 경과한 초)
   local env_json=""
-  [ "${3:-}" = env ] && env_json=',"environment":{"kind":"python-venv","path":".venv","test_command":[".venv/bin/python","-m","pytest","-q"]}'
+  [ "${3:-}" = env ] && env_json=',"environment":{"kind":"python-venv","path":".venv","test_command":[".venv/bin/python","-m","pytest","-q","-m","not gpu and not reference_data"]}'
   printf '{"area":"%s","status":"%s","exit_code":%s,"seconds":%s%s}\n' "$AREA" "$1" "$2" "$SECONDS" "$env_json"
 }
 trap 'rc=$?; [ "$rc" -eq 0 ] || report fail "$rc"' EXIT   # 어디서 실패하든 마지막 줄은 보고다(준비되지 못한 환경은 선언하지 않는다)
