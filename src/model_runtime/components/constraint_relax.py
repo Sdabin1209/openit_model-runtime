@@ -218,6 +218,9 @@ def _expand_allof(obj: dict, rules: list, path: str, feats: frozenset, changed: 
     return outer
 
 
+_END_GUARD = "(?![\\s\\S])"
+
+
 def relax(schema: dict, supported_features: Iterable[str]) -> tuple[dict, list[str]]:
     """엔진이 지원하지 않는 키워드를 허용 범위를 넓히는 방향으로만 바꾼다.
 
@@ -238,6 +241,11 @@ def relax(schema: dict, supported_features: Iterable[str]) -> tuple[dict, list[s
         out: dict[str, Any] = {}
         rules = None
         for k, v in s.items():
+            if k == "pattern" and isinstance(v, str) and _END_GUARD in v:
+                # 계약 4.0.0 의 끝 고정 $(?![\s\S]) 는 검증기(파이썬 re)용이다. 생성은 문자열 전체를 만들므로 $ 와 같은 뜻이고,
+                # xgrammar 0.2.7 은 앞보기를 지원하지 않아 경고와 함께 무시한다(2026-11-07 CPU 확인): 디코딩용 스키마에서는 명시적으로 걷어 낸다
+                v = v.replace(_END_GUARD, "")
+                changed.add("pattern-end-guard")
             if k in _NON_SCHEMA:
                 if k in ("enum", "const", "required", "type") and k not in feats and k != "type":
                     changed.add(k)

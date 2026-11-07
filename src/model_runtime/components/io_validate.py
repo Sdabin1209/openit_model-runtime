@@ -1,7 +1,7 @@
 """io_validate 컴포넌트: 역할 한 개의 입력 또는 출력을 계약 스키마로 검증한다. IoValidationInput -> IoValidationResult.
 
 2.0.0(D74): 모델 입출력 스키마(`ActionExtractionInput`, `ActionExtraction`, `ResponseRequest`, `ResponseText`)는 boundary-contracts 패키지에서 가져온다
-(`validator`, 복사본 없음). 검증기는 `pattern`의 `$`를 `\\Z`로 읽는다(MR-14).
+(`validator`, 복사본 없음). 끝 개행은 계약 패턴이 직접 거부한다(4.0.0, MR-14).
 `output_schema`는 제약 디코딩에 쓸 출력 스키마(완화 전)를 낸다. 제약을 쓸지는 역할이 정한다(MR-01)."""
 from __future__ import annotations
 
@@ -15,19 +15,6 @@ from boundary_contracts import load_schema, validator
 INPUT, OUTPUT = "IoValidationInput", "IoValidationResult"
 INPUT_CONTRACT = {"LORA_A": "ActionExtractionInput", "LORA_B": "ResponseRequest"}
 OUTPUT_CONTRACT = {"LORA_A": "ActionExtraction", "LORA_B": "ResponseText"}
-_END_ANCHOR = re.compile(r"(?<!\\)\$")
-
-
-def _strict_pattern_validator(v):
-    """`pattern`의 `$`는 파이썬 `re`에서 끝 줄바꿈 앞에도 맞는다(`Q4.answer\\n`이 통과, MR-14). 검증기에서만 `$`를 `\\Z`로 읽는다.
-    계약 스키마 원본은 바꾸지 않는다(제약 디코딩에 주는 스키마도 그대로)."""
-    def pattern(validator_, patrn, instance, schema):
-        if validator_.is_type(instance, "string") and not re.search(_END_ANCHOR.sub(r"\\Z", patrn), instance):
-            yield jsonschema.ValidationError(f"does not match {patrn!r}")
-    cls = jsonschema.validators.extend(type(v), {"pattern": pattern})
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        return cls(v.schema, resolver=v.resolver)
 
 
 _VALIDATORS: dict = {}
@@ -35,7 +22,7 @@ _VALIDATORS: dict = {}
 
 def _v(name: str):
     if name not in _VALIDATORS:
-        _VALIDATORS[name] = _strict_pattern_validator(validator(name))
+        _VALIDATORS[name] = validator(name)   # 계약 4.0.0 부터 pattern 끝 고정이 $(?![\s\S]) 라 끝 개행을 계약이 직접 거부한다(MR-14 의 \Z 우회 검사기는 없앴다)
     return _VALIDATORS[name]
 
 

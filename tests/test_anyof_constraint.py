@@ -106,11 +106,19 @@ def mutations():
     return out
 
 
+class EndGuard(unittest.TestCase):
+    def test_디코딩_스키마에는_끝_고정_앞보기가_없다(self):
+        # 계약 4.0.0 의 $(?![\s\S]) 는 xgrammar 가 지원하지 않는 앞보기다(무시하고 경고): 디코딩 스키마에서는 걷어 낸다
+        import json as _j
+        self.assertNotIn("(?![", _j.dumps(NOMAX))
+        self.assertIn("(?![", _j.dumps(ORIG))
+
+
 class Equivalence(unittest.TestCase):
     def test_removed_record_is_exact(self):
         self.assertIn("maxItems", FEATS)
-        self.assertEqual(REMOVED, ["allOf->anyOf"])
-        self.assertEqual(NOMAX_REMOVED, ["allOf->anyOf", "maxItems"])
+        self.assertEqual(REMOVED, ["allOf->anyOf", "pattern-end-guard"])   # 계약 4.0.0: 끝 고정 앞보기는 디코딩 스키마에서 걷어 낸다(같은 뜻)
+        self.assertEqual(NOMAX_REMOVED, ["allOf->anyOf", "maxItems", "pattern-end-guard"])
         for kw in ("'allOf'", "'if'", "'then'", "'else'", "'oneOf'", "'not'"):
             self.assertNotIn(kw, repr(REL))
 
