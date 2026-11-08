@@ -75,7 +75,7 @@ class SchemaDir(unittest.TestCase):
     def test_fixture_matches_workspace_schema(self):
         import sys as _sys; _sys.path.insert(0, str(Path(__file__).resolve().parent))
         from pinned_tree import pinned_tree   # 문진 스키마는 고정 태그(GPU 키트와 같은 SURVEY_SCHEMA_TAG 기본값)에서 읽는다. 건너뛰지 않는다
-        ws = pinned_tree("survey-service", os.environ.get("SURVEY_SCHEMA_TAG", "survey-schema-v4.1.1"), "schema")
+        ws = pinned_tree("survey-service", os.environ.get("SURVEY_SCHEMA_TAG", "survey-schema-v5.0.0"), "schema")
         self.assertEqual((ws / "CONTRACT_VERSION").read_bytes(), (SCHEMA_DIR.parent / "CONTRACT_VERSION").read_bytes())
         self.assertEqual(list(SCHEMA_DIR.glob("*.json")), [])   # 모델 입출력 스키마의 복사본을 두지 않는다(boundary_contracts 패키지를 쓴다)
 

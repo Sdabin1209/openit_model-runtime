@@ -2,13 +2,13 @@
 # [PC에서] 서버로 올릴 키트 tar.gz를 만든다. 서버는 인터넷/GitHub 없이 이것만 풀어 PYTHONPATH로 쓴다(ADR 0013).
 # 내용: mr-kit/src(model_runtime), mr-kit/pylib(boundary_contracts: 설치된 태그 패키지 그대로, 스키마 포함), mr-kit/survey-schema(문진 스키마 schemas/, CONTRACT_VERSION),
 #       mr-kit/profiles, mr-kit/scripts/gpu_session, mr-kit/KIT_MANIFEST.txt(커밋·boundary 버전·파일 해시). 데이터(C1)와 어댑터는 넣지 않는다.
-# 사용: make_kit.sh OUT.tar.gz [--python PY] [--schema-root DIR(survey-service/schema, 주면 그 폴더를 그대로 넣는다)]   기본: 문진 스키마 태그 SURVEY_SCHEMA_TAG(기본 survey-schema-v4.1.1)
+# 사용: make_kit.sh OUT.tar.gz [--python PY] [--schema-root DIR(survey-service/schema, 주면 그 폴더를 그대로 넣는다)]   기본: 문진 스키마 태그 SURVEY_SCHEMA_TAG(기본 survey-schema-v5.0.0)
 # 서버 쪽: mkdir -p ~/dabin && tar -xzf OUT.tar.gz -C ~/dabin   (-> ~/dabin/mr-kit)
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${1:?출력 tar.gz 경로}"; shift || true
 # 키트에 넣는 문진 스키마의 판(태그). 옆 폴더의 작업 트리가 아니라 이 태그의 내용을 넣는다(헤드 점검 2026-11-05: 판과 위치를 정해 둔다)
-SURVEY_SCHEMA_TAG="${SURVEY_SCHEMA_TAG:-survey-schema-v4.1.1}"
+SURVEY_SCHEMA_TAG="${SURVEY_SCHEMA_TAG:-survey-schema-v5.0.0}"
 PY="python3"; SCHEMA_ROOT=""
 while [ $# -gt 0 ]; do case "$1" in --python) PY="$2"; shift 2;; --schema-root) SCHEMA_ROOT="$2"; shift 2;; *) echo "알 수 없는 인자 $1" >&2; exit 64;; esac; done
 if [ -z "$SCHEMA_ROOT" ]; then
