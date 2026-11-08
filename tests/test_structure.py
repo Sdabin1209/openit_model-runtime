@@ -108,14 +108,9 @@ class OneSourcePerFact(unittest.TestCase):
         self.assertEqual(int(re.search(r"\d+", s("SurveyVersionCheckInput")["properties"]["contract_version_text"]["pattern"]).group()), survey_version_check.SUPPORTED_RUNTIME_CONTRACT_VERSION)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ImageHealthcheck(unittest.TestCase):
     """ADR 0037: 이미지가 자기 HEALTHCHECK 를 가지고, GPU 첫 기동(적재)을 덮을 만큼 start-period 가 길다(deploy 가 덮어쓰지 않는 전제)."""
     def test_healthcheck_start_period_covers_first_gpu_boot(self):
-        import re
         df = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         m = re.search(r"^HEALTHCHECK (.*)$", df, re.M)
         self.assertIsNotNone(m)
@@ -123,3 +118,7 @@ class ImageHealthcheck(unittest.TestCase):
         self.assertIsNotNone(sp)
         self.assertGreaterEqual(int(sp.group(1)), 900)
         self.assertIn("/healthz", m.group(1))
+
+
+if __name__ == "__main__":
+    unittest.main()
