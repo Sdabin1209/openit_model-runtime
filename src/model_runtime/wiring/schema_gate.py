@@ -14,7 +14,7 @@ import jsonschema
 from referencing import Registry, Resource
 
 from .errors import ContractViolation
-from boundary_contracts import format_checker as _bc_format_checker  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
+from boundary_contracts import format_checker as _bc_format_checker, load_schema as _bc_load_schema  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
 
 
 def _dir():
@@ -35,6 +35,9 @@ def _registry() -> Registry:
     for f in _dir().iterdir():
         if f.name.endswith(".json"):
             res.append((f.name, Resource.from_contents(json.loads(f.read_text(encoding="utf-8")))))
+    # 왜: 영역 스키마의 ID 칸은 계약 Id 를 $ref 로 가리킨다(사본 금지, D117·계약 5.0.0). 계약 문서는 패키지에서 읽고 복사하지 않는다.
+    #     키 "../boundary/_common.schema.json" 은 영역 스키마의 상대 $ref 가 풀리는 이름이며, 계약 안의 상대 $ref 도 같은 기준으로 풀린다.
+    res.append(("../boundary/_common.schema.json", Resource.from_contents(_bc_load_schema("_common"))))
     return Registry().with_resources(res)
 
 

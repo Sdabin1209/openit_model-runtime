@@ -5,11 +5,11 @@ invalid(시도 횟수, 오류 이름)를 낸다(D75). 예외 ModelOutputInvalid�
 재시도 반복(retry_loop)과 출력 계약 검증(io_validate)은 다른 컴포넌트이므로 wiring이 `attempts`, `output_violations`로 주입한다."""
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from typing import Any, Callable, Mapping
 
+from boundary_contracts import BoundaryError, strict_json
 from boundary_contracts.action_rules import fill_next_item, apply_value_rules, check_action_extraction
 
 
@@ -18,14 +18,10 @@ INPUT, OUTPUT = "ExtractCall", "ExtractOutcome"
 ROLE = "LORA_A"
 
 
-def _reject_constant(name: str):
-    raise ValueError(name)
-
-
 def _parse(raw: Any):
     try:
-        return json.loads(raw, parse_constant=_reject_constant), []
-    except (ValueError, TypeError):
+        return strict_json.loads(raw), []   # 왜: 모델 출력도 계약 JSON 공통 규칙(NaN·1e999·±2^53 밖 정수·중복 키·깊이 64·1 MiB)을 지킨다. 자체 파서를 두지 않는다(계약 5.0.0, CONVENTIONS 10절)
+    except (ValueError, TypeError, BoundaryError):
         return None, ["json"]
 
 

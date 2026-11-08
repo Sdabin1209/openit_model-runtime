@@ -9,6 +9,9 @@ OUT="${1:-src/model_runtime/types}"
 TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
 TMP="$TMPD/schemas"; mkdir "$TMP"   # 폴더 이름을 고정한다(생성물 머리말에 입력 폴더 이름이 들어간다)
 cp schemas/*.json "$TMP/"   # examples/는 스키마가 아니므로 생성 입력에서 뺀다
+# 왜: 영역 스키마의 ID 칸은 계약 Id 를 $ref 로 가리킨다(사본 금지, 계약 5.0.0). 생성기는 계약 문서를 풀면 계약 전체를 이 영역 타입 파일에 끌어들이므로(계약 타입은 types/contract/ 밖에 둘 수 없다),
+# 생성 입력의 복사본에서만 그 $ref 를 문자열 형으로 바꾼다. 타입 힌트만 정하며 검증은 실행 때 계약 Id 로 한다.
+sed -i 's|"\$ref": "../boundary/_common.schema.json#/\$defs/Id"|"type": "string"|' "$TMP"/*.json
 rm -rf "$OUT"
 # 옵션의 왜: enum을 Literal로(역할 등이 문자열 그대로 오가야 한다), 기본값 유지(CallInfo.outcome 등), frozen(옛 공개 타입이 frozen dataclass였다)
 .venv-codegen/bin/datamodel-codegen --input "$TMP" --input-file-type jsonschema --output "$OUT" --output-model-type dataclasses.dataclass \

@@ -19,7 +19,7 @@ from ..wiring.schema_gate import violations
 
 INPUT, OUTPUT = "InferRequest", "HttpResult"
 log = logging.getLogger("model_runtime.server")
-MAX_BODY = 4 * 1024 * 1024      # 본문 상한. 입력 상한(MAX_INPUT_CHARS)이 더 작아 이 값은 파싱 전 거친 방어선이다 (ADR 0012, 4MiB 근거 기록 없음)
+MAX_BODY = 4 * 1024 * 1024      # 본문 상한 = 계약 openapi model-serving 의 x-max-body-bytes(PUT·extract·respond 4194304)와 같아야 한다: 서버 시작 때 HttpContract.verify_route 가 대조한다(계약 5.0.0 에서도 4MiB). 입력 상한(MAX_INPUT_CHARS)이 더 작아 이 값은 파싱 전 거친 방어선이다 (ADR 0038)
 MAX_CONNECTIONS = 32            # 왜: 엔진 호출이 직렬이라(ADR 0005) 많이 받아도 대기만 길어진다. 값 32는 초기값, 부하 측정 안 함 (ADR 0012)
 METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"   # Prometheus 텍스트 노출 형식 0.0.4 (metrics_record.CONTENT_TYPE와 같은 값; 컴포넌트끼리 import하지 않는다)
 INFER_DENY_ROLES = frozenset({"loader"})   # 적재 전용 역할은 extract/respond를 못 한다

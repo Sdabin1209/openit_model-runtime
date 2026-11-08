@@ -17,6 +17,6 @@
 | token_table | 역할이나 토큰이 중복되면 안 된다 | 객체 값의 유일성을 JSON Schema로 쓸 수 없다 |
 | runtime_dirs_check | 디렉터리를 만들고 쓸 수 있어야 한다 | 파일 시스템 상태다 |
 | vllm_backend | 어댑터 순위 r이 엔진의 `max_lora_rank` 이하여야 하고, 어댑터의 기반 모델이 사용할 기반 모델과 같아야 한다 | 어댑터 설정과 엔진 설정 두 문서 사이의 비교다 |
-| release_registry | 릴리스가 LOADED여야 추론할 수 있고, 대기가 길면 거절하고, 입력 JSON 직렬화가 `MODEL_RUNTIME_MAX_INPUT_CHARS` 이하여야 한다 | 서버의 시간·상태에 달린 거절이다(길이는 직렬화 결과의 길이라 스키마의 `maxLength`로 쓸 수 없다) |
+| release_registry | 릴리스가 LOADED여야 추론할 수 있고, 대기가 길면 거절하고, 입력 JSON 직렬화가 `MODEL_RUNTIME_MAX_INPUT_CHARS` 이하여야 한다 | 서버의 시간·상태에 달린 거절이다(길이는 직렬화 결과의 길이라 스키마의 `maxLength`로 쓸 수 없다). 2500자는 계약에 없는 영역 내부 정책이다: 모델 컨텍스트(max_model_len)에서 나온 추정이며 측정하지 않았다(ADR 0012, 0038). 본문 4MiB는 계약 openapi의 경로 묶음 값이다(ADR 0038) |
 
 위 8건이 목표 0에서 남은 것이다.
