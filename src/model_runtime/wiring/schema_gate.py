@@ -13,8 +13,9 @@ from typing import Any, Callable, Mapping
 from referencing import Resource
 
 from .errors import ContractViolation
-from boundary_contracts import schema_validator as _bc_schema_validator
-from boundary_contracts.schemas_api import schema_registry as _bc_schema_registry  # 영역 스키마도 계약 검증 규칙(형식 강제, NaN·무한대 거부, 계약 registry)을 받는다(계약 5.0.1)
+import jsonschema
+from boundary_contracts import format_checker as _bc_format_checker
+from boundary_contracts.schemas_api import ContractValidator as _BcValidator, schema_registry as _bc_schema_registry  # 영역 스키마도 계약 검증 규칙(형식 강제, NaN·무한대 거부, 계약 registry)을 받는다(계약 5.0.1)
 
 
 def _dir():
@@ -41,8 +42,10 @@ def _registry() -> Registry:
 
 @lru_cache(maxsize=None)
 def _validator(name: str):
-    # 왜: 표준 Draft202012Validator 를 직접 만들면 CONVENTIONS 10절의 비유한 수 거부와 계약 registry 가 걸리지 않는다(5.0.1 이 schema_validator 를 둔 이유). 영역 스키마 사이 $ref 는 이 영역 registry 로 푼다(evolve)
-    return _bc_schema_validator(schema(name)).evolve(registry=_registry())
+    # 왜: 계약 ContractValidator(NaN·무한대를 값 전체에서 먼저 거부, 계약 5.0.1)로 감싸고 계약 registry 에 이 영역 스키마를 더한 registry 를 준다.
+    #     boundary_contracts.schema_validator(schema).evolve(registry=…) 는 쓰지 않는다: jsonschema 의 evolve 가 이미 만든 resolver(계약 registry 만 가짐)를 이어 받아
+    #     영역 스키마 사이 $ref(CallInfo.json 등)가 풀리지 않았다(확인함, ADR 0038). schema_validator 와 같은 구성(Draft202012Validator + format_checker)을 registry 만 바꿔 만든다.
+    return _BcValidator(jsonschema.Draft202012Validator(schema(name), registry=_registry(), format_checker=_bc_format_checker(schema(name))))
 
 
 def violations(name: str, value: Any) -> list[tuple[str, str]]:
