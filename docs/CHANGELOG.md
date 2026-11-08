@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.12.6 — 2026-11-08
+PATCH. Dockerfile HEALTHCHECK 를 start-period 900s·interval 15s·timeout 5s·retries 10 으로(ADR 0037, CONVENTIONS 13절). deploy 의 compose healthcheck 덮어쓰기를 없앨 근거. 값은 측정 전 잠정. 코드·와이어 변경 없음.
+
 ## 0.12.5 — 2026-11-08
 PATCH. 모방(mimic) 추출기 결함 수정: 부정형 boolean 칸(`does_not_drink`, `no_*`)의 값이 발화 동사의 극성 그대로 나가던 것을 칸 이름의 뜻으로 뒤집는다(ADR 0036, 규칙표 `negated_slot_tokens` 추가). 와이어·계약 변경 없음. 태그는 헤드가 검토 뒤 단다.
 

@@ -129,6 +129,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(채택, CR-007 수락) |
 | [0035](docs/adr/0035-region-gateway-egress-and-exposure.md) | 영역 게이트웨이 출구(OPENIT_EGRESS_PROXY)와 노출 선언 egress(계약 3.4.4~) |
 | [0036](docs/adr/0036-mimic-negated-slot-polarity.md) | 모방 추출기가 부정형 칸(does_not_*, no_*)의 값을 칸 뜻으로 뒤집는다 |
+| [0037](docs/adr/0037-image-owns-healthcheck.md) | 이미지가 자기 HEALTHCHECK(start-period 900s)를 가진다, deploy 덮어쓰기 제거 근거(CONVENTIONS 13절) |
 
 ## 더 자세한 문서
 

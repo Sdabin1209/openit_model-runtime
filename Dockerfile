@@ -58,5 +58,6 @@ RUN test -n "${SERVICE_NAME}" || { echo "빌드 인자 SERVICE_NAME이 비었다
 # 번들 캐시 디렉터리는 10001 소유로 만들어 둔다(새 이름 있는 볼륨은 이 소유권을 물려받는다). 바인드 마운트라면 호스트에서 소유자를 맞춘다.
 # 설정은 환경 변수로만 받는다(src/model_runtime/server.py 머리말). 스키마 디렉터리(MODEL_RUNTIME_SCHEMA_DIR)와 어댑터는 읽기 전용으로 마운트한다.
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -c "import urllib.request,os;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('MODEL_RUNTIME_PORT','8080')+'/healthz')"
+# 왜(ADR 0037): 상태 확인은 계약 CONVENTIONS 13절(3.4.17)대로 이미지가 가진다(deploy 가 compose healthcheck 로 덮지 않는다). Docker HEALTHCHECK 플래그는 ARG/ENV 치환이 안 되어 변형·프로파일별 값을 못 둔다. start-period 는 두 변형 공통으로 가장 긴 쪽(GPU 첫 기동의 모델 내려받기·적재)에 맞춘다: 시작 유예 중 실패는 세지 않고 첫 성공이면 바로 healthy 가 되므로 CPU 변형에는 해가 없다. 값은 측정 전 잠정이다.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=900s --retries=10 CMD python -c "import urllib.request,os;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('MODEL_RUNTIME_PORT','8080')+'/healthz')"
 CMD ["python", "-m", "model_runtime.server"]
