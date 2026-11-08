@@ -1,4 +1,5 @@
 import importlib.util
+from env_min import min_env
 import json
 import unittest
 from pathlib import Path
@@ -110,7 +111,7 @@ class Neutral(unittest.TestCase):
             out = Path(t) / "out"
             args = [sys.executable, str(ROOT / "scripts" / "make_neutral_package.py"), str(out), "--profile",
                     str(ROOT / "profiles" / "gpu-dev-12g.json"), "--system-prompt-a", str(fa), "--system-prompt-b", str(fb)]
-            r = subprocess.run(args, capture_output=True, text=True)
+            r = subprocess.run(args, capture_output=True, text=True, env=min_env())
             self.assertEqual(r.returncode, 0, r.stderr)
             for role, data in prompts.items():
                 d = out / role
@@ -119,7 +120,7 @@ class Neutral(unittest.TestCase):
                 self.assertEqual((d / "adapter" / "system_prompt.txt").read_bytes(), data)
                 self.assertEqual(m["system_prompt"], {"path": "system_prompt.txt", "sha256": "sha256:" + hashlib.sha256(data).hexdigest()})
                 self.assertEqual(m["adapter_hash"], directory_hash(d / "adapter"))   # 프롬프트가 어댑터 해시에 들어간다
-            r2 = subprocess.run([*args[:2], str(Path(t2) / "o2"), *args[3:]], capture_output=True, text=True)
+            r2 = subprocess.run([*args[:2], str(Path(t2) / "o2"), *args[3:]], capture_output=True, text=True, env=min_env())
             self.assertEqual(r2.returncode, 0, r2.stderr)
             self.assertEqual((out / "SUMMARY.json").read_bytes(), (Path(t2) / "o2" / "SUMMARY.json").read_bytes())
             # 한쪽만 주면 다른 쪽은 자리표시 문장
@@ -128,7 +129,7 @@ class Neutral(unittest.TestCase):
             self.assertEqual(sa["LORA_B"]["adapter_hash"], build(Path(t) / "o4")["LORA_B"]["adapter_hash"])
             # 빈 파일은 거부
             fe = Path(t) / "e.txt"; fe.write_text(" \n")
-            r3 = subprocess.run([*args[:2], str(Path(t) / "o5"), *args[3:5], "--system-prompt-a", str(fe)], capture_output=True, text=True)
+            r3 = subprocess.run([*args[:2], str(Path(t) / "o5"), *args[3:5], "--system-prompt-a", str(fe)], capture_output=True, text=True, env=min_env())
             self.assertNotEqual(r3.returncode, 0)
 
     def test_deterministic(self):

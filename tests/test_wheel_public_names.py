@@ -2,6 +2,7 @@
 왜: pyproject의 패키지 목록을 손으로 써서 model_runtime.prompts·schema_guard가 wheel에서 빠졌는데, 시험은 src 레이아웃(pythonpath=src)으로 돌아 못 잡았다.
 의존 패키지(boundary_contracts 등)는 이 시험을 도는 환경의 site-packages를 PYTHONPATH로 빌려 쓴다(새 venv에는 wheel만 --no-deps로 설치). 빌드는 setuptools를 받으므로 네트워크가 필요하다."""
 import json
+from env_min import min_env
 import shutil
 import site
 import subprocess
@@ -37,11 +38,11 @@ class WheelPublicNames(unittest.TestCase):
                 shutil.copy(ROOT / name, src / name) if src.mkdir(exist_ok=True) is None else None
             shutil.copytree(ROOT / "src", src / "src", ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"))
             shutil.copytree(ROOT / "schemas", src / "schemas")
-            subprocess.run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps", str(src), "-w", str(t / "whl")], check=True, capture_output=True)
+            subprocess.run([sys.executable, "-m", "pip", "wheel", "-q", "--no-deps", str(src), "-w", str(t / "whl")], check=True, capture_output=True, env=min_env())
             whl = next((t / "whl").glob("*.whl"))
             venv.create(t / "v", with_pip=True)
             py = t / "v" / "bin" / "python"
-            subprocess.run([str(py), "-m", "pip", "install", "-q", "--no-deps", str(whl)], check=True, capture_output=True)
+            subprocess.run([str(py), "-m", "pip", "install", "-q", "--no-deps", str(whl)], check=True, capture_output=True, env=min_env())
             deps = ":".join(p for p in site.getsitepackages())
             r = subprocess.run([str(py), "-c", PROBE], env={"PATH": "/usr/bin:/bin", "PYTHONPATH": deps}, capture_output=True, text=True, cwd=str(t))
             self.assertEqual(r.returncode, 0, r.stderr[-800:])

@@ -1,6 +1,7 @@
 """영역 빌드 진입점 scripts/build-image.sh (계약 BuildImageRequest/BuildImageResult, ADR 0025).
 도커는 DOCKER 환경 변수로 바꿔 끼운 가짜 실행 파일로 대신해 인자·라벨·결과 모양을 본다(실제 빌드는 scripts/smoke.sh가 한다)."""
 import json
+from env_min import min_env
 import os
 import re
 import stat
@@ -73,7 +74,7 @@ def request(env, **over):
 def run(env, req, **extra_env):
     f = env["tmp"] / "req.json"; f.write_text(json.dumps(req))
     return subprocess.run(["bash", str(SCRIPT), str(f)], capture_output=True, text=True, cwd=ROOT,
-                          env={**os.environ, "DOCKER": str(env["stub"]), "STUB_LOG": str(env["log"]), "PYTHON": sys.executable, **extra_env})
+                          env=min_env({"DOCKER": str(env["stub"]), "STUB_LOG": str(env["log"]), "PYTHON": sys.executable, **extra_env}))
 
 
 def test_success_last_line_is_build_image_result_and_labels_match_request(env):

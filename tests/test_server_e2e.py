@@ -1,6 +1,7 @@
 """실제 HttpReleaseReader로 boundary-contracts의 참조 I4 서버에서 번들을 받아 적재하고, 계약의 클라이언트(HttpModelRuntime)로
 이 서버를 부르는 한 바퀴(적합성 시험). boundary-contracts는 형제 폴더를 읽기 전용으로 참조한다(설치된 boundary-contracts와 같은 내용이어야 한다. 아래 시험이 확인한다)."""
 import copy
+from env_min import min_env
 import json
 import re
 import sys
@@ -77,13 +78,13 @@ class E2E(unittest.TestCase):
         tag = "v" + metadata.version("boundary-contracts")
         repo = Path(os.environ["BOUNDARY_REPO"]) if os.environ.get("BOUNDARY_REPO") else next(
             (p / "boundary-contracts" for p in ROOT.parents if (p / "boundary-contracts" / ".git").exists()), None)
-        if repo is None or subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{tag}^{{commit}}"], capture_output=True).returncode != 0:
+        if repo is None or subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{tag}^{{commit}}"], capture_output=True, env=min_env()).returncode != 0:
             self.skipTest(f"계약 리포나 태그 {tag}가 없다(새 머신에서는 정상)")
         installed = Path(boundary_contracts.schema_dir())
         names = sorted(f.name for f in installed.glob("*.json"))
         self.assertTrue(names)
         for name in names:
-            shown = subprocess.run(["git", "-C", str(repo), "show", f"{tag}:boundary_contracts/schemas/{name}"], capture_output=True)
+            shown = subprocess.run(["git", "-C", str(repo), "show", f"{tag}:boundary_contracts/schemas/{name}"], capture_output=True, env=min_env())
             self.assertEqual(shown.returncode, 0, name)
             self.assertEqual(shown.stdout, (installed / name).read_bytes(), name)
 

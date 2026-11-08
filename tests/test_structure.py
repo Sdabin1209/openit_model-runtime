@@ -1,5 +1,6 @@
 """구조 검사 (head/docs/DESIGN.md 6절, D117). 헤드의 head/scripts/structure-check.py와 같은 기준을 이 영역 시험으로도 강제한다."""
 import json
+from env_min import min_env
 import re
 import subprocess
 import tempfile
@@ -85,7 +86,7 @@ class Generated(unittest.TestCase):
     def test_types_match_regeneration(self):   # 6절 5항
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "types"
-            subprocess.run(["bash", str(ROOT / "scripts" / "gen-types.sh"), str(out)], check=True, capture_output=True)
+            subprocess.run(["bash", str(ROOT / "scripts" / "gen-types.sh"), str(out)], check=True, capture_output=True, env=min_env())
             for f in sorted(out.glob("*.py")):
                 self.assertEqual((PKG / "types" / f.name).read_text(encoding="utf-8"), f.read_text(encoding="utf-8"), f.name)
             self.assertEqual(sorted(p.name for p in out.glob("*.py")), sorted(p.name for p in (PKG / "types").glob("*.py")))

@@ -1,5 +1,6 @@
 """GPU 세션 키트의 I4 읽기 서버(scripts/gpu_session/release_server.py): 표준 WSGI 앱 + waitress(ADR 0022와 같은 방식, ADR 0023)."""
 import importlib.util
+from env_min import min_env
 import json
 import os
 import signal
@@ -32,7 +33,7 @@ def prepared(tmp_path):
 def start(root, tmp_path):
     pf = tmp_path / "port"
     p = subprocess.Popen([sys.executable, str(SERVER), str(root), "--port", "0", "--port-file", str(pf)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                         env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
+                         env=min_env({"PYTHONPATH": str(ROOT / "src")}))
     assert wait_until(lambda: pf.exists() and pf.read_text().strip().isdigit()), p.stderr.read() if p.poll() is not None else "port file 없음"
     return p, f"http://127.0.0.1:{pf.read_text().strip()}"
 
