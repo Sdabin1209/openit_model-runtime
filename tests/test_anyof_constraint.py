@@ -117,8 +117,8 @@ class EndGuard(unittest.TestCase):
 class Equivalence(unittest.TestCase):
     def test_removed_record_is_exact(self):
         self.assertIn("maxItems", FEATS)
-        self.assertEqual(REMOVED, ["allOf->anyOf", "pattern-end-guard"])   # 계약 4.0.0: 끝 고정 앞보기는 디코딩 스키마에서 걷어 낸다(같은 뜻)
-        self.assertEqual(NOMAX_REMOVED, ["allOf->anyOf", "maxItems", "pattern-end-guard"])
+        self.assertEqual(REMOVED, ["allOf->anyOf", "maxLength", "pattern-end-guard"])   # 계약 4.0.0: 끝 고정 앞보기는 디코딩 스키마에서 걷어 낸다(같은 뜻). 계약 5.0.0: 모델 키·targets 가 Id 를 참조해 maxLength 128 이 생겼고 기본 지원 집합에 maxLength 가 없어 걷어 낸다(출력은 디코딩 뒤 계약으로 엄격 검증하므로 128 초과는 거부된다, ADR 0038)
+        self.assertEqual(NOMAX_REMOVED, ["allOf->anyOf", "maxItems", "maxLength", "pattern-end-guard"])
         for kw in ("'allOf'", "'if'", "'then'", "'else'", "'oneOf'", "'not'"):
             self.assertNotIn(kw, repr(REL))
 

@@ -19,6 +19,8 @@
 - 모델 출력 파서: 모델이 낸 `1e999`·큰 정수·중복 키를 영역이 따로 판정하지 않고 계약 정본에 맡긴다.
 - 2500자: 계약에 입력 전체의 길이 상한은 없다(발화 maxLength 1000만). 근거는 ADR 0012(max_model_len, 1자=1토큰 가정, 측정 안 함). 계약상 유효한 입력이 2500자를 넘어 400이 될 수 있다는 점은 그대로이며 실제 모델 길이로 재지 않았다.
 
+5. 계약 5.0.0의 `ActionExtraction`에 `values[].key`·`targets[]`의 `maxLength 128`(Id 참조)이 생겼다. 기본 지원 집합(`DEFAULT_SUPPORTED_FEATURES`)에 `maxLength`가 없어 제약 디코딩 스키마에서는 걷어 낸다(removed 기록에 `maxLength`가 추가됨). 모델 출력은 디코딩 뒤 계약 `ActionExtraction`으로 엄격 검증하므로 128자 초과 키는 거부된다. 지원 집합에 `maxLength`를 넣는 것은 서빙 설정 해시와 번들에 닿으므로 하지 않았다(xgrammar의 maxLength 지원은 이번에 확인하지 않았다).
+
 ## 검토한 대안과 버리는 이유
 - `x-contract` 위임: 이 영역은 자체 `Draft202012Validator`로 영역 스키마를 검증하고 `x-contract`를 해석하는 코드가 없다. 실제로 해석되는 `$ref`가 있으므로 그것을 쓴다.
 - 4MiB 유지: 위 어긋남. 기각.
