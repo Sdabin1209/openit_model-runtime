@@ -9,7 +9,7 @@ import itertools
 import json
 import sys
 from pathlib import Path
-from boundary_contracts import format_checker as _bc_format_checker  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
+from boundary_contracts import schema_validator as _bc_schema_validator  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "tests"))
@@ -23,7 +23,7 @@ import test_anyof_constraint as T
 
 orig = T.strip(load_schema("ActionExtraction"))
 schema = orig if "--original" in sys.argv else relax(orig, set(mr.DEFAULT_SUPPORTED_FEATURES))[0]
-truth = jsonschema.Draft202012Validator(load_schema("ActionExtraction"), format_checker=_bc_format_checker(load_schema("ActionExtraction")))
+truth = _bc_schema_validator(load_schema("ActionExtraction"))
 
 vocab = [chr(i) for i in range(32, 127)] + ["</s>"]
 stop = len(vocab) - 1

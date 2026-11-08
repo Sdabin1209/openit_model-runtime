@@ -27,3 +27,15 @@ class BodyLimitEqualsContractRouteBinding(unittest.TestCase):
     def test_max_body_is_the_openapi_binding(self):
         from model_runtime.components.link_receive import MAX_BODY
         self.assertEqual(MAX_BODY, 4194304)   # openapi model-serving 의 x-max-body-bytes. 서버 시작 때 verify_route 도 대조한다(test_runtime_rows_344)
+
+
+class AreaSchemasRejectNonFiniteNumbers(unittest.TestCase):
+    """ADR 0038(5.0.1 schema_validator): 영역 스키마 검증도 계약 규칙으로 NaN·무한대를 값 전체에서 먼저 거부한다. 표준 검증기는 number 칸에 NaN 을 통과시켰다."""
+    def test_nan_and_infinity_are_rejected_and_finite_passes(self):
+        import json
+        from pathlib import Path
+        ok = json.loads((Path(__file__).resolve().parents[1] / "schemas" / "examples" / "MetricsEvent.valid.json").read_text(encoding="utf-8"))
+        key = next(k for k, v in ok.items() if isinstance(v, float))   # 이 예시의 number 칸
+        self.assertEqual(violations("MetricsEvent", ok), [])
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            self.assertIn(("/" + key, "finite"), violations("MetricsEvent", {**ok, key: bad}), bad)

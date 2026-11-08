@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "release_id": {
-      "$ref": "../boundary/_common.schema.json#/$defs/Id"
+      "$ref": "https://openit.example/contracts/v5/_common.schema.json#/$defs/Id"
     }
   },
   "required": [

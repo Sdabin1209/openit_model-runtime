@@ -10,11 +10,11 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-import jsonschema
-from referencing import Registry, Resource
+from referencing import Resource
 
 from .errors import ContractViolation
-from boundary_contracts import format_checker as _bc_format_checker, load_schema as _bc_load_schema  # 형식(format) 검증기가 없으면 조용히 넘기지 않고 실패한다(계약 3.5.0)
+from boundary_contracts import schema_validator as _bc_schema_validator
+from boundary_contracts.schemas_api import schema_registry as _bc_schema_registry  # 영역 스키마도 계약 검증 규칙(형식 강제, NaN·무한대 거부, 계약 registry)을 받는다(계약 5.0.1)
 
 
 def _dir():
@@ -35,15 +35,14 @@ def _registry() -> Registry:
     for f in _dir().iterdir():
         if f.name.endswith(".json"):
             res.append((f.name, Resource.from_contents(json.loads(f.read_text(encoding="utf-8")))))
-    # 왜: 영역 스키마의 ID 칸은 계약 Id 를 $ref 로 가리킨다(사본 금지, D117·계약 5.0.0). 계약 문서는 패키지에서 읽고 복사하지 않는다.
-    #     키 "../boundary/_common.schema.json" 은 영역 스키마의 상대 $ref 가 풀리는 이름이며, 계약 안의 상대 $ref 도 같은 기준으로 풀린다.
-    res.append(("../boundary/_common.schema.json", Resource.from_contents(_bc_load_schema("_common"))))
-    return Registry().with_resources(res)
+    # 왜: 계약 registry(안정 URI https://openit.example/contracts/v5/…)에 이 영역 스키마 파일을 더한다. 영역 스키마의 ID 칸은 계약 Id 를 안정 URI 로 가리키므로(사본 금지, D117) 계약 문서를 복사하지 않는다
+    return _bc_schema_registry().with_resources(res)
 
 
 @lru_cache(maxsize=None)
-def _validator(name: str) -> jsonschema.Draft202012Validator:
-    return jsonschema.Draft202012Validator(schema(name), registry=_registry(), format_checker=_bc_format_checker(schema(name)))
+def _validator(name: str):
+    # 왜: 표준 Draft202012Validator 를 직접 만들면 CONVENTIONS 10절의 비유한 수 거부와 계약 registry 가 걸리지 않는다(5.0.1 이 schema_validator 를 둔 이유). 영역 스키마 사이 $ref 는 이 영역 registry 로 푼다(evolve)
+    return _bc_schema_validator(schema(name)).evolve(registry=_registry())
 
 
 def violations(name: str, value: Any) -> list[tuple[str, str]]:

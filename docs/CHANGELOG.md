@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.13.1 — 2026-11-09 (계약 5.0.1)
+PATCH. 영역 스키마 검증기를 표준 `Draft202012Validator` 직접 생성에서 계약 `boundary_contracts.schema_validator`로(NaN·무한대 거부, 계약 registry, 형식 강제). `release_id` 위임은 계약 안정 URI `$ref`로. 회귀 시험 `AreaSchemasRejectNonFiniteNumbers`. ADR 0038 보완(1 MiB와 4 MiB 서술은 5.0.1 CONVENTIONS 10절로 풀림).
+
 ## 0.13.0 — 2026-11-08 (계약 5.0.0)
 MINOR(1.0 전 SemVer에서 비호환 = MINOR). 계약 v4.0.5 -> v5.0.1, openit-link v0.5.4 -> v0.6.0 고정(Dockerfile ARG), 시험이 읽는 문진 스키마 태그 survey-schema-v5.0.0. `PutRequest`·`InferRequest`의 `release_id` 패턴 사본을 계약 `Id` 위임으로(후행 개행 거부), 본문 상한 4MiB는 계약 경로 묶음(`x-max-body-bytes` 4194304)과 같아 그대로, 모델 출력 파싱을 `strict_json.loads`로(NaN·1e999·±2^53 밖 정수·중복 키·깊이 64 거부). ADR 0038. 모델 입출력 모양 변화 없음.
 

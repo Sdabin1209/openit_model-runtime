@@ -66,9 +66,8 @@ def _validator(name, registry):
 class Examples(unittest.TestCase):
     def test_every_schema_has_valid_and_invalid_examples_with_right_results(self):   # 6절 4항
         res = [(f.name, Resource.from_contents(json.loads(f.read_text(encoding="utf-8")))) for f in SCHEMAS.glob("*.json")]
-        from boundary_contracts import load_schema
-        res.append(("../boundary/_common.schema.json", Resource.from_contents(load_schema("_common"))))   # 영역 스키마의 ID 칸이 가리키는 계약 문서(패키지에서 읽는다, 복사 없음)
-        reg = Registry().with_resources(res)
+        from boundary_contracts.schemas_api import schema_registry
+        reg = schema_registry().with_resources(res)   # 영역 스키마의 ID 칸이 가리키는 계약 문서는 계약 registry 의 안정 URI 로 풀린다(복사 없음)
         for f in sorted(SCHEMAS.glob("*.json")):
             name = f.stem
             jsonschema.Draft202012Validator.check_schema(json.loads(f.read_text(encoding="utf-8")))
