@@ -1,5 +1,8 @@
 # 변경 이력
 
+## 0.13.2 — 2026-11-09
+PATCH. openit-link v0.6.1 고정(Dockerfile LINK_VERSION): 오류 본문 생산 실패는 고정 503, 스키마 위반 응답·예외 로그에 값을 싣지 않는다(link 쪽 수정, codex 검토). 이 영역 코드 변경 없음.
+
 ## 0.13.1 — 2026-11-09 (계약 5.0.1)
 PATCH. 영역 스키마 검증기를 표준 `Draft202012Validator` 직접 생성에서 계약 `boundary_contracts.schema_validator`로(NaN·무한대 거부, 계약 registry, 형식 강제). `release_id` 위임은 계약 안정 URI `$ref`로. 회귀 시험 `AreaSchemasRejectNonFiniteNumbers`. ADR 0038 보완(1 MiB와 4 MiB 서술은 5.0.1 CONVENTIONS 10절로 풀림).
 
