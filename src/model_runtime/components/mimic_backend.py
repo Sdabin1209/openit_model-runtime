@@ -39,7 +39,7 @@ def load_rules(path: str | Path | None = None) -> dict:
             raise ValueError(f"extractor.{sect}는 {', '.join(names)}를 가져야 한다")
         for n in names:
             _need_phrases(ex[sect][n])
-    for k in ("hold", "advance", "assert", "correct_hint", "yes", "no", "vague"):
+    for k in ("hold", "advance", "assert", "correct_hint", "yes", "no", "vague", "negated_slot_tokens"):
         _need_phrases(ex.get(k))
     nw = ex.get("number_words")
     if not isinstance(nw, dict) or not all(isinstance(k, str) and k and isinstance(v, int) and not isinstance(v, bool) for k, v in nw.items()):
@@ -66,6 +66,12 @@ def _need_phrases(v: Any) -> None:
 
 def _has(utt: str, phrases: Sequence[str]) -> bool:
     return any(p in utt for p in phrases)
+
+
+def _is_negated_slot(key: str, tokens: Sequence[str]) -> bool:
+    """칸 이름이 부정 뜻(does_not_drink, no_smoking 등)인가. 칸 규격(QuestionFieldSpec)에 극성 정보가 없어서 칸 이름 낱말(밑줄로 나눈 조각)을 본다(ADR 0036)."""
+    leaf = _slot_of(key).rsplit(".", 1)[-1]
+    return any(t in tokens for t in leaf.split("_"))
 
 
 def _slot_of(key: str) -> str:
@@ -170,6 +176,8 @@ class MimicExtractor:
         key = target["key"]
         if why is not None:
             return self._reask(qid, [key], why)
+        if target["type"] == "boolean" and _is_negated_slot(key, self.rules["negated_slot_tokens"]):
+            value = not value   # 왜: 발화의 예/아니오는 행위("마신다")의 극성이고 칸 값은 칸 이름의 뜻("does_not_drink")이다. 부정형 칸은 뒤집는다(ADR 0036)
         prev = state.get(key)
         has_prev = isinstance(prev, Mapping) and prev.get("status") in ("ANSWERED", "CORRECTION")
         if has_prev and prev.get("value") != value:

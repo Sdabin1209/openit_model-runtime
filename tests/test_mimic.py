@@ -178,6 +178,30 @@ REQUESTS = [
 ]
 
 
+class NegatedSlotPolarity(unittest.TestCase):
+    """부정형 칸(does_not_drink, no_*): 값은 칸 이름의 뜻을 따른다(ADR 0036). 발화 동사의 긍정·부정을 그대로 쓰던 결함의 표 시험."""
+    ORDER_ = ["QA", "QB"]
+    CASES = [   # (칸, 발화, 기대 값)
+        ("QA.does_not_drink", "네 안 마셔요", True), ("QA.does_not_drink", "술 안 마셔요", True),
+        ("QA.does_not_drink", "네 마시지 않아요", True), ("QA.does_not_drink", "네 마십니다", False),
+        ("QA.does_not_drink", "아니요", True), ("QA.does_not_drink", "네", False),
+        ("QA.no_smoking", "안 피워요", True), ("QA.no_smoking", "네 피웠어요", False),
+        ("QA.drinks", "안 마셔요", False), ("QA.drinks", "네 마십니다", True), ("QA.drinks", "아니요", False),   # 긍정형 칸은 그대로
+        ("QA.nothing_found", "네", True),   # 낱말 조각 단위로 본다: nothing은 부정 낱말이 아니다
+    ]
+
+    def test_value_follows_slot_meaning(self):
+        for key, utt, want in self.CASES:
+            out = mr.MimicExtractor(self.ORDER_, {"QA": [{"key": key, "type": "boolean"}]}).extract(a_input("QA", utt, {}))
+            self.assertEqual(out["values"][0]["value"], want, (key, utt, out))
+
+    def test_skip_rule_sees_the_slot_meaning_value(self):
+        ex = mr.MimicExtractor(["QA", "QB", "QC"], {"QA": [{"key": "QA.does_not_drink", "type": "boolean"}]},
+                               skips=[{"slot": "QA.does_not_drink", "value": True, "skip_item": "QB"}])
+        self.assertEqual(ex.extract(a_input("QA", "안 마셔요", {}))["next_item"], "QC")
+        self.assertEqual(ex.extract(a_input("QA", "네 마십니다", {}))["next_item"], "QB")
+
+
 class Responder(Env):
     def test_every_request_gives_valid_deterministic_korean_text(self):
         r = mr.MimicResponder()

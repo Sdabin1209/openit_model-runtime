@@ -128,6 +128,7 @@ MODEL_RUNTIME_SCHEMA_DIR=<.../survey-service/schema/schemas> MODEL_RUNTIME_BACKE
 | [0033](docs/adr/0033-prometheus-duration-metrics.md) | 소요 시간 지표를 prometheus_client로 기록하고 GET /metrics로 낸다(U71, 버킷은 측정 전) |
 | [0034](docs/adr/0034-prefix-caching-explicit.md) | vLLM prefix caching을 프로파일에 명시한다(채택, CR-007 수락) |
 | [0035](docs/adr/0035-region-gateway-egress-and-exposure.md) | 영역 게이트웨이 출구(OPENIT_EGRESS_PROXY)와 노출 선언 egress(계약 3.4.4~) |
+| [0036](docs/adr/0036-mimic-negated-slot-polarity.md) | 모방 추출기가 부정형 칸(does_not_*, no_*)의 값을 칸 뜻으로 뒤집는다 |
 
 ## 더 자세한 문서
 
